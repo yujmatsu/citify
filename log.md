@@ -13,6 +13,8 @@
   - サンプル JSON を `/tmp/citify-week0/kokkai_sample_yachin_hojo.json` に保存
   - **発見**: 発言文字数は平均 2,555 字、最大 52,304 字、最小 147 字 → 翻訳 Agent (A-5) は議題単位 chunking 必須
   - 直近 30 日で 506 発言 → RAG 投入規模は軽量
+- [x] **ハッカソン参加登録(Findy Conference)** 完了 (Yuji 側で実施済み確認)
+- [x] **Proto Pedia アカウント作成** 完了 (Yuji 側で実施済み確認)
 - [x] **自治体マスタ CSV Phase 1** 完成
   - `infra/seed/build_municipality_master.py` 作成 (総務省 xlsx → Citify スキーマ変換)
   - `infra/seed/README.md` 作成 (出典・スキーマ・再生成手順・Phase 計画)
@@ -42,9 +44,7 @@
 
 1. **DiscussNetPremium 構造調査** (2-3h) — A-4 のリスク早期発見。setagaya / yokohama 等 2-3 自治体で HTML 構造観察。Must タスクの実装可能性確認
 2. **GCP プロジェクト作成 + API 有効化** (1-2h) — Cloud Run / Firestore / BigQuery / Vertex AI / Pub/Sub / Secret Manager の有効化。Week 1 Terraform 着手前に必要
-3. **ハッカソン参加登録(Findy Conference)** (15m) — 締切確認
-4. **Proto Pedia アカウント作成** (15m)
-5. **自治体マスタ Phase 2 着手** (Tier 1 自治体 50 件の `tenant_id` / `press_rss_url` 手動補完) — Week 1 と並行可
+3. **自治体マスタ Phase 2 着手** (Tier 1 自治体 50 件の `tenant_id` / `press_rss_url` 手動補完) — Week 1 と並行可
 
 ### Commit Reminder
 
