@@ -1,0 +1,273 @@
+# Citify Plans.md — 高レベル Week 進捗ボード
+
+> 詳細タスク(ID, 依存関係, Drop 条件, タイムスタンプ)は `tasks.json` を参照。
+> 本ファイルは Week 単位の俯瞰用ダッシュボード。
+>
+> **マーカー**: `cc:TODO` 未着手 / `cc:WIP` 作業中 / `cc:完了` 完了
+> **提出締切**: **2026-07-10 (金) 23:59**
+
+---
+
+## 全体ステータス
+
+| Week | 期間 | ゴール | 状態 |
+|---|---|---|---|
+| **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
+| Week 1 | 5/26-6/1 | インフラ構築 + 国会 API + RAG | `cc:TODO` |
+| Week 2 | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | `cc:TODO` |
+| Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
+| Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
+| Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |
+| Week 6 | 6/30-7/6 | 仕上げ + ユーザーインタビュー + 動画撮影 | `cc:TODO` |
+| Week 7 | 7/7-7/10 | Zenn + Proto Pedia + Google Form 提出 | `cc:TODO` |
+
+---
+
+## Week 0 (5/19-5/25): 仕様確定・基盤準備 `cc:完了`
+
+### `cc:完了` 設計ドキュメント整備
+
+- [x] [DOC-001] PROJECT.md (北極星)
+- [x] [DOC-002] AGENTS.md (Coding Agent ガイド)
+- [x] [DOC-003] CLAUDE.md (Claude Code 専用)
+- [x] [DOC-004] FEATURES.md (A/B/C/Won't 分類)
+- [x] [DOC-005] SCHEDULE.md (7 週間 + Drop Points)
+- [x] [DOC-006] ARCHITECTURE.md (システム構成)
+- [x] [DOC-007] DATA_SOURCES.md v0.3 (§3 voices_asp 新設)
+- [x] [DOC-008] kaigiroku_net_recon.md
+- [x] [DOC-009] voices_asp_recon.md
+- [x] [DOC-010] infra/seed/README.md
+
+### `cc:完了` リスクスパイク (Risk Spike)
+
+- [x] [RECON-001] 国会会議録 API 動作確認(942 件ヒット、レート制限なし)
+- [x] [RECON-002] DiscussNet 構造調査 → 🟡 YELLOW (Plan A: Playwright)
+- [x] [RECON-003] voices_asp 構造調査 → 🟢 GREEN (BeautifulSoup)
+
+### `cc:完了` GCP 基盤
+
+- [x] [INFRA-001] GCP プロジェクト citify-dev 作成
+- [x] [INFRA-002] API 14 個 + 依存 23 個有効化
+- [x] [INFRA-003] 予算アラート ¥7,500/月
+- [x] [INFRA-004] サンプル Cloud Run デプロイ(smoke test 200)
+
+### `cc:完了` 自治体マスタ
+
+- [x] [INFRA-005] Phase 1: 1,796 行 CSV 生成
+- [x] [INFRA-006] Phase 2: Tier 1 補完 30 件 + scraper_base_url + 5 ベンダ分類
+
+### `cc:完了` Week 1 雛形先取り
+
+- [x] [INFRA-007] GitHub Actions Lint workflow (初回 push で green)
+- [x] apps/api/ (FastAPI /health + /version + Dockerfile + .dockerignore + pyproject.toml)
+- [x] infra/env/dev/ (Terraform main.tf + variables.tf + tfvars.example)
+
+### `cc:完了` 提出物関連
+
+- [x] ハッカソン参加登録 (Findy Conference)
+- [x] Proto Pedia アカウント作成
+
+### Week 0 終了時判定基準 4/4 達成 ✅
+
+- ✅ ドキュメント 4-6 個が GitHub にコミット
+- ✅ 国会 API から発言取得
+- ✅ DiscussNet HTML 構造把握
+- ✅ GCP プロジェクトでサンプル Cloud Run デプロイ
+
+---
+
+## Week 1 (5/26-6/1): インフラ構築 + 国会 API + 議事録 RAG `cc:TODO`
+
+### `cc:TODO` Terraform リソース apply
+
+- [ ] [INFRA-008] GCS state bucket 作成 + backend 移行
+- [ ] [INFRA-009] Cloud Build 自動デプロイパイプライン
+- [ ] [A-13] Terraform: Firestore / BigQuery / Pub/Sub / Secret Manager / Cloud Storage モジュール
+
+### `cc:TODO` バックエンド
+
+- [ ] [A-11] Cloud Run 本番デプロイ (Firebase Hosting は Week 3)
+- [ ] [A-12] CI/CD: pytest + Cloud Build 統合
+
+### `cc:TODO` データ収集
+
+- [ ] [A-3] 国会会議録 API クライアント (scrapers/kokkai/)
+- [ ] BigQuery スキーマ定義 + 投入バッチ
+
+### `cc:TODO` RAG 基盤
+
+- [ ] [A-10] Vertex AI RAG Engine セットアップ
+- [ ] 国会議事録 100 件投入 + セマンティック検索動作確認
+
+### Week 1 終了時判定基準
+
+- [ ] terraform apply で全リソース構築
+- [ ] git push で自動デプロイ
+- [ ] 公開 URL で /health が 200
+- [ ] RAG でセマンティック検索動作
+
+---
+
+## Week 2 (6/2-6/8): コアエージェント 3 体 + DiscussNet パーサー `cc:TODO`
+
+### `cc:TODO` ADK セットアップ
+
+- [ ] ADK プロジェクト初期化
+- [ ] Vertex AI Agent Engine 連携
+
+### `cc:TODO` AI Agent 実装
+
+- [ ] [A-5] 翻訳 Agent (agents/translator/) + プロンプトチューニング
+- [ ] [A-6] 影響度 Agent (agents/relevance/) + スコアリング
+- [ ] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート
+- [ ] エージェント間 Pub/Sub メッセージング
+
+### `cc:TODO` 議事録パーサー(Playwright)
+
+- [ ] [A-4] DiscussNetPremium パーサー (Playwright)
+- [ ] 主要 5 自治体動作確認 (横浜・大阪・岡山県・荒川・新宿・墨田)
+
+### **Drop Point 判定: 2026-06-04 (水)**
+
+- [A-4] Playwright が 1 自治体動かなければ → Plan B (国会 + プレス RSS のみ) に切替
+
+### 並行イベント
+
+- [ ] **6/7 (日) 13:00-18:00 ファインディ チームビルディング参加**
+- [ ] グーグル・クラウド・ジャパン Agentic AI Bootcamp 2026 受講
+
+---
+
+## Week 3 (6/9-6/15): フロントエンド + フィード UI + 議題詳細 `cc:TODO`
+
+### `cc:TODO` Next.js セットアップ
+
+- [ ] Next.js 15 + Tailwind + shadcn/ui セットアップ
+- [ ] Firebase Hosting デプロイパイプライン
+
+### `cc:TODO` UI 実装
+
+- [ ] [A-1] オンボーディング画面
+- [ ] [A-2] マイ自治体登録 UI (Phase 1+2 マスタ連携)
+- [ ] [A-8] For You フィード (縦スクロール)
+- [ ] [A-9] 議題詳細ビュー + RAG 検索結果表示
+- [ ] FastAPI BFF 経由でデータ取得
+
+### `cc:TODO` 議事録パーサー第 2 系統
+
+- [ ] [A-4b] voices_asp パーサー (BeautifulSoup + Shift_JIS)
+- [ ] sapporo / minato / adachi で動作確認
+
+---
+
+## Week 4 (6/16-6/22): Veo/Imagen + 比較ビュー + リアクション `cc:TODO`
+
+### `cc:TODO` メディア生成
+
+- [ ] [B-4] Imagen サムネ生成 + フィード統合
+- [ ] [B-3] Veo 60 秒動画生成 + 議題詳細統合
+- [ ] [B-3] 政治家描写ガードレール (倫理コンプラ)
+- [ ] ストーリー Agent (agents/storyteller/) 実装
+
+### `cc:TODO` 差別化機能
+
+- [ ] [B-2] 比較ビュー(マイ自治体 2 つ)— **Citify のキラー体験**
+- [ ] [B-1] リアクション機能 + 「みんなの反応」集計
+
+### **Drop Point 判定**
+
+- Veo 品質不安定 → 静止画 + テキスト代替
+- 比較ビューが想定以上に難しい → Week 5 にずらす(諦めない)
+
+---
+
+## Week 5 (6/23-6/29): データソース拡張 + 通知 `cc:TODO`
+
+### `cc:TODO` データソース拡張
+
+- [ ] [B-6] DB-Search パーサー (千代田・文京・江東・品川)
+- [ ] [B-7] プレス RSS 収集 (47 都道府県分)
+- [ ] [INFRA-006 Phase 3] 自治体マスタ Tier 2 拡張 (200-300 件)
+
+### `cc:TODO` 通知 + UX
+
+- [ ] [B-5] メール / Push 通知 (月曜 9 時固定)
+- [ ] [B-8] ペルソナ別プリセット
+- [ ] パフォーマンスチューニング(キャッシュ、CDN、Cold Start)
+
+### Week 5 終了時判定基準
+
+- [ ] 300+ 自治体で議事録 or プレス取得
+- [ ] ユーザー選択自治体に週 1 件新着あり
+- [ ] 通知メール送信動作
+
+---
+
+## Week 6 (6/30-7/6): 仕上げ + ユーザーインタビュー + 動画撮影 `cc:TODO`
+
+### `cc:TODO` 品質向上
+
+- [ ] バグ修正 + UX 磨き(主要動線の摩擦消去)
+- [ ] Cloud Logging + Cloud Trace 観測性整備
+- [ ] エラーハンドリング + 空状態 UI
+- [ ] パフォーマンステスト(レスポンスタイム)
+
+### `cc:TODO` ユーザー検証 + 提出物準備
+
+- [ ] [USER-INTERVIEW] 若者 3-5 名にインタビュー (フクシア式)
+- [ ] フィードバック反映(優先度高のみ)
+- [ ] [SUBMIT-004] デモ動画撮影 (2-3 分)
+- [ ] [SUBMIT-005] アーキテクチャ図 最終版
+
+### `cc:TODO` Could 機能 (余力時のみ)
+
+- [ ] [C-1〜C-9] 余力次第で着手
+
+### **Drop Point 判定**
+
+- インタビュー協力者見つからない → SNS 公募 → 自分で UX 検証
+- Could に手を出して詰まる → 即撤退、Must/Should の磨き込みに専念
+
+---
+
+## Week 7 (7/7-7/10): 提出 `cc:TODO`
+
+### `cc:TODO` 提出物作成
+
+- [ ] [SUBMIT-001] **Zenn 記事執筆** (7/7-7/8、技術解説 + ストーリー)
+- [ ] [SUBMIT-002] **Proto Pedia 作品ページ** (7/8、タグ `findy_hackathon` 必須)
+- [ ] [SUBMIT-003] **Google Form で正式応募** (7/10 23:59 締切)
+
+### Week 7 終了時判定基準 = 提出完了
+
+- [ ] GitHub 公開リポジトリ URL 確定
+- [ ] デプロイ済み Cloud Run URL 動作確認済
+- [ ] Proto Pedia 作品ページ公開
+- [ ] Zenn 記事公開
+- [ ] Google Form 提出完了の確認メール保存
+
+---
+
+## 全期間共通の Drop Point 判断ルール
+
+困った時の優先順位 (1 が最優先、絶対死守):
+
+1. **7/10 までに提出** (これだけは絶対死守)
+2. **コア機能 (A 群)** が動作すること
+3. **DevOps テーマ要件** (CI/CD, IaC, 観測性) を満たすこと
+4. **AI エージェントの必然性** が伝わること
+5. **差別化機能 (B 群)** が動くこと (優先度高い順: B-2 比較 / B-3 Veo / B-4 Imagen)
+6. **拡張機能 (C 群)** は余力時のみ
+
+状況別判断:
+
+- **2 日連続で同じバグに詰まる** → そのバグを諦めて機能スキップ or 簡略化
+- **新機能で既存が壊れた** → 即 Revert
+- **時間ない** → C 群 → B 群下位 → A 群下位 の順で削る
+- **体調悪い** → 半日休む。徹夜禁止(品質低下リスク)
+
+---
+
+## 改訂履歴
+
+- 2026-05-20 v0.1 初版作成 (Week 0 終了時点、SCHEDULE.md + FEATURES.md + 各 recon 結果を統合)

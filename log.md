@@ -1,5 +1,65 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 9 — タスク管理基盤整備 (tasks.json + Plans.md)
+
+### Completed
+
+- [x] **`tasks.json` を新規作成** — 51 タスクを一元管理(Week 0 完了済 16 + 進行中 4 + Week 1+ 31)
+  - INFRA-001〜009 (基盤): 7 件完了 + 2 件 pending
+  - DOC-001〜010: 全 10 件完了
+  - RECON-001〜003: 全 3 件完了 (国会 / DiscussNet / voices_asp)
+  - A-1〜A-13 (Must features): 11 件 pending + 2 件 in_progress (A-2/A-11/A-12/A-13)
+  - A-4b voices_asp パーサー: 新規追加 (Phase 2 で判明したストリーム)
+  - B-1〜B-8 (Should): 全 8 件 pending
+  - C-1〜C-9 + C-X-DISCUSSCABINET: 全 10 件 pending
+  - SUBMIT-001〜005 (Week 7 提出物): 全 5 件 pending
+  - USER-INTERVIEW: pending
+- [x] **`Plans.md` を新規作成** — Week 0-7 俯瞰ボード、tasks.json ID を引用
+  - 全体ステータステーブル(8 Week)
+  - 各 Week の `cc:TODO` / `cc:WIP` / `cc:完了` マーカー
+  - Week 0 のみ全項目 `cc:完了`、Week 1-7 は `cc:TODO`
+  - 各 Week 末の判定基準
+  - Drop Point 判断ルール(7/10 提出が最優先、以降は 6 段階優先度)
+
+### Decisions / Design Notes
+
+- **tasks.json をメイン状態管理に採用** — global rules `task-workflow.md` の auto-task-start-protocol が利用可能、依存関係を `dependencies` 配列で機械可読化
+- **Plans.md を補助的に俯瞰用** — Week 単位の進捗を 1 画面で見る用、tasks.json への参照リンクで詳細誘導
+- **Citify 独自フィールド追加**: `priority` (Must/Should/Could/Won't), `week` (1-7), `drop_condition` (発動条件を文字列で保持), `recon_doc` (関連 recon doc パス)
+- **進行中 (`in_progress`) タスクは 4 件**: A-2 (自治体マスタ Phase 1+2 完了、UI 未)、A-11 (Cloud Run smoke 済、本番未)、A-12 (Lint 済、Test/Cloud Build 未)、A-13 (Terraform 雛形済、apply 未) — Week 1 で完成予定
+- **Drop Point の機械可読化**: 例 A-4 の `drop_condition` に「Week 2 中日 (6/4 水) で Playwright で 1 自治体動かなければ Should に降格」を記録、毎セッション開始時に該当日チェックすれば自動発動判定可能
+- **A-4b (voices_asp) を新規 ID で追加**: FEATURES.md の元 A-4 (DiscussNet のみ) と並列ストリームとして独立タスク化、Phase 2 で発見した知見を反映
+
+### Surprises / Risks
+
+- **タスク総数 51 件は思ったより多い** — 進捗ボード設計の重要性を再確認、Week 6 でCould 機能を全部諦める覚悟を Plans.md に明示
+- **A-4 と A-4b の依存関係**: A-4b は A-4 に依存させた(同じ Cloud Run コンテナ + 共通スキーマで実装) — 実装順序は A-4 (Week 2) → A-4b (Week 3) を維持
+
+### Next (5/26 月曜以降の運用)
+
+- **セッション開始時**: `tasks.json` を読んで in_progress タスクから再開、無ければ Week N の pending タスクから依存解消されたものを選択
+- **タスク完了時**: tasks.json の `completed_at` を更新、Plans.md の対応行を `[x]` に変更
+- **Drop Point 接近**: `drop_condition` フィールドを定期チェック、判定日を超えたら降格処理
+
+### Commit Reminder
+
+未コミット変更:
+
+- `tasks.json` (新規、~620 行 JSON、51 タスク)
+- `Plans.md` (新規、~250 行 Markdown、Week 0-7 俯瞰)
+- `log.md` (このファイル、Session 9 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+git status
+git add tasks.json Plans.md log.md
+git commit -m "feat: add tasks.json (51 tasks) + Plans.md for Week 0-7 tracking"
+git push origin main
+```
+
+---
+
 ## 2026-05-20 (Tue) Session 8 — Week 1 雛形先取り (FastAPI + Dockerfile + Terraform + GitHub Actions)
 
 ### Completed
