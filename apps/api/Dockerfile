@@ -11,18 +11,24 @@
 # ============================================================================
 FROM python:3.12-slim AS builder
 
-# uv で高速インストール (deterministic, 並列、cache 効率)
+# uv で高速インストール (deterministic, 並列)
 COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /uvx /bin/
 
 WORKDIR /app
 
-# 依存関係のみ先にインストール (レイヤキャッシュ最大化)
+# venv 作成 + uv pip install のターゲット指定
+# (VIRTUAL_ENV 環境変数で uv pip install の install 先を venv に固定)
+RUN uv venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# 依存関係インストール
+# NOTE: BuildKit 専用の --mount=type=cache はレガシー builder (Cloud Build) で
+#       失敗するため不使用。Cloud Run のビルドは毎回フレッシュなので cache なくても OK
 COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv /opt/venv && \
-    UV_PROJECT_ENVIRONMENT=/opt/venv \
-    uv pip install --no-cache fastapi uvicorn[standard] httpx pydantic pydantic-settings \
-                              google-cloud-logging google-cloud-secret-manager structlog
+RUN uv pip install --no-cache \
+    fastapi uvicorn[standard] httpx pydantic pydantic-settings \
+    google-cloud-logging google-cloud-secret-manager structlog
 
 # ============================================================================
 # Stage 2: runtime — 最小ランタイム
