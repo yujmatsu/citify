@@ -1,5 +1,61 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 3 — GCP プロジェクト立ち上げ
+
+### Completed
+
+- [x] **GCP プロジェクト `citify-dev` 作成** (Phase 1-5、所要 ~30 分)
+  - Phase 1: gcloud SDK 566.0.0 確認、`yujmatsu@gmail.com` 認証済
+  - Phase 2: `citify-dev` 作成、請求アカウント `01A6C1-923A4E-0676C4` (OPEN: True) link、リージョン `asia-northeast1` (Tokyo) 設定 (compute / run / artifacts 全部)
+  - Phase 3: 必要 API **14 個一括有効化** (run, cloudbuild, artifactregistry, aiplatform, documentai, firestore, bigquery, storage, pubsub, cloudscheduler, secretmanager, logging, cloudtrace, iamcredentials)、依存関係で計 23 個 enabled。ADC のクォータプロジェクトを citify-dev に向け直し
+  - Phase 4: **予算アラート ¥7,500/月、4 段階** (50%/90%/100% actual + 100% forecasted) 作成。$50 → JPY 7500 に修正(請求アカウントが JPY ベースのため)
+  - Phase 5: **サンプル Cloud Run デプロイ成功** — `gcr.io/cloudrun/hello` を `hello-citify` として asia-northeast1 にデプロイ、curl で 200 / 360ms 確認
+- [x] **Week 0 終了時判定基準 4/4 すべて達成** 🎯
+  - ✅ ドキュメント 4-6 個が GitHub にコミット (Day 1)
+  - ✅ 国会 API から 1 件以上の発言が取れる (Day 1)
+  - ✅ DiscussNetPremium の HTML 構造把握 (Day 2)
+  - ✅ **GCP プロジェクトでサンプル Cloud Run がデプロイできる** (Day 2 Session 3)
+
+### Decisions / Design Notes
+
+- **プロジェクト名**: `citify-dev` (Week 5+ で `citify-prod` を追加予定)
+- **プロジェクト番号**: `46070204654` (Terraform / IAM binding で参照する場面で使用)
+- **リージョン統一**: `asia-northeast1` (Tokyo) を compute / run / artifacts 全部で固定。マルチリージョン非採用
+- **請求通貨**: JPY 固定(請求アカウントの仕様、USD 指定だと `INVALID_ARGUMENT`)
+- **予算ライン**: ¥7,500/月(約 $50)、超過時の挙動は計測のみ(自動停止はなし)。Veo/Imagen 多用で超える可能性は Week 4 以降
+- **デプロイ済サービス**: `hello-citify` は idle 課金なし、Week 1 で `citify-api` に上書きまたは削除予定
+
+### Surprises / Risks
+
+- **request 通貨ミスマッチ**: 最初 `--budget-amount=50USD` で `INVALID_ARGUMENT` 発生 → 請求アカウントが JPY ベースで USD 不可。同様の罠は Terraform 設計時の `google_billing_budget` リソースでも要注意
+- **ADC quota project 警告**: 古いプロジェクト (`hackason-grab`) のクォータ参照を `citify-dev` に向け直し。これを忘れると Python SDK の課金が別プロジェクトに行く事故が起きる
+- **Service URL の 2 形式**: gcloud deploy 出力は `hello-citify-{プロジェクト番号}.asia-northeast1.run.app`、`describe` は `hello-citify-{hash}-an.a.run.app` を返す → 両方とも有効、Cloud Run の URL エイリアス仕様
+
+### Next (Week 0 残タスク → Week 1 着手準備)
+
+優先順:
+
+1. **自治体マスタ Phase 2 設計** — 今回判明した 3 配信モデル(中央型/白ラベル/別ベンダ)を吸収する `scraper_base_url` カラム追加マイグレーションの計画。Tier 1 自治体 50 件の手動補完 (`tenant_id`, `press_rss_url`)
+2. **`docs/scrapers/voices_asp_recon.md`** — 別ベンダ系(札幌市・世田谷区) の予備調査。Tier 1 候補から漏れる影響範囲が大きい場合のみ
+3. **Week 1 着手 (5/26 月-)** — Terraform 雛形、FastAPI 雛形、Cloud Run + Cloud Build 自動デプロイパイプライン、国会 API クライアント実装、Vertex AI RAG セットアップ
+
+### Commit Reminder
+
+未コミット変更:
+
+- `log.md` (このファイル) — 唯一の差分
+
+> 補足: GCP セットアップは外部リソース変更で、リポジトリ側にはコード生成なし(`hello-citify` は外部状態としてのみ存在)。Terraform 化は Week 1 で実施
+
+推奨コミット:
+```bash
+git add log.md
+git commit -m "docs: GCP project citify-dev set up + Week 0 milestones cleared"
+git push origin main
+```
+
+---
+
 ## 2026-05-20 (Tue) Session 2 — Week 0 Day 2
 
 ### Completed
