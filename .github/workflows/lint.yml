@@ -1,0 +1,66 @@
+name: Lint
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+# 同一ブランチ・PR で並列実行を抑制 (Cancel-in-progress)
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Python: Ruff lint + format check (apps/api / agents / scrapers)
+  # ---------------------------------------------------------------------------
+  python-lint:
+    name: Python Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: pip install --no-cache-dir "ruff>=0.7"
+
+      - name: Ruff check (apps/api)
+        run: ruff check apps/api/
+        if: ${{ hashFiles('apps/api/**/*.py') != '' }}
+
+      - name: Ruff format --check (apps/api)
+        run: ruff format --check apps/api/
+        if: ${{ hashFiles('apps/api/**/*.py') != '' }}
+
+      # Week 2 以降で agents/, scrapers/ も追加予定
+      # - name: Ruff check (agents)
+      #   run: ruff check agents/
+      #   if: ${{ hashFiles('agents/**/*.py') != '' }}
+      # - name: Ruff check (scrapers)
+      #   run: ruff check scrapers/
+      #   if: ${{ hashFiles('scrapers/**/*.py') != '' }}
+
+  # ---------------------------------------------------------------------------
+  # Terraform: fmt check
+  # ---------------------------------------------------------------------------
+  terraform-fmt:
+    name: Terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.7"
+
+      - name: Terraform fmt --check
+        run: terraform fmt -check -recursive infra/
+        if: ${{ hashFiles('infra/**/*.tf') != '' }}

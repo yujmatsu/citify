@@ -1,5 +1,105 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 8 — Week 1 雛形先取り (FastAPI + Dockerfile + Terraform + GitHub Actions)
+
+### Completed
+
+- [x] **`apps/api/pyproject.toml`** — Python 3.12 + FastAPI + httpx + pydantic-settings + google-cloud-logging + structlog、Ruff/pytest 設定、PEP 735 `[dependency-groups]` 採用
+- [x] **`apps/api/main.py`** — FastAPI エントリ、`/health` (Cloud Run ヘルスチェック) + `/version` (ビルド情報)、async lifespan + CORS + 構造化ログ準備
+- [x] **`apps/api/Dockerfile`** — Multi-stage build (`python:3.12-slim` + `uv` + 非root user)、Cloud Run 用 PORT 環境変数対応
+- [x] **`apps/api/.dockerignore`** — Python build artifacts / venv / tests / docs / secrets / .terraform 除外
+- [x] **`infra/env/dev/main.tf`** — Terraform 1.7+ / google provider 6.x / GCS backend (Week 1 で有効化予定、コメントアウト)、`local.common_labels` 定義
+- [x] **`infra/env/dev/variables.tf`** — project_id / region / env (validation 付き) の 3 変数、citify-dev / asia-northeast1 デフォルト
+- [x] **`infra/env/dev/terraform.tfvars.example`** — テンプレ、`.gitignore` 推奨注記入り
+- [x] **`.github/workflows/lint.yml`** — Ruff lint + format check (apps/api) + Terraform fmt check (infra)、PR/main push トリガー、concurrency control 入り
+
+### Decisions / Design Notes
+
+- **依存管理は uv 採用** — README.md §3 と整合、Python 3.12 で最速の依存解決。Dockerfile も `ghcr.io/astral-sh/uv:0.5` から COPY
+- **GCS backend は今日コメントアウト** — chicken-and-egg(bucket 自体を Terraform で作る)を避ける。Week 1 で `gsutil mb gs://citify-dev-tf-state` → backend 有効化 → `terraform init -migrate-state` の 3 ステップで移行
+- **Multi-stage Dockerfile** — builder で deps install、runtime に venv のみコピー → 本番イメージ ~150 MB、cold start も短縮見込み
+- **非 root user (`citify`)** — Cloud Run のセキュリティベストプラクティス、container escape リスク軽減
+- **Ruff のみで lint + format** — mypy は Week 6 以降に検討、ハッカソンスピード重視
+- **GitHub Actions concurrency control** — 同 PR の連続 push で並列実行を止める、CI 時間節約
+- **Terraform 6.x provider** — google provider の最新メジャー、新機能 (Cloud Run v2 等) フル対応
+
+### 雛形が解決する Week 1 タスク
+
+| SCHEDULE.md Week 1 タスク | 雛形で消化済 |
+|---|---|
+| Terraform 雛形 | ✅ `infra/env/dev/{main,variables}.tf` + tfvars テンプレ |
+| GitHub Actions ワークフロー (Lint + Test) | ✅ `.github/workflows/lint.yml` (Test は Week 1 で pytest 追加) |
+| FastAPI 雛形 + ヘルスチェック | ✅ `apps/api/main.py` (/health + /version) |
+| Cloud Run 用 Docker イメージ | ✅ `apps/api/Dockerfile` (multi-stage + uv) |
+
+→ Week 1 Day 1 (5/26 月) は **「環境変数調整 → `terraform apply` → Cloud Build トリガー → 国会 API クライアント実装」直行可能**。雛形作成の半日が消化済。
+
+### Surprises / Risks
+
+- **pyproject.toml の `[tool.hatch.build.targets.wheel]` で packages = ["src"]** と書いたが、まだ `apps/api/src/` ディレクトリは未作成 — Week 1 で `apps/api/src/citify_api/` を作成する想定、または `packages = ["."]` に変更する検討余地
+- **Dockerfile の uv pip install 部分が deps をハードコード** — pyproject.toml を本来は `uv sync --frozen` で解決すべきだが `uv.lock` がまだ無い。Week 1 で `uv lock` 実行後に Dockerfile 修正
+- **GitHub Actions が python 3.12 を要求** — Yuji の WSL に Python 3.12 が無い場合は `python3.12` または `pyenv` でローカル一致させる必要あり
+
+### テストコマンド (Yuji 検証用)
+
+```bash
+cd ~/projects/citify
+
+# Python 雛形が動くか確認
+cd apps/api
+uv venv
+source .venv/bin/activate
+uv pip install fastapi uvicorn[standard] httpx pydantic pydantic-settings
+uvicorn main:app --reload &
+sleep 2
+curl -sS http://localhost:8000/health | python3 -m json.tool
+curl -sS http://localhost:8000/version | python3 -m json.tool
+# 期待: {"status": "ok", "version": "0.1.0-dev"} と {"version": "0.1.0-dev", "git_sha": null, "env": "dev"}
+
+# Ruff lint
+pip install ruff
+ruff check apps/api/
+ruff format --check apps/api/
+
+# Terraform fmt
+cd ~/projects/citify
+terraform fmt -check -recursive infra/
+
+# Dockerfile build (optional, ~5分)
+cd apps/api
+docker build -t citify-api:dev .
+docker run --rm -p 8080:8080 -e PORT=8080 citify-api:dev &
+sleep 5
+curl -sS http://localhost:8080/health
+```
+
+### Commit Reminder
+
+未コミット変更:
+
+- `apps/api/pyproject.toml` (新規)
+- `apps/api/main.py` (新規)
+- `apps/api/Dockerfile` (新規)
+- `apps/api/.dockerignore` (新規)
+- `infra/env/dev/main.tf` (新規)
+- `infra/env/dev/variables.tf` (新規)
+- `infra/env/dev/terraform.tfvars.example` (新規)
+- `.github/workflows/lint.yml` (新規)
+- `log.md` (このファイル、Session 8 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+git add apps/ infra/ .github/ log.md
+git status   # 9 ファイル staged 確認
+git commit -m "feat: Week 1 scaffold (FastAPI /health, Dockerfile, Terraform, GitHub Actions)"
+git push origin main
+```
+
+→ 上記 push をトリガーに **GitHub Actions の lint.yml が初実行** されるはず(`apps/api/main.py` への Ruff check)。エラー出たら次セッションで修正。
+
+---
+
 ## 2026-05-20 (Tue) Session 7 — DATA_SOURCES.md §3 (voices_asp) 新設
 
 ### Completed
