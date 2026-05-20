@@ -1,5 +1,86 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 4 — 自治体マスタ Phase 2 (Tier 1 補完 + 戦略再構築)
+
+### Completed
+
+- [x] **東京 23 区の議事録システムをベンダ別に分類** (WebSearch 7 件 + Yuji curl 1 件)
+  - **重要発見 1**: `kensakusystem.jp/{区名}/` は **旧 HTML4 別実装**(SPA でなく BeautifulSoup でパース可)。同じ会議録研究所系列だが、新版 DiscussNet とは別物
+  - **重要発見 2**: 23 区中 **DiscussNet SPA で取れるのは 荒川区のみ**(`ssp.kaigiroku.net/tenant/arakawa`)
+  - 23 区のベンダ分布:
+    - DiscussNet SPA: 1 (荒川区)
+    - voices/asp 系 (gijiroku.com): 7 (港・台東・世田谷・杉並・板橋・足立・江戸川)
+    - DB-Search 系 (*.dbsr.jp): 4 (千代田・文京・江東・品川)
+    - kensakusystem.jp 旧 HTML4: 3 (目黒・豊島・葛飾)
+    - 独自/不明: 5 + 3 (中央・大田・渋谷・中野・練馬 + 新宿・墨田・北)
+- [x] **戦略判断: A-4 + voices/asp + DB-Search の 3 系統並行実装** に決定
+  - Yuji 判断、ハッカソン期間ギリギリだが「全国 800 自治体カバー」の dream を守る
+  - 実装工数 +5-7 日見込み、ただし voices/asp と DB-Search は静的 HTML なので BeautifulSoup で容易
+- [x] **`infra/seed/tier1_supplements.csv` 新規作成** (30 行) — Tier 1 自治体の `scraper_type` / `scraper_base_url` / `tenant_id` を手動補完
+- [x] **`build_municipality_master.py` を supplements マージ対応に拡張** — `load_supplements()` + `apply_supplements()` 追加、`notes` は append、フィールドは override
+- [x] **`scraper_base_url` カラムを CSV スキーマに追加** (12 → 13 カラム)
+- [x] **`KOKKAI_RECORD` を scraper_base_url 対応 + notes に "国会会議録 (kokkai.ndl.go.jp/api/speech)" 追記**
+- [x] **`infra/seed/README.md` を全面改訂** — scraper_type の 7 種類定義、Tier 再定義(対応予定の優先度、scraper_type と独立)、Phase 計画更新
+- [x] **CSV 再生成 & 検収** — 1796 行、supplements 30 件全マッチ、scraper_type 7 種類の分布想定通り
+  - kaigiroku: 7、voices_asp: 8、db_search: 4、kensakusystem_legacy: 3、custom: 5、kokkai: 1、unknown: 1767
+
+### Decisions / Design Notes
+
+- **配信モデル 7 分類確定**: kokkai / kaigiroku / voices_asp / db_search / kensakusystem_legacy / custom / unknown
+- **Tier 軸の再解釈**: tier = 「実装目標の優先度」、scraper_type = 「ベンダ種別」、is_active = 「実装済か」 の 3 軸独立
+- **supplements の運用方針**: `municipality_code` をキーに base レコードを override、`notes` は append (`base; supp` の形)、identity 系 (name/prefecture/kana/population) は override 不可
+- **国会の扱い**: 引き続きスクリプト内 `KOKKAI_RECORD` でハードコード(`tier=1, is_active=true`)、supplements には載せない(municipality_code 00000 は base にないため)
+- **Tier 1 のメンバ**: 国会(1) + 東京 23 区(23) + 政令市等(6: 横浜・大阪市・大阪府・岡山県・高知県・大分県) + 札幌市(1, voices_asp 系) = **31 件**
+
+### Surprises / Risks
+
+- **23 区の議事録ベンダが想像以上に散乱** — 「東京 23 区カバー」のアピールには DiscussNet 1 系統では完全に足りず、最低でも voices/asp 系が必要
+- **kensakusystem.jp の robots.txt が 404** — 利用規約が明確でない。Phase 3 で実装判断時に NTT-AT/議事録発行センターに直接確認した方が安全
+- **不明 5 区(中央以外: 新宿・墨田・北・大田・練馬)** — Phase 3 で WebSearch + 個別 curl で追加調査必要
+- **DiscussNet SPA (Playwright 必須) と voices/asp / DB-Search (BeautifulSoup でOK) のインフラ要件が違う** — Cloud Run のメモリ・コンテナサイズの 2 構成を維持する必要
+
+### Tier 1 / scraper_type 分布(最終)
+
+```
+                Tier 1 (31)
+                 ├── kokkai (1)         国会
+                 ├── kaigiroku (7)      横浜・大阪市・大阪府・岡山県・高知県・大分県・荒川区
+                 ├── voices_asp (8)     港・台東・世田谷・杉並・板橋・足立・江戸川・札幌
+                 ├── db_search (4)      千代田・文京・江東・品川
+                 ├── kensakusystem (3)  目黒・豊島・葛飾
+                 └── custom (5) + unknown (3)
+                                        中央・大田・渋谷・中野・練馬 + 新宿・墨田・北
+```
+
+### Next (Week 1 着手前の残タスク or 着手)
+
+優先順:
+
+1. **Week 1 Day 1 雛形作成** — FastAPI / Dockerfile / Terraform / GitHub Actions 雛形。先取りすれば 5/26 月曜から機能実装に直行可能
+2. **`docs/scrapers/voices_asp_recon.md`** — voices/asp 系の構造調査。実装可能性確認(Week 3-4 で着手予定の前哨)
+3. **`docs/DATA_SOURCES.md` 追加更新** — scraper_type の 7 分類を §2 に反映、`voices_asp` 系・`db_search` 系・`kensakusystem_legacy` のセクション追加
+4. **不明 5 区の追加調査** (新宿・墨田・北・大田・練馬) — WebSearch + curl で確定
+
+### Commit Reminder
+
+未コミット変更:
+
+- `infra/seed/tier1_supplements.csv` (新規、30 行)
+- `infra/seed/build_municipality_master.py` (supplements マージ機能追加)
+- `infra/seed/municipality_master.csv` (再生成、scraper_base_url カラム追加 + 30 件補完反映)
+- `infra/seed/README.md` (全面改訂、scraper_type 7 種定義・Tier 再定義)
+- `log.md` (このファイル)
+
+推奨コミット:
+```bash
+git add infra/seed/ log.md
+git status   # 5 ファイル staged + 想定外がないか確認
+git commit -m "feat(seed): Phase 2 — Tier 1 supplements (30 self-gov, 5-vendor classification)"
+git push origin main
+```
+
+---
+
 ## 2026-05-20 (Tue) Session 3 — GCP プロジェクト立ち上げ
 
 ### Completed

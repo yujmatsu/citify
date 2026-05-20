@@ -1,0 +1,31 @@
+municipality_code,scraper_type,scraper_base_url,tenant_id,press_rss_url,opendata_url,tier,is_active,notes
+01100,voices_asp,https://sapporo.gijiroku.com/voices,,,,1,false,sapporo (NOT DiscussNet; voices_asp vendor)
+13101,db_search,http://www.city.chiyoda.tokyo.dbsr.jp/,,,,1,false,chiyoda (DB-Search)
+13102,custom,https://www.kugikai.city.chuo.lg.jp/kaigiroku/,,,,1,false,chuo (independent site)
+13103,voices_asp,https://gikai2.city.minato.tokyo.jp/voices,,,,1,false,minato
+13104,unknown,,,,,1,false,shinjuku (URL TBD; broadcast via smart.discussvision.net but minutes URL not found)
+13105,db_search,https://www.city.bunkyo.tokyo.dbsr.jp/,,,,1,false,bunkyo (DB-Search)
+13106,voices_asp,https://taito.gijiroku.com/voices,,,,1,false,taito
+13107,unknown,,,,,1,false,sumida (URL TBD)
+13108,db_search,https://www.city.koto.tokyo.dbsr.jp/,,,,1,false,koto (DB-Search)
+13109,db_search,https://kaigiroku.city.shinagawa.tokyo.jp/,,,,1,false,shinagawa (likely DB-Search; verify Phase 3)
+13110,kensakusystem_legacy,https://www.kensakusystem.jp/meguro,,,,1,false,meguro (kensakusystem.jp legacy HTML4)
+13111,custom,https://www.gikai-ota-tokyo.jp/,,,,1,false,ota (independent CMS)
+13112,voices_asp,https://kugi.city.setagaya.tokyo.jp/voices,,,,1,false,setagaya (NOT DiscussNet; voices_asp vendor)
+13113,custom,https://shibukugi.tokyo/chukei_kaigiroku/,,,,1,false,shibuya (independent CMS by Kaigiroku-Kenkyusho; legacy at kaigiroku.net/kensaku/shibuya/)
+13114,custom,https://kugikai-nakano.jp/search.html,,,,1,false,nakano (independent)
+13115,voices_asp,https://suginami.gijiroku.com/voices,,,,1,false,suginami
+13116,kensakusystem_legacy,https://www.kensakusystem.jp/toshima,,,,1,false,toshima (kensakusystem.jp legacy HTML4; charset Shift_JIS)
+13117,unknown,,,,,1,false,kita (URL TBD)
+13118,kaigiroku,https://ssp.kaigiroku.net/tenant/arakawa,arakawa,,,1,false,arakawa (DiscussNet SPA; the only 23-ward DiscussNet)
+13119,voices_asp,https://itabashi.gijiroku.com/voices,,,,1,false,itabashi
+13120,custom,https://www.city.nerima.tokyo.jp/gikai/kaigiroku.html,,,,1,false,nerima (indirection page; system TBD)
+13121,voices_asp,https://www.gikai-adachi.jp/voices,,,,1,false,adachi
+13122,kensakusystem_legacy,https://www.kensakusystem.jp/katsushika,,,,1,false,katsushika (kensakusystem.jp legacy HTML4)
+13123,voices_asp,https://www.gikai.city.edogawa.tokyo.jp/voices,,,,1,false,edogawa
+14100,kaigiroku,http://giji.city.yokohama.lg.jp/tenant/yokohama,yokohama,,,1,false,yokohama (DiscussNet white-label; HTTP not HTTPS; charset Shift_JIS)
+27000,kaigiroku,https://ssp.kaigiroku.net/tenant/prefosaka,prefosaka,,,1,false,prefosaka (DiscussNet central)
+27100,kaigiroku,https://ssp.kaigiroku.net/tenant/cityosaka,cityosaka,,,1,false,cityosaka (DiscussNet central; SpTop redirect)
+33000,kaigiroku,https://ssp.kaigiroku.net/tenant/prefokayama,prefokayama,,,1,false,prefokayama (DiscussNet central; modern template; recon main)
+39000,kaigiroku,https://ssp.kaigiroku.net/tenant/tosa,tosa,,,1,false,tosa (DiscussNet central; legacy template)
+44000,kaigiroku,https://ssp.kaigiroku.net/tenant/prefoita,prefoita,,,1,false,prefoita (DiscussNet central)
