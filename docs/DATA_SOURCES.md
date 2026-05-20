@@ -180,73 +180,149 @@ INSERT INTO citify_analytics.speeches (
 
 ## 2. 自治体議事録 — kaigiroku.net (DiscussNetPremium)
 
+> 📝 **2026-05-20 改訂**: Week 0 構造調査 (`docs/scrapers/kaigiroku_net_recon.md`) で当初想定の前提が複数誤っていたことが判明したため大幅改訂。
+
 ### 2.1 概要
-NTT-AT が提供する自治体議事録検索システム。約 350+ 自治体が採用。同じURL構造のため **1パーサーで全自治体カバー** できる。
+
+株式会社会議録研究所 + NTT-AT が共同開発する自治体議事録検索システム。**540 自治体が採用** (2025/7 時点、出典: <https://www.kaigiroku.co.jp/contents/gikai/>)。
+
+**配信モデル 3 種類**:
+
+| モデル | URL パターン | 例 |
+|---|---|---|
+| **中央型** | `https://ssp.kaigiroku.net/tenant/{tenant_id}/...` | 大阪市 (`cityosaka`)、岡山県 (`prefokayama`)、高知県 (`tosa`) |
+| **白ラベル型** | 自治体独自ドメイン (DiscussNet エンジンを別ホストで稼働) | 横浜市 (`giji.city.yokohama.lg.jp/tenant/yokohama/`) |
+| **別ベンダ(対象外)** | `*.gijiroku.com/voices/*.asp`、`*.lg.jp/voices/*` | 札幌市、世田谷区 — **A-4 対象外、C-2 系で別途検討** |
+
+中央型・白ラベル型は **同じ DiscussNet HTML テンプレート** を使用 → **1 パーサーで両方カバー可能**。
 
 ### 2.2 URL パターン
 
+**中央型 (ssp.kaigiroku.net 配下)**:
 ```
-https://ssp.kaigiroku.net/tenant/{tenant_id}/SpMinuteView.html?...
-https://ssp.kaigiroku.net/tenant/{tenant_id}/MinuteView.html?...
+https://ssp.kaigiroku.net/tenant/{tenant_id}/pg/index.html      # メニュー
+https://ssp.kaigiroku.net/tenant/{tenant_id}/MinuteSearch.html  # 検索 UI (SPA)
+https://ssp.kaigiroku.net/tenant/{tenant_id}/MinuteBrowse.html  # 閲覧 UI (SPA)
+https://ssp.kaigiroku.net/tenant/{tenant_id}/SpTop.html         # スマホ版
 ```
 
-### 2.3 tenant_id 一覧（一部）
+**白ラベル型 (例: 横浜市)**:
+```
+http://giji.city.yokohama.lg.jp/tenant/yokohama/pg/index.html
+http://giji.city.yokohama.lg.jp/tenant/yokohama/MinuteSearch.html
+http://giji.city.yokohama.lg.jp/tenant/yokohama/MinuteBrowse.html
+```
 
-| 自治体 | tenant_id |
-|---|---|
-| 東京都世田谷区 | `setagaya` |
-| 東京都新宿区 | `shinjuku` |
-| 横浜市 | `yokohama` |
-| 大阪市 | `osaka` |
-| 札幌市 | `sapporo` |
-| 仙台市 | `sendai` |
-| 名古屋市 | `nagoya` |
-| 福岡市 | `fukuoka` |
-| (※詳細は municipality_master.csv に保存) | |
+→ **`/tenant/{tenant_id}/` 以下のパス構造は両モデルで同一**。URL ベースは `municipality_master.csv` に `scraper_base_url` カラム追加で表現する想定 (Phase 2)。
 
-### 2.4 取得フロー
+### 2.3 tenant_id 一覧(暫定)
+
+> ⚠️ **重要**: 当初リストにあった `setagaya`, `sapporo` は **DiscussNet ではなく別ベンダ** (Microsoft ASP 系 `/voices/*.asp`)。Week 0 調査で判明、A-4 の対象から除外する。
+
+| 自治体 | tenant_id | モデル | 確認状況 |
+|---|---|---|---|
+| 大阪市 | `cityosaka` | 中央型 | ✅ 確認済 (meta-refresh で SpTop へ) |
+| 高知県 | `tosa` | 中央型 | ✅ 確認済 (Legacy template) |
+| 岡山県 | `prefokayama` | 中央型 | ✅ 確認済 (Modern template、検証メイン) |
+| 大阪府 | `prefosaka` | 中央型 | 🟡 検索結果のみ確認 |
+| 大分県 | `prefoita` | 中央型 | 🟡 検索結果のみ確認 |
+| 横浜市 | `yokohama` | 白ラベル | ✅ 確認済 (HTTP, Shift_JIS) |
+| ~~東京都世田谷区~~ | ~~`setagaya`~~ | **別ベンダ(対象外)** | ❌ `/voices/` 系へ転送 |
+| ~~札幌市~~ | ~~`sapporo`~~ | **別ベンダ(対象外)** | ❌ `sapporo.gijiroku.com` |
+| (※残り 535 件は Phase 2 で municipality_master.csv に補完) | | | |
+
+### 2.4 取得フロー (Playwright 必須)
+
+DiscussNet は **SPA + 内部 API (JSONP)** で動作するため、BeautifulSoup + httpx の単純構成では会議一覧データを取得できない。**Playwright + headless Chromium が必須**。
 
 ```
-1. tenant/{tenant_id}/SpFrameView.html?... で会議一覧
-2. 各会議の会議録URLを抽出
-3. SpMinuteView.html?... を取得し HTML パース
-4. 発言ブロック (<div class="speech">等) を抽出
-5. 構造化して BigQuery 投入
+1. Playwright で MinuteBrowse.html (or SpTop.html) を開く
+2. SPA が描画完了するまで wait_for_selector("#council_list tr")
+3. tbody#council_list の <tr> を抽出 → 会議メタ (年度・種類・会議名)
+4. 各会議のリンクから個別議事録ページに遷移
+5. 発言ブロックを抽出 (selector は Week 2 実装時に確定)
+6. Shift_JIS / UTF-8 を tenant ごとに自動判定 (charset meta タグ参照)
+7. 構造化して BigQuery 投入
 ```
 
 ### 2.5 利用規約・robots.txt
 
-- **トップページ・robots.txt を必ず確認**
-- 多くの自治体で **「商用利用は要相談」**
-- 議事録の **要約 + 原典リンク** での利用は通常認められている
-- **クロール間隔は最低 5 秒**
+**robots.txt (ssp.kaigiroku.net)** の解析結果 (2026-05-20 取得):
 
-### 2.6 BigQuery 投入
+```
+User-agent: *
+Disallow: /
+Allow: /tenant/
+Disallow: /tenant/js/
+Disallow: /tenant/css/
+Disallow: /tenant/help/
+Disallow: /tenant/stats/
+```
+
+**重要な遵守ルール**:
+
+- ✅ `/tenant/{id}/*.html` の HTML ページ取得は **明示的に許可**
+- ❌ **内部 API `/dnp/search/councils/*` の直接コールは禁止** (`Disallow: /` で包括的に禁止、Allow にも含まれない)
+- ✅ **Playwright (ブラウザ的振る舞い) で SPA を描画して結果を取得** するのは正常なユーザー振る舞いとして許容
+- 多くの自治体で「商用利用は要相談」 — Citify はハッカソン応募作品として位置付け、商用ではない
+- 議事録の **要約 + 原典リンク** での利用は通常認められている (PROJECT.md §5.3 と整合)
+- **クロール間隔は最低 5 秒** (Playwright の起動オーバーヘッドで自然と達成される傾向)
+
+### 2.6 実装方針 (scrapers/kaigiroku_net/)
 
 ```python
-# scrapers/kaigiroku_net/parser.py
+# scrapers/kaigiroku_net/client.py
 
-from bs4 import BeautifulSoup
-import httpx
+from __future__ import annotations
 
-async def fetch_meeting_list(tenant_id: str, period_days: int = 30) -> list[Meeting]:
-    """指定tenant の最近の会議一覧を取得"""
-    url = f"https://ssp.kaigiroku.net/tenant/{tenant_id}/SpFrameView.html"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, follow_redirects=True)
-        soup = BeautifulSoup(response.text, "lxml")
-        # ... HTMLパース処理
+from playwright.async_api import async_playwright
+
+DISCUSS_TENANT_URL_TEMPLATES = {
+    # tenant_id → ベース URL (中央型 / 白ラベル を吸収)
+    "prefokayama": "https://ssp.kaigiroku.net/tenant/prefokayama",
+    "yokohama":    "http://giji.city.yokohama.lg.jp/tenant/yokohama",
+    # ... municipality_master.csv から読み込み
+}
+
+
+async def fetch_meeting_list(tenant_id: str) -> list[Meeting]:
+    """指定tenant の会議一覧を Playwright で取得 (SPA レンダリング完了まで待機)"""
+    base_url = DISCUSS_TENANT_URL_TEMPLATES[tenant_id]
+    url = f"{base_url}/MinuteBrowse.html"
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto(url, wait_until="networkidle")
+        # SPA の council_list が埋まるまで待機
+        await page.wait_for_selector("#council_list tr")
+        rows = await page.query_selector_all("#council_list tr")
+        # ... DOM 抽出
+        await browser.close()
     return meetings
 
-async def fetch_minute_speeches(tenant_id: str, meeting_id: str) -> list[Speech]:
-    """会議の発言一覧を取得"""
-    # ... 同様
+
+async def fetch_minute_speeches(tenant_id: str, meeting_url: str) -> list[Speech]:
+    """個別会議録ページから発言ブロックを抽出 (同じく Playwright)"""
+    # ... 同様、selector は Week 2 で確定
 ```
 
 ### 2.7 失敗時の対応
 
-- HTML構造が変わった自治体はスキップ、ログに記録
+- HTML 構造が変わった自治体はスキップ、Cloud Logging に `SCRAPER_FAILED` で記録
 - `scrapers/kaigiroku_net/fixtures/` に各自治体の HTML サンプルを保存し、CI で構造検証
+- **Drop Point ルール** (詳細は `docs/scrapers/kaigiroku_net_recon.md §4.3`):
+  - Week 2 中日 (6/4 水) までに Playwright で 1 自治体動かなければ → A-4 を Should に降格
+  - Chromium OOM 頻発 → Cloud Run メモリ 1 GiB → 2 GiB に増設
+  - selector 設計が破綻 → 中央型のみに範囲縮小、白ラベルは Phase 3 へ
+
+### 2.8 別ベンダ系 (`*/voices/*.asp`) — A-4 対象外
+
+`札幌市 (sapporo.gijiroku.com)`、`世田谷区 (kugi.city.setagaya.tokyo.jp)` などは Microsoft ASP/ASP.NET ベースの **別ベンダ製品**。DiscussNet ではないため A-4 のスコープ外。
+
+- 採用自治体の把握、URL パターン整理、parser 設計は **C-2 または別タスク** として Phase 2 以降に切り出す
+- 影響範囲: 札幌市、世田谷区は Tier 1 候補から外れる可能性 → カバレッジ戦略に注意
+- 別 recon doc (`docs/scrapers/voices_asp_recon.md`) として記録予定 (未着手)
 
 ---
 
@@ -525,3 +601,4 @@ def test_parse_speech_setagaya():
 ## 14. 改訂履歴
 
 - 2026-05-19 v0.1 初版作成
+- 2026-05-20 v0.2 §2 (kaigiroku.net) を Week 0 構造調査結果で大幅改訂。配信モデル 3 分類化、Playwright 必須化、`/dnp/` API の robots.txt Disallow 明示、setagaya/sapporo を別ベンダ判定で除外。詳細: `docs/scrapers/kaigiroku_net_recon.md`

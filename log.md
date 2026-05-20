@@ -1,5 +1,75 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 2 — Week 0 Day 2
+
+### Completed
+
+- [x] **DiscussNet (kaigiroku.net) 構造調査 — 重大発見の連続**
+  - robots.txt 取得 → `/tenant/` 配下のみ Allow、`/dnp/` 含む他は Disallow
+  - 当初想定 (`ssp.kaigiroku.net/tenant/{id}/SpTop.html`) は 5 自治体中 3 自治体で 404 → 仮説崩壊
+  - WebSearch + 実地調査で **3 種類の配信モデル** が判明:
+    - **中央型** (`ssp.kaigiroku.net/tenant/{id}/`) — 大阪市、岡山県、高知県等
+    - **白ラベル型** — 横浜市 (`giji.city.yokohama.lg.jp`)
+    - **別ベンダ型(対象外)** — 札幌市、世田谷区 (`*.gijiroku.com/voices/*.asp` 系)
+  - 採用自治体数: **350+ → 540** (2025/7 時点、株式会社会議録研究所公表) と判明、`DATA_SOURCES.md` 修正
+- [x] **DiscussNet 内部アーキテクチャの解明** — DevTools 観察で判明:
+  - 全 Search/Browse ページは **SPA (Single Page Application)** — `<tbody id="council_list">` は空、JS で動的描画
+  - 内部 API: `/dnp/search/councils/{index|get_view_years|get_layout|get_permission}` — **POST + Cookie + CSRF + JSONP**
+  - **直接 API コールは robots.txt の Disallow `/dnp/` 違反**
+  - **Playwright + headless Chromium 必須** という結論
+- [x] **A-4 判定: 🟡 YELLOW (Playwright 必須) — Plan A 採用決定**
+  - Plan A (Playwright): インフラ +$0-5/月、コンテナ +400 MB、実装工数 +1.5-2 日
+  - Drop Point: Week 2 中日 (6/4 水) で Playwright が動かなければ Plan B (A-4 を Should 降格、国会 API + プレス RSS のみ) に切替
+- [x] **`docs/scrapers/kaigiroku_net_recon.md` を観察結果で全面書き直し** (約 200 行、判定根拠 + Drop Point ルール + Week 2 実装計画含む)
+- [x] **`docs/DATA_SOURCES.md §2` を実態に合わせて改訂** — 配信モデル 3 分類、Playwright 必須化、setagaya/sapporo を別ベンダ扱いで除外、改訂履歴に記録
+
+### Decisions / Design Notes
+
+- **採用判定 Plan A**: Playwright + Chromium を Cloud Run Jobs バッチで実行。540 自治体カバレッジを死守、B-2 比較ビューの実現性確保
+- **Drop Point の明文化**: 「Week 2 中日 6/4 水」を判断日として `recon.md §4.3` に記録、判定基準 4 つも列挙
+- **配信モデル混在**: Phase 2 で `municipality_master.csv` に `scraper_base_url` カラム追加して中央型/白ラベルを吸収する設計
+- **別ベンダ系**: `札幌市・世田谷区` は A-4 対象外。Phase 2 で `docs/scrapers/voices_asp_recon.md` として別調査を計画
+- **倫理判定**: robots.txt は自動クローラ向け、Playwright (実ブラウザ的振る舞い) は許容範囲という整理。Zenn 記事・ピッチで明示予定
+
+### Surprises / Risks
+
+- **採用自治体数の認識**: DATA_SOURCES.md の「350+」は最新値より少なく、楽観論として 540 まで増える可能性は朗報
+- **DOMContentLoaded 2.8 分** (キャプチャ観察): 1 ページ取得に 3 分弱かかる可能性。Playwright 実装時に再計測必須、許容できない遅さなら Cloud Run Jobs のタイムアウト設計を見直す
+- **CSRF トークン**: 直接 API 叩きを「物理的にできなくする」セキュリティ対策が既に組まれている → 開発元の意図として「クローラ非推奨」が明確、Playwright を選んだ判断の追加裏付け
+
+### Environment Issues (Day 1 から継続)
+
+- Claude Code Bash サンドボックスは引き続き使用不可。Yuji 側ターミナル + 私のファイル編集の運用で問題なし
+
+### Next (Week 0 残タスク、次セッション以降)
+
+優先順:
+
+1. **GCP プロジェクト作成 + API 有効化** (1-2h) — Week 1 Terraform 着手前に必須
+2. **自治体マスタ Phase 2: Tier 1 自治体 50 件の補完** — `scraper_type='kaigiroku'`, `tenant_id`, `press_rss_url` を手動収集。今回判明した 3 配信モデルを `scraper_base_url` 新カラムで吸収する設計を含む(マイグレーション計画も同時に)
+3. **`docs/scrapers/voices_asp_recon.md`** (別ベンダ系の予備調査、Phase 2) — 札幌市・世田谷区が漏れる影響範囲を確認したい場合のみ
+4. **Week 1 着手**: Terraform 雛形、FastAPI 雛形、Cloud Run デプロイ、国会 API クライアント実装、Vertex AI RAG セットアップ
+
+### Commit Reminder
+
+未コミット変更:
+
+- `docs/scrapers/kaigiroku_net_recon.md` (Write で全面書き直し)
+- `docs/DATA_SOURCES.md` (§2 改訂 + 改訂履歴追記)
+- `log.md` (このファイル)
+
+> 参考: `/tmp/citify-week0/kaigiroku_recon/*.html` は fixture 候補だが gitignore 推奨(`/tmp/` 配下、再生成可能、容量大)。Week 2 で必要な分だけ `scrapers/kaigiroku_net/fixtures/` に正式移植する
+
+推奨コミット:
+```bash
+git add docs/scrapers/kaigiroku_net_recon.md docs/DATA_SOURCES.md log.md
+git status   # 3 ファイル + 想定外がないか確認
+git commit -m "docs: kaigiroku.net recon -> A-4 verdict YELLOW (Playwright required)"
+git push origin main
+```
+
+---
+
 ## 2026-05-19 (Mon) Session 1 — Week 0 Day 1
 
 ### Completed
