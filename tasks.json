@@ -374,16 +374,16 @@
       "type": "infra",
       "priority": "Must",
       "week": 1,
-      "status": "pending",
+      "status": "in_progress",
       "dependencies": ["INFRA-004", "INFRA-007"],
       "acceptance_criteria": [
         "main push でビルド + Cloud Run へ自動デプロイ",
         "Cloud Build Trigger 設定"
       ],
       "drop_condition": null,
-      "started_at": null,
+      "started_at": "2026-05-20T23:30:00+09:00",
       "completed_at": null,
-      "notes": ""
+      "notes": "Session 10 で cloudbuild.yaml 雛形作成済 (build → Artifact Registry push → Cloud Run deploy → /health smoke test の 4 step、E2_HIGHCPU_8、20min タイムアウト)。Week 1 残: ① Artifact Registry repo 作成、② cloud-build-deployer / citify-api-runtime SA 作成、③ gcloud builds triggers create で GitHub 連携、④ 実 push で動作確認"
     },
 
     {

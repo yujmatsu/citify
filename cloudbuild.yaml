@@ -1,0 +1,116 @@
+# =============================================================================
+# Citify Cloud Build パイプライン (citify-api → Cloud Run)
+# =============================================================================
+# 用途:
+#   main ブランチ push をトリガーに、apps/api を Docker ビルド → Artifact
+#   Registry push → Cloud Run デプロイ。
+#
+# トリガー作成 (Week 1 Day 1 に実行):
+#   gcloud builds triggers create github \
+#     --name=citify-api-main \
+#     --repo-name=citify \
+#     --repo-owner=yujmatsu \
+#     --branch-pattern=^main$ \
+#     --build-config=cloudbuild.yaml \
+#     --region=asia-northeast1
+#
+# 手動実行:
+#   gcloud builds submit --config=cloudbuild.yaml --region=asia-northeast1
+#
+# 前提リソース (Week 1 で Terraform 化):
+#   - Artifact Registry: asia-northeast1-docker.pkg.dev/citify-dev/citify-api
+#   - Cloud Run サービス: citify-api (asia-northeast1)
+#   - Service Account: cloud-build-deployer@citify-dev.iam (run.admin + iam.serviceAccountUser)
+# =============================================================================
+
+substitutions:
+  _REGION: asia-northeast1
+  _REPO: citify-api
+  _IMAGE: api
+  _SERVICE: citify-api
+  _RUNTIME_SA: citify-api-runtime@citify-dev.iam.gserviceaccount.com
+
+# Cloud Build 全体タイムアウト (default 10min → 20min に拡張、Docker build 余裕)
+timeout: 1200s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8           # ビルド高速化
+  dynamic_substitutions: true
+
+images:
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest"
+
+steps:
+  # ---------------------------------------------------------------------------
+  # 1. Docker ビルド (multi-stage、apps/api/Dockerfile)
+  # ---------------------------------------------------------------------------
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
+      - --cache-from=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
+      - --build-arg=GIT_SHA=${COMMIT_SHA}
+      - --file=apps/api/Dockerfile
+      - apps/api
+
+  # ---------------------------------------------------------------------------
+  # 2. Artifact Registry へ push (images: に列挙したタグを自動 push)
+  #    → steps 完了後に Cloud Build が自動で push するため明示 step 不要
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # 3. Cloud Run へデプロイ
+  # ---------------------------------------------------------------------------
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated                    # 公開 API (Week 5 で認証検討)
+      - --service-account=${_RUNTIME_SA}
+      - --set-env-vars=ENV=dev,GIT_SHA=${COMMIT_SHA},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION}
+      # Week 1 で Secret Manager 連携時にコメントアウト解除:
+      # - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
+      - --memory=512Mi
+      - --cpu=1
+      - --min-instances=0                          # Cold start 許容、コスト最優先
+      - --max-instances=10
+      - --concurrency=80
+      - --timeout=60s
+      - --port=8080
+      - --labels=project=citify,env=dev,managed_by=cloud-build
+
+  # ---------------------------------------------------------------------------
+  # 4. デプロイ後 smoke test (/health が 200 を返すか)
+  # ---------------------------------------------------------------------------
+  - id: smoke-test
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        URL=$(gcloud run services describe ${_SERVICE} \
+          --region=${_REGION} \
+          --format='value(status.url)')
+        echo "Deployed URL: $URL"
+        for i in 1 2 3 4 5; do
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$URL/health" || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ /health returned 200"
+            exit 0
+          fi
+          echo "Attempt $i: status=$STATUS, retrying in 5s..."
+          sleep 5
+        done
+        echo "❌ /health did not return 200 after 5 attempts"
+        exit 1

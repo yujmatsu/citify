@@ -81,7 +81,7 @@
 ### `cc:TODO` Terraform リソース apply
 
 - [ ] [INFRA-008] GCS state bucket 作成 + backend 移行
-- [ ] [INFRA-009] Cloud Build 自動デプロイパイプライン
+- [ ] [INFRA-009] Cloud Build 自動デプロイパイプライン `cc:WIP` — cloudbuild.yaml 雛形 (Session 10) 済、残: Artifact Registry repo + SA + Trigger 作成
 - [ ] [A-13] Terraform: Firestore / BigQuery / Pub/Sub / Secret Manager / Cloud Storage モジュール
 
 ### `cc:TODO` バックエンド

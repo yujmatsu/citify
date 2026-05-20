@@ -1,5 +1,69 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 11 — 小粒タスク 3 件 (LICENSE / .env.example / cloudbuild.yaml)
+
+### Completed
+
+- [x] **`LICENSE`** — MIT License、Copyright 2026 Yuji Matsumoto。README §10 で MIT 記載済も本体未作成だったため補完。Proto Pedia/Zenn 提出時の OSS ライセンス明示要件をクリア
+- [x] **`.env.example`** — 8 カテゴリ ~30 変数のテンプレート (基本 / GCP / Vertex AI / Firestore+BQ+GCS / Pub/Sub / スクレイパー / フロント / 観測性 / フィーチャーフラグ)。Secret Manager 推奨マーク (🔒) を各キーに付与
+- [x] **`cloudbuild.yaml`** — INFRA-009 の雛形先取り。4 step (docker build → 自動 push → gcloud run deploy → /health smoke test)、E2_HIGHCPU_8、20min timeout、--cache-from で増分ビルド、retry 付き smoke test
+- [x] **`tasks.json` INFRA-009** — status `pending` → `in_progress`、Week 1 残作業を notes に明記 (Artifact Registry repo / SA 2 種類 / Trigger 作成)
+- [x] **`Plans.md` Week 1**: INFRA-009 行に `cc:WIP` マーカー付与 + 残作業注記
+
+### Decisions / Design Notes
+
+- **`.env.example` 配置**: プロジェクトルート (README §3.2 で `cp .env.example .env.local` を案内している通り)。Frontend は `apps/web/.env.local` に分離する慣習だが、ハッカソン規模では一元管理優先
+- **`.gitignore` 確認**: 既に `!.env.example` で明示除外あり、誤って ignore される事故なし
+- **`cloudbuild.yaml` をルート配置**: GitHub Trigger のデフォルトパス。README §5 の `cloudbuild/` ディレクトリは将来別パイプライン (frontend / agents 別) を入れる予定で温存
+- **Service Account 2 種類設計**: ① `cloud-build-deployer` (Cloud Build 実行用、run.admin + iam.serviceAccountUser)、② `citify-api-runtime` (Cloud Run 実行時 ID、最小権限) — 責務分離で Week 1 Terraform 化時にきれいに書ける
+- **`--allow-unauthenticated`**: Week 1 では公開エンドポイント (国会 API スマホ閲覧)、Week 5 で Cloud Endpoints + Firebase Auth で保護検討
+- **`--min-instances=0`**: 個人開発・ハッカソン予算 ¥7,500/月 を優先、Cold start 1-2 秒は許容 (Veo 待機の方が圧倒的に長いため UX に影響なし)
+- **Smoke test を CD 内に組込み**: deploy 直後に `/health` 200 を確認、失敗時は失敗扱いで GitHub の commit status が red になる → ロールバック判断が即座に可能
+
+### Surprises / Risks
+
+- **`cloudbuild.yaml` の `_RUNTIME_SA` 参照**: SA 自体は Week 1 で Terraform 経由作成のため、初回 trigger 実行までに作っておく必要あり。Week 1 Day 1 の作業順序: ① Artifact Registry repo `gcloud artifacts repositories create citify-api ...` → ② SA 2 種類作成 → ③ trigger 作成 → ④ 実 push 検証
+- **`.env.example` の `VERTEX_RAG_CORPUS_ID`**: Week 1 で RAG Engine セットアップ後にコーパス resource name (`projects/.../locations/.../ragCorpora/...`) を発行、これを `.env.local` に書き込む運用
+- **`cloudbuild.yaml` キャッシュ戦略**: `--cache-from=latest` は初回 build で miss する。2 回目以降の高速化目的、本番運用での効果検証は Week 1 後半
+
+### Week 0 → Week 1 残作業マッピング
+
+| Session 11 で前倒した内容 | Week 1 で完成させる残作業 |
+|---|---|
+| `cloudbuild.yaml` 雛形 | Trigger 作成 + Artifact Registry repo + SA 2 種類 + 実 push 検証 |
+| `.env.example` | `.env.local` 実値設定 + Secret Manager 連携 |
+| `LICENSE` | (完成、追加作業なし) |
+
+→ Week 1 Day 1 の DevOps セットアップが **半日 → 1-2 時間に短縮見込み**
+
+### Commit Reminder
+
+未コミット変更:
+
+- `LICENSE` (新規)
+- `.env.example` (新規)
+- `cloudbuild.yaml` (新規)
+- `tasks.json` (INFRA-009 status 更新)
+- `Plans.md` (INFRA-009 行に cc:WIP)
+- `log.md` (このファイル、Session 11 追記)
+
+推奨コミット (Session 9/10 と一緒にまとめて 1 コミット推奨):
+```bash
+cd ~/projects/citify
+git add LICENSE .env.example cloudbuild.yaml tasks.json Plans.md README.md log.md
+# Session 5-7 分も含めるなら infra/seed/ docs/ apps/api/ infra/env/ .github/ も追加
+git status
+git commit -m "feat: Week 0 完了 + Week 1 前倒し (LICENSE / .env.example / cloudbuild.yaml)"
+git push origin main
+```
+
+### Next
+
+- **これで Week 0 やれることは打ち止め** — 残りは 5/21-5/25 完全休息推奨
+- Week 1 Day 1 (5/26 月) は `terraform apply` + Artifact Registry / SA 作成 + Cloud Build Trigger で約 1-2 時間、午後から国会 API クライアント (A-3) 着手可能
+
+---
+
 ## 2026-05-20 (Tue) Session 10 — README.md 改善 (Week 0 完了状態反映)
 
 ### Completed
