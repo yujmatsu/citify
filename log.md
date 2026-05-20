@@ -1,5 +1,53 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 5 — Phase 2 拡張: 不明 5 区追加調査
+
+### Completed
+
+- [x] **不明 5 区(新宿・墨田・北・大田・練馬) の議事録システム特定** (WebSearch 4 件)
+  - 新宿区 (13104): **DiscussNet SPA** へ判定 (`ssp.kaigiroku.net/tenant/shinjuku`, tenant=shinjuku) 🎉
+  - 墨田区 (13107): **DiscussNet SPA** へ判定 (`ssp.kaigiroku.net/tenant/sumida`, tenant=sumida) 🎉
+  - 北区 (13117): **Discuss Cabinet** (`discusscabinet.net/kitakugikai/list`) — **NTT-AT 系の新プロダクト発見**、Phase 3 で要詳細調査
+  - 大田区 (13111): **voices_asp** に再分類 (`gikai-ota-tokyo.jp/ota/g08v_search.asp`) — `g08v_search.asp` ファイル名から確実
+  - 練馬区 (13120): URL 直リンク不明、custom のまま (Week 3 で voices_asp 着手時に curl で確認予定)
+- [x] **tier1_supplements.csv 更新** (4 行修正)
+- [x] **CSV 再生成 + 検収** — scraper_type 別カウント想定通り (kaigiroku 7→9, voices_asp 8→9, unknown 1767→1764)
+
+### Decisions / Design Notes
+
+- **Discuss Cabinet の発見**: `discusscabinet.net` は新発見。NTT-AT/会議録研究所系の DiscussNet 派生プロダクト群(DiscussNet / DiscussVision / DiscussCabinet / DiscussWeb)が判明。Phase 3 で個別調査
+- **大田区の voices_asp 判定**: URL は `/ota/` サブパスだが `g08v_search.asp` ファイル名が他の voices_asp 自治体と完全一致 → 同じ系統と確定
+- **練馬区の保留**: Tier 1 対応 7-8 件を Week 3-4 で実装する際に curl で実 URL を確認する戦略。今日全 23 区確定にこだわらない判断
+
+### Impact
+
+**A-4 (Playwright DiscussNet) でカバーできる Tier 1 自治体: 7 → 9 件 (+ 28% 増)**
+
+| Tier 1 kaigiroku (9 件) |
+|---|
+| 横浜市・大阪府・大阪市・岡山県・高知県・大分県・荒川区 + **新宿区・墨田区** |
+
+東京 23 区中の DiscussNet カバーが 1 → 3 区に拡大。B-2 比較ビュー(東京 23 区比較)の実現性が大幅に向上。
+
+### Commit Reminder
+
+未コミット変更(Session 4 と合わせて):
+
+- `infra/seed/tier1_supplements.csv` (Session 4 で新規 + 今回 4 行更新)
+- `infra/seed/build_municipality_master.py` (Session 4)
+- `infra/seed/municipality_master.csv` (再生成済、最新分布反映)
+- `infra/seed/README.md` (Session 4)
+- `log.md` (Session 4 + Session 5 追記)
+
+推奨コミット(まとめて 1 コミット推奨):
+```bash
+git add infra/seed/ log.md
+git commit -m "feat(seed): Phase 2 — Tier 1 supplements (30 self-gov, 9 kaigiroku, 5-vendor classification)"
+git push origin main
+```
+
+---
+
 ## 2026-05-20 (Tue) Session 4 — 自治体マスタ Phase 2 (Tier 1 補完 + 戦略再構築)
 
 ### Completed

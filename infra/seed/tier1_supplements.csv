@@ -3,20 +3,20 @@ municipality_code,scraper_type,scraper_base_url,tenant_id,press_rss_url,opendata
 13101,db_search,http://www.city.chiyoda.tokyo.dbsr.jp/,,,,1,false,chiyoda (DB-Search)
 13102,custom,https://www.kugikai.city.chuo.lg.jp/kaigiroku/,,,,1,false,chuo (independent site)
 13103,voices_asp,https://gikai2.city.minato.tokyo.jp/voices,,,,1,false,minato
-13104,unknown,,,,,1,false,shinjuku (URL TBD; broadcast via smart.discussvision.net but minutes URL not found)
+13104,kaigiroku,https://ssp.kaigiroku.net/tenant/shinjuku,shinjuku,,,1,false,shinjuku (DiscussNet SPA; verified via app-mints.com listing)
 13105,db_search,https://www.city.bunkyo.tokyo.dbsr.jp/,,,,1,false,bunkyo (DB-Search)
 13106,voices_asp,https://taito.gijiroku.com/voices,,,,1,false,taito
-13107,unknown,,,,,1,false,sumida (URL TBD)
+13107,kaigiroku,https://ssp.kaigiroku.net/tenant/sumida,sumida,,,1,false,sumida (DiscussNet SPA)
 13108,db_search,https://www.city.koto.tokyo.dbsr.jp/,,,,1,false,koto (DB-Search)
 13109,db_search,https://kaigiroku.city.shinagawa.tokyo.jp/,,,,1,false,shinagawa (likely DB-Search; verify Phase 3)
 13110,kensakusystem_legacy,https://www.kensakusystem.jp/meguro,,,,1,false,meguro (kensakusystem.jp legacy HTML4)
-13111,custom,https://www.gikai-ota-tokyo.jp/,,,,1,false,ota (independent CMS)
+13111,voices_asp,https://www.gikai-ota-tokyo.jp/ota,,,,1,false,ota (voices_asp; g08v_search.asp at /ota/ subpath instead of /voices/)
 13112,voices_asp,https://kugi.city.setagaya.tokyo.jp/voices,,,,1,false,setagaya (NOT DiscussNet; voices_asp vendor)
 13113,custom,https://shibukugi.tokyo/chukei_kaigiroku/,,,,1,false,shibuya (independent CMS by Kaigiroku-Kenkyusho; legacy at kaigiroku.net/kensaku/shibuya/)
 13114,custom,https://kugikai-nakano.jp/search.html,,,,1,false,nakano (independent)
 13115,voices_asp,https://suginami.gijiroku.com/voices,,,,1,false,suginami
 13116,kensakusystem_legacy,https://www.kensakusystem.jp/toshima,,,,1,false,toshima (kensakusystem.jp legacy HTML4; charset Shift_JIS)
-13117,unknown,,,,,1,false,kita (URL TBD)
+13117,custom,https://www.discusscabinet.net/kitakugikai/list,,,,1,false,kita (Discuss Cabinet by NTT-AT; new product line found; verify Phase 3)
 13118,kaigiroku,https://ssp.kaigiroku.net/tenant/arakawa,arakawa,,,1,false,arakawa (DiscussNet SPA; the only 23-ward DiscussNet)
 13119,voices_asp,https://itabashi.gijiroku.com/voices,,,,1,false,itabashi
 13120,custom,https://www.city.nerima.tokyo.jp/gikai/kaigiroku.html,,,,1,false,nerima (indirection page; system TBD)

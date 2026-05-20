@@ -649,20 +649,20 @@ municipality_code,name,prefecture,kana,population,scraper_type,scraper_base_url,
 13101,千代田区,東京都,チヨダク,,db_search,http://www.city.chiyoda.tokyo.dbsr.jp/,,,,1,false,chiyoda (DB-Search)
 13102,中央区,東京都,チュウオウク,,custom,https://www.kugikai.city.chuo.lg.jp/kaigiroku/,,,,1,false,chuo (independent site)
 13103,港区,東京都,ミナトク,,voices_asp,https://gikai2.city.minato.tokyo.jp/voices,,,,1,false,minato
-13104,新宿区,東京都,シンジュクク,,unknown,,,,,1,false,shinjuku (URL TBD; broadcast via smart.discussvision.net but minutes URL not found)
+13104,新宿区,東京都,シンジュクク,,kaigiroku,https://ssp.kaigiroku.net/tenant/shinjuku,shinjuku,,,1,false,shinjuku (DiscussNet SPA; verified via app-mints.com listing)
 13105,文京区,東京都,ブンキョウク,,db_search,https://www.city.bunkyo.tokyo.dbsr.jp/,,,,1,false,bunkyo (DB-Search)
 13106,台東区,東京都,タイトウク,,voices_asp,https://taito.gijiroku.com/voices,,,,1,false,taito
-13107,墨田区,東京都,スミダク,,unknown,,,,,1,false,sumida (URL TBD)
+13107,墨田区,東京都,スミダク,,kaigiroku,https://ssp.kaigiroku.net/tenant/sumida,sumida,,,1,false,sumida (DiscussNet SPA)
 13108,江東区,東京都,コウトウク,,db_search,https://www.city.koto.tokyo.dbsr.jp/,,,,1,false,koto (DB-Search)
 13109,品川区,東京都,シナガワク,,db_search,https://kaigiroku.city.shinagawa.tokyo.jp/,,,,1,false,shinagawa (likely DB-Search; verify Phase 3)
 13110,目黒区,東京都,メグロク,,kensakusystem_legacy,https://www.kensakusystem.jp/meguro,,,,1,false,meguro (kensakusystem.jp legacy HTML4)
-13111,大田区,東京都,オオタク,,custom,https://www.gikai-ota-tokyo.jp/,,,,1,false,ota (independent CMS)
+13111,大田区,東京都,オオタク,,voices_asp,https://www.gikai-ota-tokyo.jp/ota,,,,1,false,ota (voices_asp; g08v_search.asp at /ota/ subpath instead of /voices/)
 13112,世田谷区,東京都,セタガヤク,,voices_asp,https://kugi.city.setagaya.tokyo.jp/voices,,,,1,false,setagaya (NOT DiscussNet; voices_asp vendor)
 13113,渋谷区,東京都,シブヤク,,custom,https://shibukugi.tokyo/chukei_kaigiroku/,,,,1,false,shibuya (independent CMS by Kaigiroku-Kenkyusho; legacy at kaigiroku.net/kensaku/shibuya/)
 13114,中野区,東京都,ナカノク,,custom,https://kugikai-nakano.jp/search.html,,,,1,false,nakano (independent)
 13115,杉並区,東京都,スギナミク,,voices_asp,https://suginami.gijiroku.com/voices,,,,1,false,suginami
 13116,豊島区,東京都,トシマク,,kensakusystem_legacy,https://www.kensakusystem.jp/toshima,,,,1,false,toshima (kensakusystem.jp legacy HTML4; charset Shift_JIS)
-13117,北区,東京都,キタク,,unknown,,,,,1,false,kita (URL TBD)
+13117,北区,東京都,キタク,,custom,https://www.discusscabinet.net/kitakugikai/list,,,,1,false,kita (Discuss Cabinet by NTT-AT; new product line found; verify Phase 3)
 13118,荒川区,東京都,アラカワク,,kaigiroku,https://ssp.kaigiroku.net/tenant/arakawa,arakawa,,,1,false,arakawa (DiscussNet SPA; the only 23-ward DiscussNet)
 13119,板橋区,東京都,イタバシク,,voices_asp,https://itabashi.gijiroku.com/voices,,,,1,false,itabashi
 13120,練馬区,東京都,ネリマク,,custom,https://www.city.nerima.tokyo.jp/gikai/kaigiroku.html,,,,1,false,nerima (indirection page; system TBD)
