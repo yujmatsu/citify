@@ -217,7 +217,7 @@ http://giji.city.yokohama.lg.jp/tenant/yokohama/MinuteBrowse.html
 
 ### 2.3 tenant_id 一覧(暫定)
 
-> ⚠️ **重要**: 当初リストにあった `setagaya`, `sapporo` は **DiscussNet ではなく別ベンダ** (Microsoft ASP 系 `/voices/*.asp`)。Week 0 調査で判明、A-4 の対象から除外する。
+> ⚠️ **重要**: 当初リストにあった `setagaya`, `sapporo` は **DiscussNet ではなく別ベンダ (VOICES/Web 系)** — **§3 (voices_asp)** で扱う。Week 0 調査で判明、A-4 の対象から除外。
 
 | 自治体 | tenant_id | モデル | 確認状況 |
 |---|---|---|---|
@@ -316,45 +316,185 @@ async def fetch_minute_speeches(tenant_id: str, meeting_url: str) -> list[Speech
   - Chromium OOM 頻発 → Cloud Run メモリ 1 GiB → 2 GiB に増設
   - selector 設計が破綻 → 中央型のみに範囲縮小、白ラベルは Phase 3 へ
 
-### 2.8 別ベンダ系 (`*/voices/*.asp`) — A-4 対象外
+---
 
-`札幌市 (sapporo.gijiroku.com)`、`世田谷区 (kugi.city.setagaya.tokyo.jp)` などは Microsoft ASP/ASP.NET ベースの **別ベンダ製品**。DiscussNet ではないため A-4 のスコープ外。
+## 3. 自治体議事録 — voices_asp (VOICES/Web 系)
 
-- 採用自治体の把握、URL パターン整理、parser 設計は **C-2 または別タスク** として Phase 2 以降に切り出す
-- 影響範囲: 札幌市、世田谷区は Tier 1 候補から外れる可能性 → カバレッジ戦略に注意
-- 別 recon doc (`docs/scrapers/voices_asp_recon.md`) として記録予定 (未着手)
+> 📝 **2026-05-20 新設**: Week 0 構造調査 (`docs/scrapers/voices_asp_recon.md`) を反映。判定 **🟢 GREEN — BeautifulSoup + httpx で実装容易**(Playwright 不要)。
+
+### 3.1 概要
+
+製品名 **VOICES/Web** (HTML タイトルから判明)。DiscussNet (会議録研究所/NTT-AT) とは **別ベンダ**、ASP/ASP.NET ベースで多数の自治体が採用。Tier 1 自治体だけで 9 件確認済。札幌市・東京 23 区中 7 区(港・台東・世田谷・杉並・板橋・足立・江戸川)・大田区。
+
+**配信モデル 3 種類** (DiscussNet と同じ分類が voices_asp にも適用される):
+
+| モデル | URL パターン | 例 |
+|---|---|---|
+| **中央型** | `https://{name}.gijiroku.com/voices/...` | 札幌市 (`sapporo.gijiroku.com`)、台東区 (`taito.gijiroku.com`)、杉並区 (`suginami.gijiroku.com`)、板橋区 (`itabashi.gijiroku.com`) |
+| **白ラベル(サブドメイン)** | 自治体独自サブドメイン | 港区 (`gikai2.city.minato.tokyo.jp/voices`)、世田谷区 (`kugi.city.setagaya.tokyo.jp/voices`)、江戸川区 (`gikai.city.edogawa.tokyo.jp/voices`) |
+| **白ラベル(独自ドメイン)** | 自治体独自ドメイン | 足立区 (`www.gikai-adachi.jp/voices`)、大田区 (`www.gikai-ota-tokyo.jp/ota` — `/voices/` でなく `/ota/` 変則サブパス) |
+
+3 モデルすべてで **同一テンプレート**。
+
+### 3.2 URL パターン
+
+`/voices/` 配下に `g0Xv_*.asp` 形式のファイルが規約的に配置される。
+
+| ファイル | 役割 | 主要パラメタ |
+|---|---|---|
+| `{base}/voices/index.asp` | トップ (メニュー) | なし |
+| `{base}/voices/g08v_viewh.asp` | 本会議録 年度一覧 | なし(年度リスト出力) |
+| `{base}/voices/g08v_viewh.asp?Sflg=11&FYY=N&TYY=N` | 本会議録 N 年分会議リスト | `Sflg=11`, `FYY=YYYY`, `TYY=YYYY` |
+| `{base}/voices/g08v_viewh.asp?Sflg=10` | 本会議録 全件 | `Sflg=10` |
+| `{base}/voices/g08v_viewh.asp?Sflg=21&FYY=N&TYY=N` | 臨時会 N 年分 | `Sflg=21` |
+| `{base}/voices/g08v_viewh.asp?Sflg=20` | 臨時会 全件 | `Sflg=20` |
+| `{base}/voices/g08v_views.asp` | 委員会記録 年度一覧 | (同様の構造) |
+| `{base}/voices/g07v_search.asp` | 詳細検索 UI | フォーム POST |
+
+`/voices/cgi/` 配下は内部 CGI(robots.txt で Disallow)、`g0X_Video_*.asp` は動画ページ(同 Disallow)で、いずれも Citify のスコープ外。
+
+### 3.3 採用自治体一覧 (Tier 1 確認済 9 件)
+
+| 自治体 | scraper_base_url | モデル |
+|---|---|---|
+| 札幌市 | `https://sapporo.gijiroku.com/voices` | 中央型 |
+| 港区 | `https://gikai2.city.minato.tokyo.jp/voices` | 白ラベル(サブドメイン) |
+| 台東区 | `https://taito.gijiroku.com/voices` | 中央型 |
+| 世田谷区 | `https://kugi.city.setagaya.tokyo.jp/voices` | 白ラベル(サブドメイン) |
+| 杉並区 | `https://suginami.gijiroku.com/voices` | 中央型 |
+| 板橋区 | `https://itabashi.gijiroku.com/voices` | 中央型 |
+| 足立区 | `https://www.gikai-adachi.jp/voices` | 白ラベル(独自ドメイン) |
+| 江戸川区 | `https://www.gikai.city.edogawa.tokyo.jp/voices` | 白ラベル(サブドメイン) |
+| 大田区 | `https://www.gikai-ota-tokyo.jp/ota` | 白ラベル(`/ota/` 変則サブパス) |
+
+(※残り採用自治体は Phase 3 で `municipality_master.csv` に補完)
+
+### 3.4 取得フロー (BeautifulSoup + httpx)
+
+DiscussNet と違い **静的 XHTML サーバーサイドレンダリング** なので Playwright 不要。
+
+```
+1. {base}/voices/g08v_viewh.asp を GET → <ul class="kaigi_view"> 内の <li><a href="?Sflg=11&FYY=N&TYY=N"> を抽出 (年度リスト)
+2. 各年度ページを GET (Sflg=11&FYY=N&TYY=N) → 会議リンク一覧を抽出
+3. 個別会議ページを GET → 発言ブロックを抽出 (selector は Week 3 実装時に確定)
+4. 委員会記録 (g08v_views.asp) も同様にトラバース
+5. Shift_JIS を明示指定して decode (httpx で response.encoding='shift_jis')
+6. 構造化して BigQuery 投入 (kaigiroku と共通スキーマ、source='voices_asp')
+```
+
+### 3.5 利用規約・robots.txt
+
+3 ドメイン (sapporo.gijiroku.com / gikai2.city.minato.tokyo.jp / www.gikai-adachi.jp) で **完全に同一の robots.txt (1,621 bytes)** が使われており、同一ベンダ管理を裏付けている。
+
+```
+User-agent: *
+Disallow: /voices/cgi/        ← 内部 CGI スクリプト (禁止)
+Disallow: /voices2/cgi/
+Disallow: /gikai/cgi/
+Disallow: g07_Video_View.asp  ← 動画ページ群 (hot-link 防止のため禁止)
+Disallow: g08_Video_View.asp
+...
+Disallow: /voices/gikaidoc/index.html  ← PDF 索引 (禁止)
+```
+
+加えて、SEO Bot (DotBot, SemrushBot, AhrefsBot, BLEXBot, MJ12bot, YandexBot, CCBot, BaiduSpider 等多数) は明示的に全パス Disallow。
+
+**重要な遵守ルール**:
+
+- ✅ `/voices/g08v_viewh.asp` / `g08v_views.asp` / `g07v_search.asp` 等の議事録ページは **明示的に許可** (kaigiroku.net `/dnp/` の Disallow と対照的)
+- ❌ `/voices/cgi/` 内部 CGI は禁止 — Citify はアクセスしない
+- ❌ 動画ページ群は禁止 — Citify は動画を直接配信しないので無関係
+- ✅ 一般的なユーザー UA (Citify-Hackathon/0.1) は SEO Bot リストに該当しないため許可扱い
+- **クロール間隔は最低 5 秒** (政治的に静かに運用)
+- 文字コードは **Shift_JIS 統一** (`<meta charset=shift_jis>`、httpx で `encoding='shift_jis'` を明示指定必須)
+
+### 3.6 実装方針 (scrapers/voices_asp/)
+
+```python
+# scrapers/voices_asp/client.py
+
+from __future__ import annotations
+
+import httpx
+from bs4 import BeautifulSoup
+
+
+async def fetch_year_list(scraper_base_url: str) -> list[dict]:
+    """指定自治体の本会議録 年度一覧を取得 (g08v_viewh.asp)"""
+    url = f"{scraper_base_url}/g08v_viewh.asp"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url)
+        response.encoding = "shift_jis"   # 明示指定が必須
+        soup = BeautifulSoup(response.text, "lxml")
+        # <ul class="kaigi_view"> 内のリンクから (年度, Sflg, FYY, TYY) を抽出
+        years = []
+        for ul in soup.select("ul.kaigi_view"):
+            for a in ul.select("li > a"):
+                href = a.get("href", "")
+                # ?Sflg=11&FYY=YYYY&TYY=YYYY をパース
+                # ... URL パラメタ抽出
+                years.append({"label": a.text, "href": href})
+        return years
+
+
+async def fetch_meeting_list(scraper_base_url: str, year: int) -> list[dict]:
+    """特定年度の会議一覧を取得"""
+    url = f"{scraper_base_url}/g08v_viewh.asp"
+    params = {"Sflg": "11", "FYY": str(year), "TYY": str(year)}
+    # ... 同様
+```
+
+### 3.7 失敗時の対応 + Drop Point
+
+- HTML 構造が変わった自治体はスキップ、Cloud Logging に `SCRAPER_FAILED` で記録
+- `scrapers/voices_asp/fixtures/` に各自治体の HTML サンプル(年度一覧 / 会議一覧 / 発言ページ)を保存し、CI で構造検証
+- **Drop Point ルール** (詳細は `docs/scrapers/voices_asp_recon.md §6`):
+  - Week 3 末で 1 自治体動かなければ → 中央型のみに範囲縮小 (sapporo / taito / suginami / itabashi のみ)
+  - 個別会議ページの発言抽出が想定外に複雑 → メタ情報のみ取得で妥協、本文は Week 6 まで持ち越し
+  - 大田区の `/ota/` 変則サブパスで parser 破綻 → 大田区を一旦 unknown に降格
+
+### 3.8 他系統との比較
+
+| ベンダ | 実装方式 | 1 ページ取得時間 | コンテナサイズ | 月次コスト |
+|---|---|---|---|---|
+| kokkai (国会 API) | httpx + JSON | 0.3 秒 | base | ~$0 |
+| **kaigiroku** (DiscussNet) | **Playwright + Chromium** | 5-10 秒 | +400 MB | ~$0.6 |
+| **voices_asp** (VOICES/Web) | **BeautifulSoup + httpx + Shift_JIS** | **0.3-1 秒** | **+50 MB** | **~$0.1** |
+| db_search (Week 5 別途) | (未調査、likely BeautifulSoup) | (TBD) | (TBD) | (TBD) |
+
+→ voices_asp は **kaigiroku より全観点で楽**。Phase 2 で確定した「3 系統並行戦略」を技術的に支える役割。
 
 ---
 
-## 3. 自治体議事録 — DB-Search（150+自治体）
+## 4. 自治体議事録 — DB-Search（150+自治体）
 
-### 3.1 概要
+### 4.1 概要
 大和速記情報センターが提供する議事録検索システム。
 
-### 3.2 URL パターン
+### 4.2 URL パターン
 
 ```
 https://www.dbsr.{customer_name}-city.jp/...
 ```
 
-### 3.3 注意事項
+### 4.3 注意事項
 
 - kaigiroku.net とは構造が **大きく異なる**
 - 自治体ごとに URL prefix が違うため、自治体マスタに保持
 - レート制限：**10 秒間隔推奨**
 
-### 3.4 実装優先度
+### 4.4 実装優先度
 
 `FEATURES.md` で **Should (B-6)** 扱い。kaigiroku.net で 350+ 自治体カバー済みのため、本機能は **Week 5 で実装、間に合わなければ降格**。
 
 ---
 
-## 4. 自治体プレスリリース RSS
+## 5. 自治体プレスリリース RSS
 
-### 4.1 概要
+### 5.1 概要
 都道府県47 + 政令市20 + 中核市62 = **約 130 自治体** のプレスリリース RSS を取得。
 
-### 4.2 RSS URL の例
+### 5.2 RSS URL の例
 
 | 自治体 | RSS URL |
 |---|---|
@@ -363,7 +503,7 @@ https://www.dbsr.{customer_name}-city.jp/...
 | 大阪府 | `https://www.pref.osaka.lg.jp/.../press.xml` |
 | (※詳細は municipality_master.csv の `press_rss_url` カラムに保存) | |
 
-### 4.3 取得フロー
+### 5.3 取得フロー
 
 ```python
 # scrapers/press_rss/client.py
@@ -386,7 +526,7 @@ async def fetch_rss(rss_url: str) -> list[PressItem]:
         ]
 ```
 
-### 4.4 注意事項
+### 5.4 注意事項
 
 - RSS の **更新頻度はサイトによって異なる**（毎日更新もあれば週1も）
 - フォーマットが **RSS 2.0 / Atom 1.0** で混在 → `feedparser` で吸収可能
@@ -394,63 +534,63 @@ async def fetch_rss(rss_url: str) -> list[PressItem]:
 
 ---
 
-## 5. e-Gov パブリックコメント
+## 6. e-Gov パブリックコメント
 
-### 5.1 概要
+### 6.1 概要
 総務省が運営。中央省庁の意見公募中の案件を取得可能。
 
-### 5.2 エンドポイント
+### 6.2 エンドポイント
 
 ```
 https://public-comment.e-gov.go.jp/servlet/...
 ```
 
-### 5.3 取得方法
+### 6.3 取得方法
 公開APIは存在せず、HTML スクレイピング。
 
-### 5.4 実装優先度
+### 6.4 実装優先度
 
 `FEATURES.md` で **Could (C-3)**。**間に合えば実装、間に合わなければ諦める**。
 
 ---
 
-## 6. 政府審議会議事録
+## 7. 政府審議会議事録
 
-### 6.1 概要
+### 7.1 概要
 こども家庭庁、厚労省、文科省、経産省など各省庁の審議会議事録。会期外の素材として有用。
 
-### 6.2 取得方法
+### 7.2 取得方法
 省庁ごとにバラバラ。HTMLスクレイピング or PDF パース（Document AI）が必要。
 
-### 6.3 実装優先度
+### 7.3 実装優先度
 
 `FEATURES.md` で **Could (C-5)**。**Week 6 以降の余力次第**。
 
 ---
 
-## 7. 自治体公報 PDF
+## 8. 自治体公報 PDF
 
-### 7.1 概要
+### 8.1 概要
 各自治体が PDF で発行する公報。条例改正・予算等の最新情報。
 
-### 7.2 取得・パース方法
+### 8.2 取得・パース方法
 
 - 自治体 HP から PDF URL を取得
 - **Document AI** で構造化パース
 - BigQuery に投入
 
-### 7.3 実装優先度
+### 8.3 実装優先度
 
 `FEATURES.md` で **Could (C-6)**。**Document AI のコストが高いため、最後の Could**。
 
 ---
 
-## 8. 自治体オープンデータポータル
+## 9. 自治体オープンデータポータル
 
-### 8.1 概要
+### 9.1 概要
 内閣府の「推奨データセット」に準拠した自治体のオープンデータを取得。
 
-### 8.2 主要ポータル
+### 9.2 主要ポータル
 
 | 名前 | URL | 提供形式 |
 |---|---|---|
@@ -458,30 +598,30 @@ https://public-comment.e-gov.go.jp/servlet/...
 | 東京都 オープンデータ | https://portal.data.metro.tokyo.lg.jp/ | CKAN API |
 | 横浜市 オープンデータ | https://data.city.yokohama.lg.jp/ | CKAN API |
 
-### 8.3 用途
+### 9.3 用途
 議題の裏付けデータとして利用（例：「子育て支援費の推移」を議論時に提示）。
 
-### 8.4 実装優先度
+### 9.4 実装優先度
 
 `FEATURES.md` で **Could (C-4)**。
 
 ---
 
-## 9. Wikipedia API（用語解説用）
+## 10. Wikipedia API（用語解説用）
 
-### 9.1 概要
+### 10.1 概要
 役所言葉を翻訳する際の補助知識として、Wikipedia 日本語版から用語解説を取得。
 
-### 9.2 エンドポイント
+### 10.2 エンドポイント
 
 ```
 https://ja.wikipedia.org/api/rest_v1/page/summary/{title}
 ```
 
-### 9.3 認証
+### 10.3 認証
 **不要**、ただし User-Agent 必須。
 
-### 9.4 利用例
+### 10.4 利用例
 
 ```python
 # scrapers/wikipedia/client.py
@@ -496,7 +636,7 @@ async def get_term_summary(term: str) -> dict:
         return response.json()
 ```
 
-### 9.5 利用方針
+### 10.5 利用方針
 
 - 翻訳エージェントが「専門用語」を検出したときに **オンデマンドで取得**
 - Vertex AI RAG にも投入し、セマンティック検索可能に
@@ -504,50 +644,51 @@ async def get_term_summary(term: str) -> dict:
 
 ---
 
-## 10. 自治体マスタ CSV (初期データ)
+## 11. 自治体マスタ CSV (初期データ)
 
-### 10.1 ファイル名
+### 11.1 ファイル名
 `infra/seed/municipality_master.csv`
 
-### 10.2 スキーマ
+### 11.2 スキーマ
 
 ```csv
 municipality_code,name,prefecture,kana,population,
-scraper_type,tenant_id,press_rss_url,opendata_url,
+scraper_type,scraper_base_url,tenant_id,press_rss_url,opendata_url,
 tier,is_active,
 notes
 ```
 
-### 10.3 サンプル
+> 📝 Phase 2 (2026-05-20) で `scraper_base_url` カラム追加。詳細は `infra/seed/README.md`。
+
+### 11.3 サンプル
 
 ```csv
-municipality_code,name,prefecture,kana,population,scraper_type,tenant_id,press_rss_url,opendata_url,tier,is_active,notes
-13112,世田谷区,東京都,セタガヤク,915000,kaigiroku,setagaya,https://...,https://...,1,true,優先対応
-13104,新宿区,東京都,シンジュクク,346000,kaigiroku,shinjuku,https://...,https://...,1,true,
-13113,渋谷区,東京都,シブヤク,228000,kaigiroku,shibuya,https://...,https://...,1,true,
-14100,横浜市,神奈川県,ヨコハマシ,3777000,kaigiroku,yokohama,https://...,https://...,1,true,
-27100,大阪市,大阪府,オオサカシ,2750000,kaigiroku,osaka,https://...,https://...,1,true,
-01100,札幌市,北海道,サッポロシ,1971000,kaigiroku,sapporo,https://...,https://...,1,true,
-00000,国会,国,コッカイ,0,kokkai,,,1,true,国会会議録
+municipality_code,name,prefecture,kana,population,scraper_type,scraper_base_url,tenant_id,press_rss_url,opendata_url,tier,is_active,notes
+00000,国会,国,コッカイ,,kokkai,,,,,1,true,国会会議録 (kokkai.ndl.go.jp/api/speech)
+13104,新宿区,東京都,シンジュクク,,kaigiroku,https://ssp.kaigiroku.net/tenant/shinjuku,shinjuku,,,1,false,shinjuku (DiscussNet SPA)
+13112,世田谷区,東京都,セタガヤク,,voices_asp,https://kugi.city.setagaya.tokyo.jp/voices,,,,1,false,setagaya (voices_asp vendor)
+13118,荒川区,東京都,アラカワク,,kaigiroku,https://ssp.kaigiroku.net/tenant/arakawa,arakawa,,,1,false,arakawa (DiscussNet SPA)
+14100,横浜市,神奈川県,ヨコハマシ,,kaigiroku,http://giji.city.yokohama.lg.jp/tenant/yokohama,yokohama,,,1,false,yokohama (DiscussNet white-label; HTTP; Shift_JIS)
+01100,札幌市,北海道,サッポロシ,,voices_asp,https://sapporo.gijiroku.com/voices,,,,1,false,sapporo (voices_asp)
 ```
 
-### 10.4 Tier 定義
+### 11.4 Tier 定義
 
 | Tier | 説明 | 目標カバレッジ |
 |---|---|---|
-| 1 | 最優先対応自治体 | 50 自治体 |
-| 2 | Week 5 で追加対応 | 200 自治体 |
-| 3 | 余力時に対応 | 500+ 自治体 |
+| 1 | Citify が実装目標とする自治体 (23 区 + 政令市 + 国会) | ~44 件 |
+| 2 | Week 5 拡張対象 (中核市・主要地方都市) | 150-300 件 |
+| 3 | 余力時 / 対応予定なし | 残り |
 
-### 10.5 取得元
+### 11.5 取得元
 
-- 全国 1,788 自治体: 総務省「全国地方公共団体コード」CSV
-- kaigiroku.net 対応自治体: NTT-AT 公式ページから手動収集
-- press_rss_url: 各自治体 HP から手動収集 (Week 0 で作業)
+- 全国 1,788 自治体: 総務省「全国地方公共団体コード」CSV (R6.1.1 = 2024-01-01)
+- Tier 1 自治体の scraper 情報: `infra/seed/tier1_supplements.csv` (手動メンテ、Phase 2 で 30 件補完済)
+- press_rss_url: Phase 3 で各自治体 HP から手動収集予定
 
 ---
 
-## 11. スクレイピング失敗時のフォールバック戦略
+## 12. スクレイピング失敗時のフォールバック戦略
 
 ```mermaid
 graph TD
@@ -566,12 +707,13 @@ graph TD
 
 ---
 
-## 12. データ取得スケジュール
+## 13. データ取得スケジュール
 
 | ソース | 頻度 | トリガ | 実行時刻(JST) |
 |---|---|---|---|
 | 国会API | 日次 | Cloud Scheduler | 05:00 |
 | kaigiroku.net | 週次 | Cloud Scheduler | 月-金 06:00 |
+| voices_asp | 週次 | Cloud Scheduler | 月-金 06:30 |
 | プレスRSS | 日次 | Cloud Scheduler | 05:30, 12:00 |
 | e-Gov パブコメ | 週次 | Cloud Scheduler | 月曜 07:00 |
 | 政府審議会 | 週次 | Cloud Scheduler | 火曜 07:00 |
@@ -580,7 +722,7 @@ graph TD
 
 ---
 
-## 13. データ取得テスト
+## 14. データ取得テスト
 
 各スクレイパーに対し、HTML fixture を `scrapers/{source}/fixtures/` に保存し、構造変化を検知する unit test を作成：
 
@@ -598,7 +740,8 @@ def test_parse_speech_setagaya():
 
 ---
 
-## 14. 改訂履歴
+## 15. 改訂履歴
 
 - 2026-05-19 v0.1 初版作成
 - 2026-05-20 v0.2 §2 (kaigiroku.net) を Week 0 構造調査結果で大幅改訂。配信モデル 3 分類化、Playwright 必須化、`/dnp/` API の robots.txt Disallow 明示、setagaya/sapporo を別ベンダ判定で除外。詳細: `docs/scrapers/kaigiroku_net_recon.md`
+- 2026-05-20 v0.3 **§3 (voices_asp) を新設**(VOICES/Web 系、Tier 1 で 9 自治体カバー、BeautifulSoup で実装可能 GREEN 判定)。旧 §3-§14 を §4-§15 にリナンバリング。自治体マスタ CSV (§11) のスキーマに `scraper_base_url` を追加。詳細: `docs/scrapers/voices_asp_recon.md`

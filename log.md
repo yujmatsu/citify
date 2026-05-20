@@ -1,5 +1,82 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 7 — DATA_SOURCES.md §3 (voices_asp) 新設
+
+### Completed
+
+- [x] **DATA_SOURCES.md §3 (voices_asp) を新設** — Session 6 の recon を本ドキュメントに反映
+  - §3.1 概要 — VOICES/Web、別ベンダ、3 配信モデル(中央型 / 白ラベル サブドメイン / 白ラベル 独自ドメイン)
+  - §3.2 URL パターン — `g08v_viewh.asp` + `Sflg`/`FYY`/`TYY` パラメタの規約整理
+  - §3.3 採用自治体一覧 — Tier 1 確認済 9 件のテーブル
+  - §3.4 取得フロー — BeautifulSoup + httpx + Shift_JIS の擬似コード
+  - §3.5 利用規約・robots.txt — `/voices/*.asp` Allow / `/voices/cgi/` Disallow を明記
+  - §3.6 実装方針 — Python コード例(client.py 構造)
+  - §3.7 失敗時対応 + Drop Point — Week 3 末判定、中央型のみ縮小、本文取得保留の選択肢
+  - §3.8 他系統との比較表 — kokkai / kaigiroku / voices_asp / db_search のコスト・性能比較
+- [x] **§3-§14 を §4-§15 に renumber** — 全 12 セクション、~30 サブセクション
+  - §3 DB-Search → §4
+  - §4 Press RSS → §5
+  - §5 e-Gov → §6
+  - §6 政府審議会 → §7
+  - §7 公報 PDF → §8
+  - §8 オープンデータ → §9
+  - §9 Wikipedia → §10
+  - §10 自治体マスタ CSV → §11
+  - §11 フォールバック → §12
+  - §12 スケジュール → §13
+  - §13 テスト → §14
+  - §14 改訂履歴 → §15
+- [x] **§2.8 (別ベンダ系 — A-4 対象外) を削除** — §3 voices_asp が正式に作成されたため、§2.8 (out-of-scope 注釈) は冗長
+- [x] **§2.3 の警告に §3 への交差参照を追加** — 「setagaya, sapporo は §3 で扱う」と明示
+- [x] **§11.2 / §11.3 (自治体マスタスキーマ + サンプル)** に **`scraper_base_url` カラム追加を反映** — Phase 2 で追加した実装と整合
+- [x] **§13 スケジュール表に voices_asp 行追加** — 週次 月-金 06:30 (kaigiroku.net 06:00 と少しずらす)
+- [x] **§15 改訂履歴に v0.3 エントリ追加**
+
+### Decisions / Design Notes
+
+- **§2.8 削除の判断**: voices_asp が独立した §3 になることで、§2.8 の「out of scope」注釈は冗長。読み手の動線も「§2.3 の警告 → §3 で詳細」と直線化
+- **renumber は reverse order ではなく一括 big Edit で実施**: ~44 個の小 Edit を避け、1 つの大型 Edit で §2.8 末尾以降全体を新内容に置換、ロールバックも容易
+- **§13 スケジュール**: kaigiroku.net (Playwright + 重) と voices_asp (BeautifulSoup + 軽) を別時刻(06:00 と 06:30)に分散、Cloud Run の同時インスタンス起動を回避
+- **§11.3 サンプル CSV**: 旧サンプル(全部 kaigiroku) → 実態反映(国会・新宿・世田谷・荒川・横浜・札幌の 6 種類で複数 scraper_type を表示) — Phase 2 の判定がドキュメント上でも見える状態に
+
+### Surprises / Risks
+
+- なし(設計反映の機械的作業)
+
+### Commit Reminder
+
+未コミット変更:
+
+- `docs/DATA_SOURCES.md` (§3 新設 + §4-§15 renumber + 改訂履歴追記)
+- `log.md` (このファイル、Session 7 追記)
+
+> 前回までのコミット未済分(Session 5/6) と合わせて 1 コミットでまとめる選択肢もあります。それぞれ独立性の高いトピックなので、分けたい場合は次の 3 コミット推奨:
+
+```bash
+# 1. Phase 2 拡張 (5 区追加調査) — Session 5 分
+git add infra/seed/tier1_supplements.csv infra/seed/municipality_master.csv
+git commit -m "feat(seed): identify 4 more wards (shinjuku/sumida -> kaigiroku, ota -> voices_asp, kita -> discusscabinet)"
+
+# 2. voices_asp recon — Session 6 分
+git add docs/scrapers/voices_asp_recon.md
+git commit -m "docs: voices_asp recon -> GREEN verdict (BeautifulSoup, no Playwright)"
+
+# 3. DATA_SOURCES.md §3 新設 — Session 7 分
+git add docs/DATA_SOURCES.md log.md
+git commit -m "docs: add DATA_SOURCES.md §3 voices_asp, renumber existing §3-§14"
+
+git push origin main
+```
+
+または **1 コミットでまとめ** たい場合:
+```bash
+git add infra/seed/ docs/scrapers/ docs/DATA_SOURCES.md log.md
+git commit -m "feat: voices_asp系 recon + 5-ward classification + DATA_SOURCES §3 added"
+git push origin main
+```
+
+---
+
 ## 2026-05-20 (Tue) Session 6 — voices_asp 予備調査 (VOICES/Web 系統)
 
 ### Completed
