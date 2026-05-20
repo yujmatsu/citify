@@ -1,5 +1,80 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 15 — RAG 用 corpus 大量投入 (1428 unique speeches)
+
+### Completed
+
+- [x] **TRUNCATE TABLE**: 既存 100 件をクリアしてクリーンスタート
+- [x] **9 ペルソナ関心軸 × 365 日 × 各 200 件 (起業/移住は API hit が少なく 74/68 件)** で BQ 投入:
+  - 子育て 200 (hits 693), 住宅 200 (hits 618), 雇用 200 (hits 1150), 結婚 200 (hits 339),
+    防災 200 (hits 1167), 教育 200 (hits 3316), 医療 200 (hits 3483), 起業 74 (hits 74), 移住 68 (hits 68)
+- [x] **合計**: total_rows=1542、unique_speeches=**1428**(重複 7.4%、健全レベル)
+- [x] **期間**: 2025-05-21 〜 2026-04-28(11 ヶ月分、Diet 休会含む実 calendar 反映)
+- [x] **政党分布**: **15 政党 + 役職** カバー、自民 448 / 立憲系 129 / 国民民主系 135 / 維新 39 / 共産 39 / 公明 47 / 参政 78 / みらい 26 / れいわ 12 等 — 完全な政治的中立性
+- [x] **多重 hit ID 発見**: 金子恭之・豊田真由子が 4 keywords に該当 = 横断的議論議員、RAG ranking 強化候補
+
+### Decisions / Design Notes
+
+- **TRUNCATE して再投入**: 既存 100 件は同一キーワードで重複するため、unique 件数を保証する設計
+- **重複は受容**: 同一 speech が複数 topic に該当する場合の dup_count は「議論の横断性指標」として活用可能。dedup したい場合は `SELECT DISTINCT id` or `ROW_NUMBER() OVER (PARTITION BY id)` で対応
+- **API total が予想以上**: 「教育」「医療」「雇用」「防災」は 1000-3500 hits、`--max 200` でないと全部取得すると 90 分かかる。RAG demo には 200 件/topic で十分
+- **「起業」「移住」が少ない (74/68)**: 国会で direct discussion が少ない topic、検索キーワード変更余地あり (起業 → スタートアップ + 創業、移住 → 地方創生 + 関係人口)
+
+### 月次分布 (Diet calendar 反映)
+
+| 月 | unique 件数 | 備考 |
+|---|---:|---|
+| 2025-05 | 22 | 通常国会末期 |
+| 2025-06 | 75 | 通常国会継続 |
+| 2025-09 | 1 | 休会(臨時国会前) |
+| 2025-11 | 63 | 臨時国会 |
+| 2025-12 | 42 | 臨時国会末期 |
+| 2026-02 | 9 | 通常国会開始間際 |
+| 2026-03 | 407 | 予算審議 |
+| 2026-04 | **809** | 予算成立後の各委員会活発化、年度初頭 |
+
+→ partition by meeting_date が効いて、月別クエリは超高速見込み (フルスキャン回避)
+
+### RAG corpus としての完成度
+
+| 観点 | 状態 |
+|---|---|
+| 件数 | ✅ 1428 unique (RAG semantic search に十分) |
+| 時間スプレッド | ✅ 11 ヶ月分、季節変動・国会会期もカバー |
+| 政党分布 | ✅ 15 政党、与野党 + 新興政党まで網羅 = 政治的中立性確保 |
+| トピック分布 | ✅ 9 ペルソナ関心軸全カバー、ペルソナ別フィード生成の素材完備 |
+| データサイズ | ✅ ~10MB 推定、BQ クエリ料金最小 |
+| 投入時間 | ✅ 2 分強 (1542 / 120 sec ≒ 13 件/秒)、レート制限遵守 |
+
+### Surprises / Risks
+
+- **「医療」「教育」「雇用」が圧倒的に多い hits**: 国会の主要議論 topic で、議事録の中で頻出。Citify の「For You」フィードで偏る可能性 → A-6 影響度 Agent で各ペルソナ向けに重み調整必要
+- **2026-09 = 1 件**: 完全な国会休会期間。Citify が「新着 0 件」状態をうまく扱う UI 必要 (FEATURES.md A-8 For You フィード)
+- **政党名の不統一**: 立憲民主・無所属 (83) / 立憲民主党・無所属 (32) / 立憲民主・社民・無所属 (14) は同系列だが別文字列。BQ クエリで集計時に `REGEXP_CONTAINS(speaker_group, '立憲')` 等で正規化必要
+
+### Next (Phase D 準備完了)
+
+corpus 投入完了 → **Phase D (Vertex AI RAG Engine A-10)** で:
+- 1428 件を index 化 (embedding 生成)
+- セマンティック検索の動作確認 (Week 1 終了時判定基準 ④ 達成)
+- 「子育て世代 + 東京 + 防災」のような複合クエリで関連 speech 3-5 件取得デモ
+
+### Commit Reminder
+
+未コミット変更:
+
+なし(BQ への data 投入は git 管理外、log.md 追記のみ)。
+
+`log.md` のみ commit 推奨:
+```bash
+cd ~/projects/citify
+git add log.md
+git commit -m "docs(log): Session 15 — RAG 用 corpus 1428 unique speeches を BQ 投入"
+git push origin main
+```
+
+---
+
 ## 2026-05-21 (Wed) Session 14 — Week 1 Phase C: BigQuery 投入バッチ実装 (A-3 完全完了)
 
 ### Completed
