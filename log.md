@@ -1,5 +1,52 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 10 — README.md 改善 (Week 0 完了状態反映)
+
+### Completed
+
+- [x] **「🚧 開発状況」セクション新規追加** — Week 0 完了 / Week 1 着手予定の俯瞰テーブル + Plans.md/tasks.json への内部リンク
+- [x] **Week 0 サンプル Cloud Run デプロイ済テーブル追記** — URL `https://hello-citify-46070204654.asia-northeast1.run.app`、smoke test 200 / ~360ms、GCP プロジェクト `citify-dev` (asia-northeast1, ¥7,500/月)、14 個 API 有効化 (依存込み 23 個)
+- [x] **scraper 5 ベンダ分類への言及追加** — kaigiroku / voices_asp / db_search / kensakusystem_legacy / custom、DATA_SOURCES.md への誘導
+- [x] **GitHub クローン URL の placeholder 修正** — `{your-username}` → `yujmatsu` (2 箇所: §3.1 clone コマンド, §11.お問い合わせ Issues リンク)
+- [x] **§3.3 GCP API 一覧を実態と一致** — 9 個 → 14 個 (documentai / artifactregistry / logging / cloudtrace / iamcredentials を追加) + `gcloud auth application-default set-quota-project` を追記 (Session 3 で遭遇した ADC quota project 警告対策)
+- [x] **§3.6 バックエンド起動コマンド修正** — `uv venv && source .venv/bin/activate; uv pip install -e .` → `python3 -m venv .venv && source .venv/bin/activate; pip install fastapi 'uvicorn[standard]' httpx pydantic pydantic-settings` (Session 8 で uv venv が PEP 668 で詰まったため)
+- [x] **§5 ディレクトリ構成の scrapers/ 一覧拡張** — kokkai/kaigiroku_net/db_search/press_rss の 4 つ → 6 つ (voices_asp / kensakusystem / custom 追加)、各エントリにコメント追記
+
+### Decisions / Design Notes
+
+- **README の役割を再確認**: 「公開フェイス」 (Findy/Proto Pedia 経由でアクセスする外部者向け) として、Week 0 完了の見える化を最上位に配置。技術詳細は docs/* に誘導する構造を維持
+- **Cloud Run URL**: gcloud deploy 出力形式 (`{service}-{プロジェクト番号}.{region}.run.app`) を採用 (Session 3 で記録した 2 形式のうち、stable な v2 URL)
+- **API 一覧と setup コマンドの実体一致**: README 通りに新規 contributor が動かせるよう、Session 3/8 で実際に遭遇したコマンドベースに統一
+
+### Surprises / Risks
+
+- **README.md の Cloud Run URL は将来書き換え必要**: Week 1 で `hello-citify` (sample) を削除して `citify-api` (本番) をデプロイした時点で URL が変わる。その時に README を再更新する運用メモを Plans.md に反映するか検討
+- **`scrapers/kensakusystem/` ディレクトリ名**: `kensakusystem_legacy` という `scraper_type` 名と微妙に違うが、ディレクトリ名は短めの `kensakusystem` で OK と判断 (Phase 3 で legacy 以外を扱う場合は再考)
+
+### Commit Reminder
+
+未コミット変更:
+
+- `README.md` (5 箇所改修)
+- `log.md` (このファイル、Session 10 追記)
+
+推奨コミット (Session 9 と分けるか合体するかは Yuji 判断):
+```bash
+cd ~/projects/citify
+git add README.md log.md
+git commit -m "docs: update README with Week 0 status (Cloud Run URL, 14 APIs, 5 vendor scrapers)"
+git push origin main
+```
+
+または Session 9 (tasks.json + Plans.md) と合体:
+```bash
+git add tasks.json Plans.md README.md log.md
+git commit -m "feat: Week 0 status reflection (tasks.json + Plans.md + README update)"
+git push origin main
+```
+
+---
+
 ## 2026-05-20 (Tue) Session 9 — タスク管理基盤整備 (tasks.json + Plans.md)
 
 ### Completed
