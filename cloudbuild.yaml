@@ -58,9 +58,16 @@ steps:
       - apps/api
 
   # ---------------------------------------------------------------------------
-  # 2. Artifact Registry へ push (images: に列挙したタグを自動 push)
-  #    → steps 完了後に Cloud Build が自動で push するため明示 step 不要
+  # 2. Artifact Registry へ明示 push (deploy より先に image を AR 上に置く)
+  # NOTE: cloudbuild.yaml の `images:` ブロックは全 step 完了 *後* に push する
+  #       仕組みなので、deploy step より前に image を push する明示 step が必要
   # ---------------------------------------------------------------------------
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}
 
   # ---------------------------------------------------------------------------
   # 3. Cloud Run へデプロイ
