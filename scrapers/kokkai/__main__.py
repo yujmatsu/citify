@@ -12,6 +12,10 @@
 
     # ファイル出力
     python -m scrapers.kokkai --query 子育て --max 100 > /tmp/kokkai_sample.jsonl
+
+    # BigQuery に直接投入 (要 ADC / GOOGLE_APPLICATION_CREDENTIALS)
+    python -m scrapers.kokkai --query "子育て" --max 100 \\
+        --bq-project citify-dev --bq-dataset citify_raw
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from datetime import date, timedelta
 
@@ -32,9 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--query", "-q", type=str, default=None, help="キーワード絞り込み (any)")
     parser.add_argument("--speaker", type=str, default=None, help="発言者名で絞り込み")
-    parser.add_argument(
-        "--house", dest="house", type=str, default=None, help="衆議院 / 参議院"
-    )
+    parser.add_argument("--house", dest="house", type=str, default=None, help="衆議院 / 参議院")
     parser.add_argument(
         "--meeting", dest="meeting", type=str, default=None, help="会議名 (例: 本会議)"
     )
@@ -50,9 +53,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max", dest="max_total", type=int, default=None, help="最大取得件数 (default: 全件)"
     )
-    parser.add_argument(
-        "--page-size", type=int, default=30, help="1 ページあたり件数 (1-100)"
-    )
+    parser.add_argument("--page-size", type=int, default=30, help="1 ページあたり件数 (1-100)")
     parser.add_argument(
         "--rate-limit",
         type=float,
@@ -60,6 +61,36 @@ def _build_parser() -> argparse.ArgumentParser:
         help="ページ間待機秒数 (倫理: 最低 1.0 推奨)",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="DEBUG ログ")
+
+    # BigQuery 投入オプション (--bq-dataset 指定時に有効化)
+    bq = parser.add_argument_group(
+        "BigQuery 投入",
+        "--bq-dataset を指定すると stdout でなく BigQuery に streaming insert する",
+    )
+    bq.add_argument(
+        "--bq-dataset",
+        type=str,
+        default=None,
+        help="BigQuery dataset_id (例: citify_raw)。指定時のみ BQ モード",
+    )
+    bq.add_argument(
+        "--bq-table",
+        type=str,
+        default="kokkai_speeches",
+        help="BigQuery table_id (default: kokkai_speeches)",
+    )
+    bq.add_argument(
+        "--bq-project",
+        type=str,
+        default=None,
+        help="BigQuery project_id (default: GOOGLE_CLOUD_PROJECT env)",
+    )
+    bq.add_argument(
+        "--bq-batch-size",
+        type=int,
+        default=100,
+        help="streaming insert のバッチサイズ (default: 100)",
+    )
     return parser
 
 
@@ -69,11 +100,34 @@ async def _run(args: argparse.Namespace) -> int:
         if args.from_date
         else date.today() - timedelta(days=args.days)
     )
-    until_date = (
-        date.fromisoformat(args.until_date) if args.until_date else date.today()
-    )
+    until_date = date.fromisoformat(args.until_date) if args.until_date else date.today()
+
+    bq_mode = args.bq_dataset is not None
+    loader = None
+    if bq_mode:
+        # 遅延 import: BQ モード以外では google-cloud-bigquery 不要
+        from .bq_loader import BigQueryLoader
+
+        project_id = args.bq_project or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        if not project_id:
+            print(
+                "ERROR: --bq-project または GOOGLE_CLOUD_PROJECT 環境変数を指定してください",
+                file=sys.stderr,
+            )
+            return 2
+        loader = BigQueryLoader(
+            project_id=project_id,
+            dataset_id=args.bq_dataset,
+            table_id=args.bq_table,
+        )
+        print(
+            f"# BigQuery mode: project={project_id} "
+            f"table={args.bq_dataset}.{args.bq_table} batch_size={args.bq_batch_size}",
+            file=sys.stderr,
+        )
 
     count = 0
+    records_buffer: list = []
     async with KokkaiClient(rate_limit_sec=args.rate_limit) as client:
         async for record in client.fetch_speeches(
             from_date=from_date,
@@ -85,11 +139,18 @@ async def _run(args: argparse.Namespace) -> int:
             page_size=args.page_size,
             max_total=args.max_total,
         ):
-            # 1 行 1 record の JSON Lines (BigQuery 投入時にそのまま使える形式)
-            print(record.model_dump_json(by_alias=True))
             count += 1
+            if bq_mode:
+                records_buffer.append(record)
+            else:
+                # 1 行 1 record の JSON Lines (BigQuery 投入時にそのまま使える形式)
+                print(record.model_dump_json(by_alias=True))
 
-    print(f"# Fetched {count} speeches", file=sys.stderr)
+    if bq_mode and loader is not None:
+        inserted = loader.insert_records(records_buffer, batch_size=args.bq_batch_size)
+        print(f"# Inserted {inserted} rows into BigQuery", file=sys.stderr)
+    else:
+        print(f"# Fetched {count} speeches", file=sys.stderr)
     return 0
 
 

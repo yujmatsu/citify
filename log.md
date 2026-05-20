@@ -1,5 +1,140 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 14 — Week 1 Phase C: BigQuery 投入バッチ実装 (A-3 完全完了)
+
+### Completed
+
+- [x] **Terraform**: BigQuery dataset + table + IAM の 3 リソース追加 (Phase A の 13 と合わせて計 16)
+  - `google_bigquery_dataset.raw` (citify_raw, asia-northeast1, WRITER access に citify-api-runtime 付与)
+  - `google_bigquery_table.kokkai_speeches` (19 カラム、partition by meeting_date DAY、cluster by municipality_code+source、deletion_protection=false)
+  - `google_project_iam_member.runtime_bq_job_user` (citify-api-runtime に roles/bigquery.jobUser)
+- [x] **outputs.tf 拡張**: bq_dataset_id + bq_kokkai_table_full_id 出力追加
+- [x] **`apps/api/pyproject.toml`**: google-cloud-bigquery>=3.25 dep 追加
+- [x] **`scrapers/kokkai/bq_loader.py` 新規** (~120 行):
+  - `record_to_bq_row()`: SpeechRecord → BQ row dict 変換 (raw_json で原 JSON も保持)
+  - `BigQueryLoader`: batch_size 単位の streaming insert、google.cloud.bigquery を遅延 import (テストでは未要)
+  - `_BQClientProtocol`: テスト用に Protocol 定義 (mock 注入容易化)
+- [x] **`__main__.py` 拡張**: --bq-dataset / --bq-table / --bq-project / --bq-batch-size の 4 オプション追加。bq_mode と stdout mode の分岐
+- [x] **`scrapers/kokkai/tests/test_bq_loader.py` 新規** (6 ケース、MockBQClient ベース):
+  - ✅ 全フィールド mapping 確認
+  - ✅ raw_json round-trip (alias 化済 JSON 再構築可能)
+  - ✅ batch_size < 全件で 1 batch insert
+  - ✅ batch_size > 全件で複数 batch (100+100+50 で 3 回 flush)
+  - ✅ BQ errors で RuntimeError raise
+  - ✅ batch_size < 1 で ValueError
+- [x] **実 API + 実 BQ で end-to-end 検証**:
+  - `python -m scrapers.kokkai --query 子育て --days 60 --max 100 --bq-project citify-dev --bq-dataset citify_raw`
+  - 4 ページ取得 (30+30+30+10) → 100 件 → BQ insert 1 batch → ~6 秒で完了
+  - `bq query` で COUNT=100、source=kokkai、期間 2026-03-31〜04-22、政党分布 (自民 34/NULL 24/国民民主 11/参政 11/立憲 4/公明 3 等) の健全性確認
+- [x] **tasks.json 更新**: A-3 → **completed (4/4 達成)**、A-13 進捗ノート更新 (Phase A 13 + Phase C 3 = 16 リソース)
+- [x] **Plans.md Week 1 更新**: データ収集セクション cc:WIP → cc:完了、Week 1 終了時判定基準 ① も部分達成にチェック
+
+### A-3 受入条件 vs 実装状況 (Final)
+
+| 受入条件 | 状態 |
+|---|---|
+| 直近 30 日の発言を取得できる | ✅ `--days N` で柔軟指定可 (テスト時は 60 日で 120 件 hit、100 件取得) |
+| 検索キーワードで絞り込みできる | ✅ `--query/--speaker/--house/--meeting` の 4 軸 |
+| レート制限を遵守(リクエスト間 1 秒以上) | ✅ default 1.0、実測 page 間 1.5s (API response 含む) |
+| BigQuery にスキーマで保存 | ✅ citify_raw.kokkai_speeches に 100 行 insert、クエリ確認済 |
+
+**4/4 達成 — A-3 完全完了** 🎉
+
+### BQ クエリで判明した data 健全性
+
+```
+COUNT(*) BY source:
+  kokkai: 100 件 (期間 2026-03-31 〜 04-22、約 3 週間分)
+
+Speaker_group 分布 (Top 10):
+  自由民主党・無所属の会    34 (34%)
+  NULL                      24 (議長/委員長等)
+  国民民主党・無所属クラブ  11
+  参政党                    11
+  中道改革連合・無所属       7
+  チームみらい               5
+  立憲民主・無所属           4
+  公明党                     3
+  国民民主党・新緑風会       1
+```
+
+- ✅ **政治的中立性**: 与野党バランス取れた分布、特定政党偏重なし
+- ✅ **多様性**: 9 政党 + 無所属 (NULL) をカバー
+- ✅ **キーワード hit 数**: 「子育て」60 日で 120 件 = 1 日あたり ~2 件、ペルソナ B (子育て世代) 向けに十分な volume
+
+### Decisions / Design Notes
+
+- **Terraform で BQ を IaC 化** (bq CLI でなく): A-13 の方針通り、Cloud Run / BQ / 等を統一管理。terraform apply で 3 リソース 12 秒、運用も destroy で巻き戻し可能
+- **`google.cloud.bigquery` を遅延 import**: bq_loader.py の `BigQueryLoader.__init__` 内で import、テストで mock 注入時は実 google ライブラリ不要 (CI 軽量化、テスト 1.32 秒)
+- **`_BQClientProtocol` を Protocol 定義**: Pydantic / mypy 的に厳密、duck typing で MockBQClient が透過的に動く
+- **`raw_json` カラムを保持**: 取得時の original JSON を保存することで、将来 schema 変更時に再 extract 可能 (decoupling)
+- **`speech` カラムは TEXT (STRING)**: 倫理制約「全文転載禁止」だが、内部 RAG 用は OK。Citify UI 上では 3 行サマリのみ表示する設計 (FEATURES.md A-5)
+- **`partition by meeting_date`**: 期間絞込クエリ (最新 1 ヶ月など) でスキャン費用を 90% 削減見込み。クラスタリングは `municipality_code, source` で自治体軸の絞込にも効く
+
+### Surprises / Risks
+
+- **「子育て」60 日で 120 件 hit (期待値 ~30-50)**: 国会の年度初頭 (4 月) は予算審議で発言密度高い。今後のサンプリング戦略は month 単位の rolling window を推奨
+- **`speaker_group` の NULL が 24%**: 議長・委員長など中立ポジションの発言。BQ クエリでは NULL を別カテゴリ扱いで集計するか、`COALESCE(speaker_group, '無所属/役職')` で正規化検討
+- **Streaming insert の遅延**: BQ クエリ実行時に最新 batch がまだ buffer にいる場合あり (今回は 3 秒程度待機後 query で即見える状態だった)
+- **VSCode の Python interpreter 警告**: apps/api/pyproject.toml の deps が「未インストール」hint。実体は `apps/api/.venv/` にあるが、VSCode が interpreter を自動認識していない。Cmd+Shift+P → "Python: Select Interpreter" で修正可
+
+### Phase A + B + C 累計 (5/21 1 日で)
+
+| Phase | 内容 | 状態 |
+|---|---|---|
+| A | DevOps 動線 (Cloud Build → Cloud Run) | ✅ 完了 |
+| B | 国会 API クライアント (httpx + Pydantic + pytest) | ✅ 完了 |
+| C | BigQuery dataset + table + 投入バッチ | ✅ 完了 |
+
+**Week 1 終了時判定基準 3/4 達成** (残: ④ RAG セマンティック検索)
+
+### Commit Reminder
+
+未コミット変更:
+
+- `infra/env/dev/main.tf` (BQ dataset + table + IAM 追加)
+- `infra/env/dev/outputs.tf` (BQ 関連 2 出力追加)
+- `apps/api/pyproject.toml` (google-cloud-bigquery dep 追加)
+- `scrapers/kokkai/bq_loader.py` (新規)
+- `scrapers/kokkai/__main__.py` (BQ オプション 4 つ追加)
+- `scrapers/kokkai/tests/test_bq_loader.py` (新規、6 ケース)
+- `tasks.json` (A-3 → completed、A-13 進捗更新)
+- `Plans.md` (Week 1 データ収集 cc:完了、判定基準 ① 部分達成)
+- `log.md` (このファイル、Session 14 追記)
+
+推奨コミット (memory ルール: terraform fmt + ruff format を必ず通す):
+```bash
+cd ~/projects/citify
+source apps/api/.venv/bin/activate
+
+# format 強制 (commit 前必須、memory ルール)
+ruff format apps/api/ scrapers/
+ruff check --fix apps/api/ scrapers/
+terraform fmt -recursive infra/
+
+# CI と同じチェック
+ruff check apps/api/
+ruff format --check apps/api/
+terraform fmt -check -recursive infra/
+
+# 全部 OK なら commit
+git add infra/ apps/api/pyproject.toml scrapers/ tasks.json Plans.md log.md
+git status
+git commit -m "feat(bq): A-3 Phase C — BigQuery citify_raw.kokkai_speeches に 100 件投入動作確認"
+git push origin main
+```
+
+> ⚠️ この push は **apps/api/ を変更していない** ので Cloud Build trigger は走らない (`included_files: apps/api/**, cloudbuild.yaml`)。Lint workflow のみ走る。
+
+### Next (5/22 木以降)
+
+候補:
+- **Phase D: Vertex AI RAG Engine (A-10)** ~3-5h — Week 1 終了時判定基準 ④ 達成必要
+- **完全休息** 🛌 — 今日 1 日で Phase A+B+C 3 連続クリアは強烈。明日休んでも 5/26 Week 1 本番には十分間に合う
+- **国会データ大量投入** (--days 365 で 1 年分) — RAG 投入用の data 増量だが、Phase D 直前で OK
+
+---
+
 ## 2026-05-21 (Wed) Session 13 — Week 1 Phase B: 国会 API クライアント実装 (scrapers/kokkai/)
 
 ### Completed

@@ -27,3 +27,13 @@ output "cloud_build_trigger_url" {
   value       = "https://console.cloud.google.com/cloud-build/triggers/edit/${google_cloudbuild_trigger.api_main.trigger_id}?project=${var.project_id}"
   description = "Cloud Build trigger の管理 URL"
 }
+
+output "bq_dataset_id" {
+  value       = google_bigquery_dataset.raw.dataset_id
+  description = "BigQuery dataset ID (citify_raw)"
+}
+
+output "bq_kokkai_table_full_id" {
+  value       = "${var.project_id}.${google_bigquery_dataset.raw.dataset_id}.${google_bigquery_table.kokkai_speeches.table_id}"
+  description = "BigQuery kokkai_speeches テーブルの完全 ID (project.dataset.table 形式)"
+}

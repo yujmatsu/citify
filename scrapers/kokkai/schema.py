@@ -56,9 +56,7 @@ class SearchResponse(BaseModel):
     number_of_records: int = Field(
         alias="numberOfRecords", description="検索条件にマッチする総件数"
     )
-    number_of_return: int = Field(
-        alias="numberOfReturn", description="このレスポンスで返した件数"
-    )
+    number_of_return: int = Field(alias="numberOfReturn", description="このレスポンスで返した件数")
     start_record: int = Field(alias="startRecord", description="このページの開始位置 (1-based)")
     next_record_position: int | None = Field(
         default=None,

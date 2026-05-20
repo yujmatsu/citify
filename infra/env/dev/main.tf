@@ -166,9 +166,85 @@ resource "google_cloudbuild_trigger" "api_main" {
 }
 
 # ---------------------------------------------------------------------------
+# BigQuery: 生データ dataset + kokkai_speeches テーブル (Phase C)
+# ---------------------------------------------------------------------------
+# 設計方針 (docs/DATA_SOURCES.md §0.3 準拠):
+#   - dataset citify_raw: 議事録・プレス等の生データ集約 (asia-northeast1)
+#   - source 別に table を分離 (kokkai_speeches / kaigiroku_speeches など)
+#   - partition by meeting_date (DATE): 期間スキャン最小化
+#   - cluster by municipality_code, source: 自治体×ソース絞込で高速
+resource "google_bigquery_dataset" "raw" {
+  dataset_id  = "citify_raw"
+  location    = var.region
+  description = "Citify 生データ (議事録 / プレスリリース)。BQ クエリ料金最小化のため Tokyo に配置"
+  labels      = local.common_labels
+
+  # 開発中は dataset 内のテーブル削除を許容 (prod では false)
+  delete_contents_on_destroy = false
+
+  # citify-api-runtime SA がクエリできるよう access 付与
+  access {
+    role          = "OWNER"
+    special_group = "projectOwners"
+  }
+  access {
+    role          = "WRITER"
+    user_by_email = google_service_account.citify_api_runtime.email
+  }
+  access {
+    role          = "READER"
+    special_group = "projectReaders"
+  }
+}
+
+resource "google_bigquery_table" "kokkai_speeches" {
+  dataset_id          = google_bigquery_dataset.raw.dataset_id
+  table_id            = "kokkai_speeches"
+  description         = "国会会議録 検索 API から取得した発言レコード (source=kokkai 固定、municipality_code='00000')"
+  deletion_protection = false # 開発中は破棄しやすく
+
+  time_partitioning {
+    type  = "DAY"
+    field = "meeting_date"
+  }
+
+  clustering = ["municipality_code", "source"]
+
+  schema = jsonencode([
+    { name = "id", type = "STRING", mode = "REQUIRED", description = "speechID (国会 API の一意 ID)" },
+    { name = "source", type = "STRING", mode = "REQUIRED", description = "データソース識別子 ('kokkai' 固定)" },
+    { name = "municipality_code", type = "STRING", mode = "NULLABLE", description = "自治体コード ('00000' = 国会)" },
+    { name = "session", type = "INTEGER", mode = "NULLABLE", description = "国会回次" },
+    { name = "name_of_house", type = "STRING", mode = "NULLABLE", description = "衆議院 / 参議院" },
+    { name = "name_of_meeting", type = "STRING", mode = "NULLABLE", description = "本会議 / 予算委員会 等" },
+    { name = "issue", type = "STRING", mode = "NULLABLE", description = "会議号数" },
+    { name = "meeting_date", type = "DATE", mode = "NULLABLE", description = "開催日 (partition key)" },
+    { name = "speech_order", type = "INTEGER", mode = "NULLABLE", description = "同一会議内の発言順序" },
+    { name = "speaker", type = "STRING", mode = "NULLABLE", description = "発言者名" },
+    { name = "speaker_yomi", type = "STRING", mode = "NULLABLE", description = "発言者名 (読み仮名)" },
+    { name = "speaker_group", type = "STRING", mode = "NULLABLE", description = "所属政党" },
+    { name = "speaker_position", type = "STRING", mode = "NULLABLE", description = "役職" },
+    { name = "speech", type = "STRING", mode = "NULLABLE", description = "発言本文 (倫理: 内部 RAG のみ、転載禁止)" },
+    { name = "start_page", type = "INTEGER", mode = "NULLABLE" },
+    { name = "speech_url", type = "STRING", mode = "NULLABLE", description = "発言原典 URL" },
+    { name = "meeting_url", type = "STRING", mode = "NULLABLE", description = "会議録原典 URL" },
+    { name = "raw_json", type = "STRING", mode = "NULLABLE", description = "取得時のオリジナル JSON (デバッグ用)" },
+    { name = "fetched_at", type = "TIMESTAMP", mode = "REQUIRED", description = "取得タイムスタンプ (UTC)" },
+  ])
+
+  labels = local.common_labels
+}
+
+# citify-api-runtime に BigQuery ジョブ実行権限 (クエリ料金は project に紐づく)
+resource "google_project_iam_member" "runtime_bq_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# ---------------------------------------------------------------------------
 # 後続 (Week 1 後半 / Week 2 で追加予定):
 #   - module "firestore"        (modules/firestore/)
-#   - module "bigquery"         (modules/bigquery/)
 #   - module "pubsub"           (modules/pubsub/)
 #   - module "secret_manager"   (modules/secret_manager/)
 #   - module "cloud_storage"    (modules/cloud_storage/)

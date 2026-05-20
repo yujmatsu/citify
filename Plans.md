@@ -91,10 +91,10 @@
 - [x] [A-11] Cloud Run 本番デプロイ `cc:完了` — `citify-api` 起動済 (Firebase Hosting は Week 3 で別タスク化)
 - [ ] [A-12] CI/CD: pytest + Cloud Build 統合 `cc:WIP` — Lint + CD 動線済、pytest workflow + ロールバック手順未
 
-### `cc:WIP` データ収集
+### `cc:完了` データ収集
 
-- [x] [A-3] 国会会議録 API クライアント `cc:WIP` — Phase B 完了: schema/client/__main__/tests 9 ファイル、pytest 7/7 PASSED、CLI 「子育て」5 件取得 OK。残り: BigQuery 投入バッチ
-- [ ] BigQuery スキーマ定義 + 投入バッチ ← **Phase C (5/22 以降)**
+- [x] [A-3] 国会会議録 API クライアント `cc:完了` — schema/client/__main__/bq_loader/tests、pytest 13/13、CLI で 100 件取得→BQ 投入確認
+- [x] BigQuery スキーマ定義 + 投入バッチ `cc:完了` — citify_raw.kokkai_speeches (partition by meeting_date / cluster by municipality_code+source)、Terraform IaC 化、100 行 streaming insert 動作確認、政党分布の健全性も検証済
 
 ### `cc:TODO` RAG 基盤
 
@@ -103,10 +103,10 @@
 
 ### Week 1 終了時判定基準
 
-- [ ] terraform apply で全リソース構築(Phase A 分は完了、データストア系残)
+- [x] terraform apply で全リソース構築 **(部分達成: Phase A 13 + Phase C 3 = 16 リソース、Firestore/PubSub/Secret Manager は Week 2 で追加)**
 - [x] git push で自動デプロイ ✅
 - [x] 公開 URL で /health が 200 ✅
-- [ ] RAG でセマンティック検索動作
+- [ ] RAG でセマンティック検索動作 ← **Phase D (A-10) で対応**
 
 ---
 
