@@ -1,5 +1,63 @@
 # Citify 作業ログ
 
+## 2026-05-20 (Tue) Session 6 — voices_asp 予備調査 (VOICES/Web 系統)
+
+### Completed
+
+- [x] **VOICES/Web プロダクト識別** — HTML タイトルから判明、DiscussNet/kensakusystem.jp とは別ベンダ
+- [x] **3 ホスティング種別で同一テンプレート確認** (sapporo 中央型 / minato 白ラベル サブドメイン / adachi 白ラベル 独自ドメイン)
+- [x] **robots.txt 解析** — 3 テナント完全同一(1,621 bytes)、`/voices/*.asp` 議事録ページは明示的に Allow、`/voices/cgi/` のみ Disallow
+- [x] **HTML 構造分析** — 静的 XHTML 1.0 サーバーサイドレンダリング、SPA ではない、JavaScript は GA + SNS share button のみで本体には不要
+- [x] **URL 構造の解明** — `g08v_viewh.asp` 年度一覧 + `Sflg=11&FYY=N&TYY=N` パラメタで階層ドリル可能、極めてシンプル
+- [x] **判定: 🟢 GREEN — BeautifulSoup + httpx で実装容易**
+- [x] **`docs/scrapers/voices_asp_recon.md` 作成** (約 280 行、A-4 との比較・実装計画・Drop Point・残課題含む)
+
+### Decisions / Design Notes
+
+- **voices_asp は A-4 (Playwright) より大幅に楽**: コンテナ +50MB / メモリ 256MB / 1 ページ 0.3-1 秒 / インフラ ~$0.1/月、対して A-4 は +400MB / 1-2GB / 5-10 秒 / ~$0.6/月
+- **倫理判定は GREEN**: kaigiroku.net (`Disallow: /dnp/`) と違い、voices_asp の `/voices/*.asp` は robots.txt で明示的に許可
+- **Shift_JIS encoding 必須**: 3 テナント全てで `<meta charset=shift_jis>`、httpx で `response.encoding='shift_jis'` を明示指定する必要あり
+- **9 自治体 Tier 1 カバー価値**: 東京 23 区中 8 区 (35%) + 札幌市 = ペルソナ A (新社会人東京) のカバレッジが一気に充実
+- **委員会記録 (g08v_views.asp) は同構造を想定**: Week 3 で本会議録パーサー完成後に同パッチで対応見込み
+
+### Surprises / Risks
+
+- **adachi の /voices/ が 284 bytes の meta-refresh のみ** — `/voices/index.asp` への 3 秒リダイレクト。Week 3 着手時に `index.asp` を直接叩く設計に
+- **minato の /voices/ が 94 KB と非常に大きい** — 議題リストが inline で server-render されている可能性大、テンプレ変化のヒント
+- **大田区のサブパス変則** — `/ota/g08v_search.asp` で `/voices/` ではない、parser ロジックに変則対応必要
+- **個別会議録 URL は未確認** — `g08v_viewh.asp?Sflg=11&FYY=2025&TYY=2025` の先のページ構造は Week 3 で実装時に depth dive
+
+### Key Comparison: 3 ベンダの実装難度
+
+| ベンダ | scraper_type | 実装方式 | Citify 採用判定 |
+|---|---|---|---|
+| **国会会議録 API** | kokkai | httpx + JSON | ✅ GREEN (Week 1, 検証済) |
+| **DiscussNet SPA** | kaigiroku | **Playwright + Chromium** | 🟡 YELLOW (Week 2, A-4 Plan A) |
+| **VOICES/Web** | voices_asp | **BeautifulSoup + httpx + Shift_JIS** | 🟢 GREEN (Week 3-4) |
+| **DB-Search** | db_search | (Week 5 で別調査) | (B-6, 未調査) |
+| **kensakusystem.jp 旧 HTML4** | kensakusystem_legacy | BeautifulSoup (旧 HTML4) | (Phase 3 で判断) |
+| **Discuss Cabinet** | custom (北区) | (Phase 3 で別調査) | (NTT-AT 系新プロダクト) |
+
+→ **3 系統並行戦略は技術的に十分実現可能**。Yuji の戦略判断 (Session 4) の追加裏付け。
+
+### Commit Reminder
+
+未コミット変更:
+
+- `docs/scrapers/voices_asp_recon.md` (新規、約 280 行)
+- `log.md` (このファイル、Session 6 追記)
+
+> 補足: `/tmp/citify-week0/voices_asp_recon/*.html` は fixture 候補だが gitignore 推奨(Week 3 で `scrapers/voices_asp/fixtures/` に正式移植)
+
+推奨コミット(Session 5 と分離するか、まとめるか好み):
+```bash
+git add docs/scrapers/voices_asp_recon.md log.md
+git commit -m "docs: voices_asp recon -> GREEN verdict (BeautifulSoup, no Playwright)"
+git push origin main
+```
+
+---
+
 ## 2026-05-20 (Tue) Session 5 — Phase 2 拡張: 不明 5 区追加調査
 
 ### Completed
