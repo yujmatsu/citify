@@ -1,0 +1,46 @@
+{
+  "numberOfRecords": 2,
+  "numberOfReturn": 2,
+  "startRecord": 1,
+  "nextRecordPosition": null,
+  "speechRecord": [
+    {
+      "speechID": "121505254X01620260518_001",
+      "issueID": "121505254X01620260518",
+      "imageKind": "会議録",
+      "session": 215,
+      "nameOfHouse": "衆議院",
+      "nameOfMeeting": "本会議",
+      "issue": "第16号",
+      "date": "2026-05-18",
+      "speechOrder": 1,
+      "speaker": "石破茂",
+      "speakerYomi": "イシバ シゲル",
+      "speakerGroup": "自由民主党",
+      "speakerPosition": "内閣総理大臣",
+      "speech": "ただいまから本会議を開きます。本日は少子化対策について審議いたします…",
+      "startPage": 1,
+      "speechURL": "https://kokkai.ndl.go.jp/txt/121505254X01620260518/1",
+      "meetingURL": "https://kokkai.ndl.go.jp/#/detail?minId=121505254X01620260518"
+    },
+    {
+      "speechID": "121505254X01620260518_002",
+      "issueID": "121505254X01620260518",
+      "imageKind": "会議録",
+      "session": 215,
+      "nameOfHouse": "衆議院",
+      "nameOfMeeting": "本会議",
+      "issue": "第16号",
+      "date": "2026-05-18",
+      "speechOrder": 2,
+      "speaker": "高市早苗",
+      "speakerYomi": "タカイチ サナエ",
+      "speakerGroup": "自由民主党",
+      "speakerPosition": "",
+      "speech": "総理に伺います。子育て支援の具体策について…",
+      "startPage": 3,
+      "speechURL": "https://kokkai.ndl.go.jp/txt/121505254X01620260518/2",
+      "meetingURL": "https://kokkai.ndl.go.jp/#/detail?minId=121505254X01620260518"
+    }
+  ]
+}

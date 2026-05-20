@@ -1,0 +1,52 @@
+# =============================================================================
+# Citify プロジェクトルート pyproject.toml (開発ツール設定専用)
+# =============================================================================
+# このファイルは Python パッケージ定義ではなく、リポジトリ全体で共通する
+# 開発ツール (pytest / ruff) の設定を集約するためのものです。
+#
+# 各サブプロジェクトの Python パッケージ定義は:
+#   - apps/api/pyproject.toml      (FastAPI バックエンド)
+#   - 将来: agents/pyproject.toml  (Week 2 で追加予定)
+#
+# scrapers/ は別パッケージにせず、import 経路 `scrapers.kokkai.client` で
+# プロジェクトルートを sys.path に入れて運用 (pytest の pythonpath で対応)。
+# =============================================================================
+
+[tool.pytest.ini_options]
+# プロジェクトルートからの pytest 実行を前提に sys.path に "." を追加
+pythonpath = ["."]
+asyncio_mode = "auto"
+testpaths = [
+    "scrapers",
+    "apps/api/tests",
+]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+
+[tool.ruff]
+# スクレイパー / ルート用の Ruff 設定 (apps/api は apps/api/pyproject.toml 側)
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    ".venv",
+    "venv",
+    ".terraform",
+    "infra/seed/output",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "ARG", "RET", "SIM"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**/*.py" = ["ARG"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

@@ -1,7 +1,7 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T00:00:00+09:00",
+  "updated": "2026-05-21T00:30:00+09:00",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -430,7 +430,7 @@
       "type": "feature",
       "priority": "Must",
       "week": 1,
-      "status": "pending",
+      "status": "in_progress",
       "dependencies": ["RECON-001", "INFRA-008"],
       "acceptance_criteria": [
         "直近 30 日取得",
@@ -439,9 +439,9 @@
         "BigQuery 投入"
       ],
       "drop_condition": null,
-      "started_at": null,
+      "started_at": "2026-05-21T00:10:00+09:00",
       "completed_at": null,
-      "notes": "recon 結果: 平均 2,555 字/発言、議題単位 chunking 必須"
+      "notes": "Phase B 進捗: ✅ 直近 30 日取得 (--from/--until/--days)、✅ キーワード絞込 (--query は any、--speaker/--house/--meeting)、✅ レート制限 1 sec (default、--rate-limit で変更可)、✅ pytest 7/7 (MockTransport)、✅ 実 API CLI 動作確認、🔄 BigQuery 投入バッチ (Phase C)。実装ファイル: scrapers/kokkai/{schema,client,__main__}.py + tests/. 既知のハマり: ① Pydantic v2 で field 名 'date' が型 'date' と衝突 → meeting_date リネーム + alias='date'、② 実 API の startPage は int 0、spec doc の str '1' は古い情報 → int|None 採用、③ API は spec 外フィールド (searchObject/closing/speakerRole/pdfURL) も返す → extra='allow' で許容"
     },
     {
       "id": "A-4",

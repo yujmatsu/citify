@@ -91,10 +91,10 @@
 - [x] [A-11] Cloud Run 本番デプロイ `cc:完了` — `citify-api` 起動済 (Firebase Hosting は Week 3 で別タスク化)
 - [ ] [A-12] CI/CD: pytest + Cloud Build 統合 `cc:WIP` — Lint + CD 動線済、pytest workflow + ロールバック手順未
 
-### `cc:TODO` データ収集
+### `cc:WIP` データ収集
 
-- [ ] [A-3] 国会会議録 API クライアント (scrapers/kokkai/) ← **Phase B で着手**
-- [ ] BigQuery スキーマ定義 + 投入バッチ
+- [x] [A-3] 国会会議録 API クライアント `cc:WIP` — Phase B 完了: schema/client/__main__/tests 9 ファイル、pytest 7/7 PASSED、CLI 「子育て」5 件取得 OK。残り: BigQuery 投入バッチ
+- [ ] BigQuery スキーマ定義 + 投入バッチ ← **Phase C (5/22 以降)**
 
 ### `cc:TODO` RAG 基盤
 

@@ -1,5 +1,108 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 13 — Week 1 Phase B: 国会 API クライアント実装 (scrapers/kokkai/)
+
+### Completed
+
+- [x] **プロジェクトルート `pyproject.toml` 新規作成** — pytest + ruff の共通設定。`pythonpath = ["."]` で scrapers/ を import path に追加、testpaths に "scrapers" と "apps/api/tests"
+- [x] **`scrapers/__init__.py`** + **`scrapers/kokkai/__init__.py`** — Python パッケージ化、`from scrapers.kokkai import KokkaiClient` で import 可能
+- [x] **`scrapers/kokkai/schema.py`** — Pydantic v2 スキーマ:
+  - `SpeechRecord`: 14 フィールド、camelCase ↔ snake_case を alias で吸収、`extra="allow"` で将来のフィールド追加に強い
+  - `SearchResponse`: トップレベルレスポンス (numberOfRecords + nextRecordPosition + speechRecord)
+- [x] **`scrapers/kokkai/client.py`** — httpx async client:
+  - `KokkaiClient` (async context manager 対応)
+  - `fetch_speeches()` 非同期 generator (ページネーション内部処理 + max_total 制御)
+  - 引数: from_date / until_date / keyword / speaker / name_of_house / name_of_meeting / page_size / max_total
+  - レート制限 1 sec default、httpx.AsyncBaseTransport 注入対応 (test 用)
+  - exponential backoff (1 → 2 → 4 sec、最大 3 回 retry)
+  - User-Agent: "Citify-Hackathon/0.1 (+https://github.com/yujmatsu/citify)" (DATA_SOURCES.md §0.2 準拠)
+- [x] **`scrapers/kokkai/__main__.py`** — CLI エントリ:
+  - argparse で 9 オプション (--query/--speaker/--house/--meeting/--days/--from/--until/--max/--page-size/--rate-limit/--verbose)
+  - 出力は JSON Lines (1 行 1 record、by_alias=True、BigQuery 投入時にそのまま使える)
+- [x] **`scrapers/kokkai/tests/test_client.py`** — pytest 7 ケース、`httpx.MockTransport` ベース (実ネット不要):
+  - ✅ fixture から 2 件パース
+  - ✅ ページネーション (2 ページ x 30 + 20 = 50 件)
+  - ✅ max_total 早期終了
+  - ✅ クエリパラメタ正確に送信 (any / speaker / nameOfHouse)
+  - ✅ page_size 範囲外で ValueError
+  - ✅ 日付逆転で ValueError
+  - ✅ 5xx → 200 のリトライ動作
+- [x] **`scrapers/kokkai/tests/fixtures/sample_response.json`** — 2 レコード fixture (石破茂・高市早苗、本会議)
+- [x] **CLI 動作検証完了** — `python -m scrapers.kokkai --query 子育て --max 30` で 5 件 hit、JSON Lines 出力 OK、レート制限 1sec 守る、HTTP 200 OK、レスポンス bytes 文字化けなし
+- [x] **tasks.json 更新**: A-3 → in_progress (BigQuery 残のため)、acceptance_criteria 4 つ中 3 つ達成
+- [x] **Plans.md Week 1 更新**: データ収集セクション cc:TODO → cc:WIP、A-3 行に進捗注記
+
+### Decisions / Design Notes
+
+- **scrapers/ は別パッケージ化せず、プロジェクトルート pyproject.toml で `pythonpath = ["."]` 設定** — multi-pyproject の複雑性回避、`python -m scrapers.kokkai` で動く
+- **httpx.MockTransport を選択 (respx 不使用)** — httpx 標準機能で十分、追加 dep 不要、test 高速 (1.27s で 7 件)
+- **`fetch_speeches` を AsyncIterator にした** — 大量データ取得時に generator でメモリ効率良い、CLI でストリーミング出力可能、`max_total` で早期終了も自然
+- **`extra="allow"` を Pydantic config に入れる** — API が将来フィールド追加しても落ちない。実 API が spec 外の `searchObject/closing/speakerRole/pdfURL` を返していたので即座に効果実証
+- **`date` フィールドは `meeting_date` にリネーム + `alias="date"`** — Pydantic v2 の field 名と型名衝突回避。出力 JSON は `by_alias=True` で元の `"date"` キーに戻る
+- **`startPage` は `int | None`** — 実 API が int 0 を返したため。spec doc の `"1"` (string) は古い情報
+
+### Surprises / Risks
+
+- **Pydantic v2 の field 名 / 型名衝突**: `date: date` のような自然な書き方が `PydanticUserError: unevaluable-type-annotation` になる。回避策はリネーム or 文字列アノテーション (`"date"`) or `from datetime import date as DateT`
+- **実 API は spec doc と乖離あり**: startPage int / 追加フィールド 4 個 / speakerPosition null など。**spec はあくまで参考**、実 API レスポンスで schema を逆引きする必要あり。BigQuery 投入時も同じ罠に注意
+- **「子育て」キーワードで 5 件しか hit しない**: 過去 30 日では限定的。本番運用で十分な data 量を集めるには `--days 365` 等で長期間取得 + 複数キーワード並列取得が必要
+- **venv の実体は `apps/api/.venv/`**: シェルプロンプトの `(.venv)` は前回 activate 時の残骸表示。今後 venv 再 activate する際は `source apps/api/.venv/bin/activate` を使う。プロジェクトルートに venv は無い
+
+### A-3 受入条件 vs 実装状況
+
+| 受入条件 | 状態 |
+|---|---|
+| 直近 30 日の発言を取得できる | ✅ `--days 30` default、`--from/--until` で明示指定可 |
+| 検索キーワードで絞り込みできる | ✅ `--query` (any) + `--speaker/--house/--meeting` も |
+| レート制限を遵守(リクエスト間 1 秒以上) | ✅ default 1.0、`--rate-limit` で上書き可 |
+| BigQuery にスキーマで保存 | ❌ Phase C で実装 (BigQuery dataset + 投入バッチ) |
+
+**3/4 達成 — BigQuery 投入は Phase C (5/22 以降) に持ち越し**
+
+### 次の Phase 候補
+
+| Phase | 内容 | 想定時間 | 着手判断 |
+|---|---|---|---|
+| **C** | BigQuery dataset 作成 + 国会データ 100 件投入 | 2-3h | A-3 完了に必要、Week 1 終了時判定基準 ① 達成にも |
+| **D** | Vertex AI RAG Engine セットアップ + 国会データ index 化 (A-10) | 3-5h | Week 1 終了時判定基準 ④ (セマンティック検索) 達成必要 |
+| **E** | Terraform Firestore / Pub/Sub / Secret Manager モジュール化 (A-13) | 2-4h | Week 1 残作業、Week 2 着手前に終わらせたい |
+
+### Commit Reminder
+
+未コミット変更:
+
+- `pyproject.toml` (新規、プロジェクトルート、開発ツール設定専用)
+- `scrapers/__init__.py` (新規)
+- `scrapers/kokkai/__init__.py` (新規)
+- `scrapers/kokkai/schema.py` (新規、~60 行)
+- `scrapers/kokkai/client.py` (新規、~170 行)
+- `scrapers/kokkai/__main__.py` (新規、~100 行)
+- `scrapers/kokkai/tests/__init__.py` (新規、空)
+- `scrapers/kokkai/tests/test_client.py` (新規、~190 行)
+- `scrapers/kokkai/tests/fixtures/sample_response.json` (新規)
+- `tasks.json` (A-3 更新)
+- `Plans.md` (Week 1 データ収集セクション更新)
+- `log.md` (このファイル、Session 13 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+git add pyproject.toml scrapers/ tasks.json Plans.md log.md
+git status   # 12 ファイル staged 確認
+git commit -m "feat(scrapers): A-3 国会会議録 API クライアント (httpx async + pagination + 7 tests)"
+git push origin main
+```
+
+> ⚠️ この push は **apps/api/ を変更していない** ので Cloud Build trigger は走らない (included_files: apps/api/**, cloudbuild.yaml フィルタ)。これは意図通り
+
+### Next (5/22 木以降)
+
+Yuji の判断次第:
+- **続行する場合**: Phase C (BigQuery 投入) で A-3 完全完了 → A-10 RAG → Week 1 判定基準 4/4 達成
+- **休む場合**: 今日(5/21)は Phase A + B で十分過ぎる進捗 (Week 1 想定 5 日分のうち 2 日分)。明日は完全休息推奨
+
+---
+
 ## 2026-05-21 (Wed) Session 12 — Week 1 Phase A: DevOps 動線完成 (Cloud Build → Cloud Run 自動デプロイ)
 
 ### Completed
