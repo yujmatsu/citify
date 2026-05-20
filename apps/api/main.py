@@ -9,6 +9,7 @@ Cloud Run / ローカル開発 両対応の最小構成:
 
 Cloud Run デプロイ:
     Dockerfile 経由で gunicorn/uvicorn が PORT 環境変数を読む。
+    Week 1 Day 1: Cloud Build trigger 'citify-api-main' で main push 自動デプロイ運用開始。
 """
 
 from __future__ import annotations

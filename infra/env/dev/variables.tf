@@ -23,7 +23,19 @@ variable "env" {
   }
 }
 
-# Week 1 以降で追加予定:
+variable "github_owner" {
+  type        = string
+  description = "GitHub リポジトリ owner (Cloud Build trigger 用)"
+  default     = "yujmatsu"
+}
+
+variable "github_repo" {
+  type        = string
+  description = "GitHub リポジトリ名 (Cloud Build trigger 用)"
+  default     = "citify"
+}
+
+# Week 1 後半以降で追加予定:
 # variable "billing_account" { ... }
 # variable "gemini_model" {
 #   type    = string
