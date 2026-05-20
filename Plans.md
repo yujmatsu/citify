@@ -13,7 +13,7 @@
 | Week | 期間 | ゴール | 状態 |
 |---|---|---|---|
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
-| Week 1 | 5/26-6/1 | インフラ構築 + 国会 API + RAG | `cc:TODO` |
+| **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:WIP`** 🚧 Phase A (DevOps 動線) 5/21 前倒し完了 |
 | Week 2 | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | `cc:TODO` |
 | Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
@@ -76,22 +76,24 @@
 
 ---
 
-## Week 1 (5/26-6/1): インフラ構築 + 国会 API + 議事録 RAG `cc:TODO`
+## Week 1 (5/26-6/1): インフラ構築 + 国会 API + 議事録 RAG `cc:WIP`
 
-### `cc:TODO` Terraform リソース apply
+> **Phase A (5/21 前倒し) 完了** ✅ DevOps 動線完成。Cloud Run URL: `https://citify-api-hnraqfjt4a-an.a.run.app`
 
-- [ ] [INFRA-008] GCS state bucket 作成 + backend 移行
-- [ ] [INFRA-009] Cloud Build 自動デプロイパイプライン `cc:WIP` — cloudbuild.yaml 雛形 (Session 10) 済、残: Artifact Registry repo + SA + Trigger 作成
-- [ ] [A-13] Terraform: Firestore / BigQuery / Pub/Sub / Secret Manager / Cloud Storage モジュール
+### `cc:WIP` Terraform リソース apply
 
-### `cc:TODO` バックエンド
+- [x] [INFRA-008] GCS state bucket 作成 + backend 移行 `cc:完了` — `citify-dev-tf-state`、versioning ON、backend gcs 有効
+- [x] [INFRA-009] Cloud Build 自動デプロイパイプライン `cc:完了` — Trigger `citify-api-main` (id: d0deb628-...) + 13 リソース apply 済、実 push で 4 step 完走
+- [ ] [A-13] Terraform: Firestore / BigQuery / Pub/Sub / Secret Manager / Cloud Storage モジュール `cc:WIP` — AR/SA/IAM/Trigger は完了、データストア系は A-3/A-10 着手時に追加
 
-- [ ] [A-11] Cloud Run 本番デプロイ (Firebase Hosting は Week 3)
-- [ ] [A-12] CI/CD: pytest + Cloud Build 統合
+### `cc:WIP` バックエンド
+
+- [x] [A-11] Cloud Run 本番デプロイ `cc:完了` — `citify-api` 起動済 (Firebase Hosting は Week 3 で別タスク化)
+- [ ] [A-12] CI/CD: pytest + Cloud Build 統合 `cc:WIP` — Lint + CD 動線済、pytest workflow + ロールバック手順未
 
 ### `cc:TODO` データ収集
 
-- [ ] [A-3] 国会会議録 API クライアント (scrapers/kokkai/)
+- [ ] [A-3] 国会会議録 API クライアント (scrapers/kokkai/) ← **Phase B で着手**
 - [ ] BigQuery スキーマ定義 + 投入バッチ
 
 ### `cc:TODO` RAG 基盤
@@ -101,9 +103,9 @@
 
 ### Week 1 終了時判定基準
 
-- [ ] terraform apply で全リソース構築
-- [ ] git push で自動デプロイ
-- [ ] 公開 URL で /health が 200
+- [ ] terraform apply で全リソース構築(Phase A 分は完了、データストア系残)
+- [x] git push で自動デプロイ ✅
+- [x] 公開 URL で /health が 200 ✅
 - [ ] RAG でセマンティック検索動作
 
 ---

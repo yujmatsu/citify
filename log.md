@@ -1,5 +1,100 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 12 — Week 1 Phase A: DevOps 動線完成 (Cloud Build → Cloud Run 自動デプロイ)
+
+### Completed
+
+- [x] **INFRA-008**: GCS state bucket `citify-dev-tf-state` 作成 (asia-northeast1、versioning ON) + Terraform backend gcs 有効化 → `terraform init` で state migrate
+- [x] **GitHub App 連携**: Cloud Build の GitHub App 経由で yujmatsu/citify を接続 (OAuth UI フロー、1 回のみ)
+- [x] **INFRA-009 (Terraform 13 リソース apply)**:
+  - Artifact Registry repo `citify-api` (asia-northeast1)
+  - Service Account × 2: `cloud-build-deployer` / `citify-api-runtime`
+  - IAM project_iam_member × 8 (deployer: cloudbuild.builds.builder + run.admin + artifactregistry.writer + logging.logWriter / runtime: aiplatform.user + secretmanager.secretAccessor + logging.logWriter + cloudtrace.agent)
+  - IAM service_account_iam_member × 1 (deployer → runtime の actAs)
+  - Cloud Build Trigger `citify-api-main` (id: `d0deb628-64ca-4581-8644-dbd9e3f6aef0`)
+- [x] **A-11 (Cloud Run 本番デプロイ)**: `citify-api` (asia-northeast1) 起動、URL: `https://citify-api-hnraqfjt4a-an.a.run.app`、`/health` → 200 OK、`/version` で git_sha 注入確認
+- [x] **`infra/env/dev/outputs.tf` 新規作成**: artifact_registry_repo / cloud_build_deployer_email / citify_api_runtime_email / cloud_build_trigger_id / cloud_build_trigger_url の 5 出力
+- [x] **`infra/env/dev/variables.tf` 拡張**: github_owner / github_repo (yujmatsu / citify)
+- [x] **`apps/api/Dockerfile` 修正** (build エラー解決):
+  - `RUN --mount=type=cache` を削除 (BuildKit 専用、Cloud Build legacy builder では失敗)
+  - `UV_PROJECT_ENVIRONMENT` (uv sync 用) → `VIRTUAL_ENV=/opt/venv` + PATH 設定 (uv pip install の install 先指定)
+- [x] **`cloudbuild.yaml` 修正 (2 段階)**:
+  - 修正 1: bash 変数 `$URL` を `$$URL` にエスケープ (Cloud Build substitution との衝突回避)
+  - 修正 2: build と deploy の間に `push` step を明示追加 (`images:` ブロックは全 step 完了後の自動 push なので deploy より前に走らない)
+- [x] **tasks.json 更新**: INFRA-008 / INFRA-009 / A-11 → completed、A-12 / A-13 は partial 完了 notes、active_week 0 → 1
+- [x] **Plans.md 更新**: Week 1 全体ステータス `cc:TODO` → `cc:WIP`、対応 4 行を `cc:完了` 化、Week 1 終了時判定基準で 2/4 達成チェック
+
+### Cloud Build トラブルシューティング全 4 失敗の解析
+
+| 試行 | Build ID | Duration | 原因 step | エラー |
+|---|---|---|---|---|
+| 1 | 96009a9b | - | (parse) | `key in the template "URL" is not a valid built-in substitution` → bash `$URL` を `$$URL` に |
+| 2 | 6992c218 | 22s | build | Dockerfile `--mount=type=cache` が BuildKit 専用 → 削除 + `VIRTUAL_ENV` 設定 |
+| 3 | dd95ea88 | 55s | deploy | Image not found (`images:` は post-steps 動作) → 明示 `push` step 追加 |
+| 4 | 592738ca | 1m32s | - | **SUCCESS** 🎉 |
+
+### Decisions / Design Notes
+
+- **GitHub App 連携の OAuth UI フロー**: Terraform で `google_cloudbuild_trigger` を作成する前に 1 回だけ手動。citify-dev は yujmatsu 個人プロジェクトなので org policy 影響なし、`--allow-unauthenticated` も問題なし
+- **`cloud-build-deployer` SA に `roles/cloudbuild.builds.builder` を含める**: Trigger で custom SA を指定すると Cloud Build worker のデフォルト SA が使えなくなるため、custom SA 側に worker 権限を明示付与
+- **`included_files: [apps/api/**, cloudbuild.yaml]`**: tasks.json / docs / README 等の変更で build を走らせない節約設計。デメリットは `cloudbuild.yaml` 自体の検証 push を必ず apps/api/ の小変更と一緒にする必要がある
+- **--cache-from の `:latest`**: 初回 build は manifest unknown で warning 出るが build 自体は続行。2 回目以降は layer cache が効いて 1m32s → 1m 前後に短縮見込み
+- **`citify-api-runtime` の最小権限主義**: aiplatform.user / secretmanager.secretAccessor / logging.logWriter / cloudtrace.agent の 4 ロールのみ。Firestore / BQ / GCS / Pub/Sub は A-3 / A-10 着手時に追加
+
+### Surprises / Risks
+
+- **Cloud Build の `$VAR` substitution 解釈は YAML 全体に効く**: bash スクリプト内であっても `$URL` が解釈されてしまう。 `$$VAR` エスケープが必須。同様に `$(cmd)` も `$$(cmd)`。**`%{http_code}` (curl format) は `%` で始まるので解釈されない**(これは無事)
+- **`images:` ブロックの誤解**: 「Cloud Build が image を push してくれる便利機能」と思っていたが、実際は **全 step 完了後** に push する SBOM/attestation 連携用機能。deploy step より前に push したい場合は明示 step 必要
+- **uv の venv ターゲット指定**: `uv pip install` は `UV_PROJECT_ENVIRONMENT` を読まず、`VIRTUAL_ENV` + PATH を参照する。`uv sync` / `uv run` とは挙動が違う(ドキュメント要確認案件)
+- **`hello-citify` (Week 0 Session 3 の sample) は未削除**: 課金は idle なら 0 だが、混乱回避のため次の機会に `gcloud run services delete hello-citify --region=asia-northeast1` 実行推奨
+
+### Phase A の Week 1 終了時判定基準への進捗
+
+| 判定基準 | 状態 |
+|---|---|
+| ① terraform apply で全リソース構築 | 🟡 部分達成 (Phase A 分の 13 リソース完了、データストア系は Phase B/C) |
+| ② git push で自動デプロイ | ✅ 達成 |
+| ③ 公開 URL で /health が 200 | ✅ 達成 (https://citify-api-hnraqfjt4a-an.a.run.app/health) |
+| ④ RAG でセマンティック検索動作 | ❌ Phase B/C で対応 (A-3 国会 API → A-10 Vertex AI RAG Engine) |
+
+**2/4 達成 — Week 1 のうち 30-40% を 5/21 一日で前倒し**
+
+### Commit Reminder
+
+未コミット変更:
+
+- `infra/env/dev/main.tf` (backend 有効化 + 13 リソース定義、~150 行追加)
+- `infra/env/dev/variables.tf` (github_owner/github_repo 追加)
+- `infra/env/dev/outputs.tf` (新規、5 出力)
+- `infra/env/dev/terraform.tfvars.example` (github vars 追記)
+- `infra/env/dev/.terraform.lock.hcl` (.gitignore で除外されている、commit 不要)
+- `apps/api/main.py` (docstring に Cloud Build trigger 言及)
+- `apps/api/Dockerfile` (BuildKit 依存削除 + VIRTUAL_ENV 修正)
+- `cloudbuild.yaml` (push step 追加 + bash escape)
+- `tasks.json` (5 タスク更新)
+- `Plans.md` (Week 1 進捗反映)
+- `log.md` (このファイル、Session 12 追記)
+
+> ⚠️ **`infra/env/dev/terraform.tfvars` は commit しない**(.gitignore 確認推奨、まだ.gitignore に追加していない場合は `infra/env/dev/terraform.tfvars` を gitignore に明記推奨)
+
+推奨コミット(1 つにまとめる):
+```bash
+cd ~/projects/citify
+git add infra/env/dev/main.tf infra/env/dev/variables.tf infra/env/dev/outputs.tf infra/env/dev/terraform.tfvars.example apps/api/main.py apps/api/Dockerfile cloudbuild.yaml tasks.json Plans.md log.md
+git status   # terraform.tfvars が staged されていないか確認
+git commit -m "feat(infra): Phase A — Cloud Build 自動デプロイ動線完成 (citify-api on Cloud Run)"
+git push origin main
+```
+
+> 上記 push は `apps/api/` を含むので Cloud Build trigger が再度走るが、5 回目はキャッシュ + push step 適用済で **2-3 分で完走** するはず。`hello-citify` と citify-api が同時稼働するだけで害なし。
+
+### Next (5/22 木以降の Phase B)
+
+Phase B: 国会 API クライアント実装(`scrapers/kokkai/`) で **A-3** に着手。
+今日(5/21) はここで打ち止め、Yuji の意向次第で続行 or 休息選択。
+
+---
+
 ## 2026-05-20 (Tue) Session 11 — 小粒タスク 3 件 (LICENSE / .env.example / cloudbuild.yaml)
 
 ### Completed

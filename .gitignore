@@ -33,6 +33,9 @@ build/
 .terraform.lock.hcl
 crash.log
 crash.*.log
+# tfvars は実値含む可能性あり、.example のみ commit
+*.tfvars
+!*.tfvars.example
 
 # IDE
 .vscode/settings.json

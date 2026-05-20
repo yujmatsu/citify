@@ -1,9 +1,9 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-20T22:30:00+09:00",
+  "updated": "2026-05-21T00:00:00+09:00",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
-  "active_week": 0,
+  "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
   "features_ref": "docs/FEATURES.md",
   "notes": "Citify ハッカソンタスク全体管理。FEATURES.md と SCHEDULE.md を機械可読化したもの。詳細仕様は元ドキュメント参照。",
@@ -356,7 +356,7 @@
       "type": "infra",
       "priority": "Must",
       "week": 1,
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["INFRA-002"],
       "acceptance_criteria": [
         "citify-dev-tf-state バケット作成",
@@ -364,9 +364,9 @@
         "terraform init -migrate-state 完了"
       ],
       "drop_condition": null,
-      "started_at": null,
-      "completed_at": null,
-      "notes": "infra/env/dev/main.tf の backend ブロックを uncomment"
+      "started_at": "2026-05-21T22:30:00+09:00",
+      "completed_at": "2026-05-21T22:50:00+09:00",
+      "notes": "Phase A で完了。gcloud storage buckets create + versioning ON + backend gcs 有効化 + terraform init で state を GCS 移行"
     },
     {
       "id": "INFRA-009",
@@ -374,7 +374,7 @@
       "type": "infra",
       "priority": "Must",
       "week": 1,
-      "status": "in_progress",
+      "status": "completed",
       "dependencies": ["INFRA-004", "INFRA-007"],
       "acceptance_criteria": [
         "main push でビルド + Cloud Run へ自動デプロイ",
@@ -382,8 +382,8 @@
       ],
       "drop_condition": null,
       "started_at": "2026-05-20T23:30:00+09:00",
-      "completed_at": null,
-      "notes": "Session 10 で cloudbuild.yaml 雛形作成済 (build → Artifact Registry push → Cloud Run deploy → /health smoke test の 4 step、E2_HIGHCPU_8、20min タイムアウト)。Week 1 残: ① Artifact Registry repo 作成、② cloud-build-deployer / citify-api-runtime SA 作成、③ gcloud builds triggers create で GitHub 連携、④ 実 push で動作確認"
+      "completed_at": "2026-05-21T23:42:00+09:00",
+      "notes": "Phase A で完了。Trigger 'citify-api-main' (id: d0deb628-64ca-4581-8644-dbd9e3f6aef0)、Artifact Registry citify-api、SA × 2、IAM bindings 計 9 個を Terraform 化。実 push で 4 step 完走 (build 1m32s)。Cloud Run URL: https://citify-api-hnraqfjt4a-an.a.run.app。途中ハマり: ① bash 変数 $URL の substitution エラー → $$URL エスケープ、② Dockerfile --mount=type=cache は BuildKit 必須 (legacy builder では失敗) → 削除、③ uv pip install に VIRTUAL_ENV 必要 (UV_PROJECT_ENVIRONMENT は uv sync 用)、④ images: ブロックは全 step 完了後の自動 push なので deploy 前に明示 push step が必要"
     },
 
     {
@@ -598,7 +598,7 @@
       "type": "feature",
       "priority": "Must",
       "week": 1,
-      "status": "in_progress",
+      "status": "completed",
       "dependencies": ["INFRA-004", "INFRA-009"],
       "acceptance_criteria": [
         "本番 URL アクセス可",
@@ -608,8 +608,8 @@
       ],
       "drop_condition": null,
       "started_at": "2026-05-20T19:30:00+09:00",
-      "completed_at": null,
-      "notes": "Cloud Run smoke 済、本番デプロイは Week 1 で。Firebase Hosting は Week 3 で。"
+      "completed_at": "2026-05-21T23:42:00+09:00",
+      "notes": "Cloud Run 部分は Phase A で完了。citify-api (asia-northeast1、min-instances=0、HTTPS、CORS *、/health 200)。Firebase Hosting は Week 3 フロントエンド着手時に別タスク化予定 (受入条件は全 Cloud Run 側のため A-11 を完了とする)"
     },
     {
       "id": "A-12",
@@ -628,7 +628,7 @@
       "drop_condition": null,
       "started_at": "2026-05-20T21:30:00+09:00",
       "completed_at": null,
-      "notes": "Lint 済 (Session 8)、Test + Cloud Build は Week 1 で実装"
+      "notes": "Phase A 進捗: ✅ main マージ自動デプロイ (cloudbuild.yaml + Trigger 完成)、✅ パスベース変更検知 (included_files: apps/api/**, cloudbuild.yaml)、✅ Lint (GitHub Actions Ruff + Terraform fmt)、🔄 PR Test (pytest workflow 未追加)、🔄 ロールバック手順文書化 (TERRAFORM_GUIDE.md か別 doc 必要)"
     },
     {
       "id": "A-13",
@@ -647,7 +647,7 @@
       "drop_condition": null,
       "started_at": "2026-05-20T21:30:00+09:00",
       "completed_at": null,
-      "notes": "雛形済 (Session 8)、各モジュール実装は Week 1 で"
+      "notes": "Phase A 進捗: ✅ GCS リモート state (citify-dev-tf-state)、✅ Artifact Registry / SA x 2 / IAM bindings / Cloud Build Trigger (13 リソース apply 済)、🔄 Firestore / BigQuery / Pub/Sub / Secret Manager / Cloud Storage モジュール化 (A-3, A-10 着手時に追加)、🔄 dev/prod 環境分離 (Week 5+)、🔄 README 手順記載"
     },
 
     {
