@@ -91,6 +91,7 @@ steps:
 
   # ---------------------------------------------------------------------------
   # 4. デプロイ後 smoke test (/health が 200 を返すか)
+  # NOTE: bash 変数は $$VAR でエスケープ ($VAR は Cloud Build substitution として解釈される)
   # ---------------------------------------------------------------------------
   - id: smoke-test
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -99,17 +100,17 @@ steps:
       - -c
       - |
         set -euo pipefail
-        URL=$(gcloud run services describe ${_SERVICE} \
+        URL=$$(gcloud run services describe ${_SERVICE} \
           --region=${_REGION} \
           --format='value(status.url)')
-        echo "Deployed URL: $URL"
+        echo "Deployed URL: $$URL"
         for i in 1 2 3 4 5; do
-          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$URL/health" || echo "000")
-          if [ "$STATUS" = "200" ]; then
+          STATUS=$$(curl -sS -o /dev/null -w "%{http_code}" "$$URL/health" || echo "000")
+          if [ "$$STATUS" = "200" ]; then
             echo "✅ /health returned 200"
             exit 0
           fi
-          echo "Attempt $i: status=$STATUS, retrying in 5s..."
+          echo "Attempt $$i: status=$$STATUS, retrying in 5s..."
           sleep 5
         done
         echo "❌ /health did not return 200 after 5 attempts"
