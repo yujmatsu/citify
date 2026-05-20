@@ -54,10 +54,10 @@ locals {
 
   # cloud-build-deployer SA に付与する project-level role
   cb_deployer_roles = [
-    "roles/cloudbuild.builds.builder",    # Cloud Build worker
-    "roles/run.admin",                    # Cloud Run deploy + invoker IAM (--allow-unauthenticated 用)
-    "roles/artifactregistry.writer",      # Docker image push
-    "roles/logging.logWriter",            # Cloud Build logs (CLOUD_LOGGING_ONLY)
+    "roles/cloudbuild.builds.builder", # Cloud Build worker
+    "roles/run.admin",                 # Cloud Run deploy + invoker IAM (--allow-unauthenticated 用)
+    "roles/artifactregistry.writer",   # Docker image push
+    "roles/logging.logWriter",         # Cloud Build logs (CLOUD_LOGGING_ONLY)
   ]
 
   # citify-api-runtime SA に付与する project-level role (最小権限)
