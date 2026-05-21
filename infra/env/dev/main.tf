@@ -417,6 +417,49 @@ resource "google_pubsub_subscription_iam_member" "runtime_subscribe_translated" 
   member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
 }
 
+# --- Topic: speech-scored (A-6 出力 / A-7 distributor 入力) ---
+resource "google_pubsub_topic" "speech_scored" {
+  name = "citify-speech-scored"
+
+  message_retention_duration = "604800s"
+
+  labels = local.common_labels
+}
+
+resource "google_pubsub_subscription" "speech_scored_sub" {
+  name  = "citify-speech-scored-sub"
+  topic = google_pubsub_topic.speech_scored.id
+
+  ack_deadline_seconds         = 30
+  message_retention_duration   = "604800s"
+  enable_exactly_once_delivery = true
+
+  expiration_policy {
+    ttl = ""
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+
+  labels = local.common_labels
+}
+
+# A-6 worker が speech_scored に publish
+resource "google_pubsub_topic_iam_member" "runtime_publish_scored" {
+  topic  = google_pubsub_topic.speech_scored.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# A-7 distributor が speech_scored を subscribe
+resource "google_pubsub_subscription_iam_member" "runtime_subscribe_scored" {
+  subscription = google_pubsub_subscription.speech_scored_sub.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
 # DLQ への publish 権限 (subscription が dead_letter 送信時に必要)
 # Pub/Sub サービスアカウント: service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com
 data "google_project" "current" {

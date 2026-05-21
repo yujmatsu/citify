@@ -111,3 +111,20 @@ class RelevanceOutput(BaseModel):
             reasoning=reason or "評価できなかったため非表示",
             contains_political_judgment=False,
         )
+
+
+class ScoredSpeech(BaseModel):
+    """relevance worker → distributor (A-7) への publish payload。
+
+    1 つの speech × 1 人のユーザーペルソナに対する relevance score を持つ。
+    将来 user DB ができたら 1 speech → N users で fan-out する想定。
+    """
+
+    speech_id: str = Field(description="合成 ID 'tenant:council:schedule:order'")
+    user_id: str = Field(description="ペルソナ ID (匿名なら 'anonymous')")
+    municipality_code: str
+    title: str = Field(description="A-5 翻訳タイトル (downstream 表示用)")
+    summary: list[str] = Field(description="A-5 翻訳 3 行サマリ")
+    detail_url: str = Field(description="原典 URL (引用必須)")
+    meeting_date: str | None = Field(default=None, description="ISO 日付文字列 or None")
+    score: RelevanceOutput = Field(description="relevance スコア + 内訳")

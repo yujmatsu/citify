@@ -2,13 +2,17 @@
 
 Gemini の `response_schema` で構造化出力を強制するため、出力 schema は
 Pydantic で厳密に定義 (max_length 制約まで含む)。
+
+追加: `TranslatedSpeech` は worker が下流 (relevance) に publish する
+combined payload で、翻訳結果 + 原典 speech メタを保持する。
 """
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ペルソナ年代区分 (FEATURES.md A-1 準拠)
 AgeGroup = Literal["18-24", "25-29", "30-34", "35+"]
@@ -73,3 +77,28 @@ class TranslatorOutput(BaseModel):
             contains_political_judgment=False,
             notes=f"empty_reason: {reason}",
         )
+
+
+class TranslatedSpeech(BaseModel):
+    """翻訳済 speech (worker → relevance への publish payload)。
+
+    TranslatorOutput と原典 Speech のメタを 1 メッセージにまとめる。downstream
+    (relevance / configurator) は原典参照 + 翻訳結果の両方が必要なため。
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    # 原典 speech 参照 (downstream で BQ や原典 URL を引くために必要)
+    speech_id: str = Field(description="合成 ID 'tenant:council:schedule:order'")
+    tenant_id: str = Field(description="自治体テナント ID (例: prefokayama)")
+    council_id: str
+    schedule_id: str | None = None
+    municipality_code: str = Field(description="5 桁自治体コード (国会は '00000')")
+    meeting_date: date | None = None
+    name_of_meeting: str
+    speaker_position: str | None = None
+    detail_url: str
+    content_text: str = Field(description="原典 speech 本文 (relevance fallback 評価用)")
+
+    # 翻訳結果
+    translation: TranslatorOutput = Field(description="Gemini 翻訳出力")

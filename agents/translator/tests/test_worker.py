@@ -104,7 +104,10 @@ def _make_mock_publisher() -> tuple[PubSubPublisher, MagicMock]:
     return pub, client
 
 
-def test_handler_translates_and_publishes():
+def test_handler_translates_and_publishes_translated_speech():
+    """TranslatedSpeech combined payload (原典 + 翻訳) を publish することを検証。"""
+    import json
+
     agent = _make_mock_agent()
     pub, client = _make_mock_publisher()
     handler = make_handler(agent, pub, "citify-speech-translated")
@@ -122,10 +125,24 @@ def test_handler_translates_and_publishes():
     client.publish.assert_called_once()
     args, kwargs = client.publish.call_args
     assert args[0] == "projects/citify-dev/topics/citify-speech-translated"
-    # attributes に speech_id / source 含む
+    # attributes に speech_id / source / municipality_code 含む
     assert kwargs["speech_id"] == "prefokayama:177:1:0"
     assert kwargs["source"] == SOURCE
     assert kwargs["upstream_source"] == "kaigiroku_net"
+    assert kwargs["municipality_code"] == "33000"  # prefokayama → 33000
+
+    # payload は TranslatedSpeech (原典メタ + translation)
+    payload = json.loads(args[1].decode("utf-8"))
+    assert payload["payload_type"] == "TranslatedSpeech"
+    ts = payload["payload"]
+    assert ts["speech_id"] == "prefokayama:177:1:0"
+    assert ts["tenant_id"] == "prefokayama"
+    assert ts["municipality_code"] == "33000"
+    assert ts["detail_url"] == "https://example.com/m/1"
+    assert ts["content_text"] == "本日の会議を開きます。"
+    # translation も埋め込まれていること
+    assert ts["translation"]["title"] == "本会議を開始しました"
+    assert len(ts["translation"]["summary"]) == 3
 
 
 def test_handler_skips_non_speech_payload():

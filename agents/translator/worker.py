@@ -23,10 +23,11 @@ import argparse
 import logging
 import sys
 
+from pkg.municipality_map import resolve_municipality_code
 from pkg.pubsub import MessageEnvelope, PubSubPublisher, PubSubSubscriber
 
 from .main import DEFAULT_LOCATION, DEFAULT_MODEL, TranslatorAgent
-from .schema import TranslateInput, TranslatorOutput
+from .schema import TranslatedSpeech, TranslateInput, TranslatorOutput
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,31 @@ def _envelope_to_translate_input(envelope: MessageEnvelope) -> TranslateInput:
     )
 
 
+def _build_translated_speech(
+    envelope: MessageEnvelope,
+    translate_input: TranslateInput,
+    translation: TranslatorOutput,
+) -> TranslatedSpeech:
+    """原典 Speech メタ + 翻訳結果を 1 つの TranslatedSpeech にまとめる。"""
+    p = envelope.payload
+    municipality_code = resolve_municipality_code(envelope.source, p.get("tenant_id"))
+
+    # meeting_date は str (ISO) で来るので date に変換 (Pydantic 自動)
+    return TranslatedSpeech(
+        speech_id=translate_input.speech_id,
+        tenant_id=p.get("tenant_id", ""),
+        council_id=p.get("council_id", ""),
+        schedule_id=p.get("schedule_id"),
+        municipality_code=municipality_code,
+        meeting_date=p.get("meeting_date"),
+        name_of_meeting=p.get("name_of_meeting") or "",
+        speaker_position=p.get("speaker_position"),
+        detail_url=p.get("detail_url") or "",
+        content_text=p.get("content_text", ""),
+        translation=translation,
+    )
+
+
 def make_handler(
     agent: TranslatorAgent,
     publisher: PubSubPublisher,
@@ -93,20 +119,22 @@ def make_handler(
             logger.warning("worker.skip_empty_content speech_id=%s", translate_input.speech_id)
             return
 
-        output: TranslatorOutput = agent.translate(translate_input)
+        translation: TranslatorOutput = agent.translate(translate_input)
 
-        # 翻訳結果を envelope に詰めて出力 topic へ
-        out_env = MessageEnvelope.wrap(SOURCE, output)
-        # 元 speech の参照情報を attributes に乗せる (downstream で原典リンク復元用)
+        # 原典 speech メタ + 翻訳結果を combined payload に
+        translated = _build_translated_speech(envelope, translate_input, translation)
+        out_env = MessageEnvelope.wrap(SOURCE, translated)
         attrs = {
             "speech_id": translate_input.speech_id,
             "upstream_source": envelope.source,
+            "municipality_code": translated.municipality_code,
         }
         publisher.publish_envelope(output_topic, out_env, attributes=attrs)
         logger.info(
-            "worker.translated_published speech_id=%s title=%r",
+            "worker.translated_published speech_id=%s muni=%s title=%r",
             translate_input.speech_id,
-            output.title[:30],
+            translated.municipality_code,
+            translation.title[:30],
         )
 
     return handler
