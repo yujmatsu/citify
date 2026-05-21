@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E〜Q 完了 + R (Cloud Run Worker デプロイ構成: Dockerfile + cloudbuild-workers.yaml + Terraform 4 Cloud Run Job + 4 Cloud Scheduler + IAM 拡張)。**4 段パイプライン + BQ 永続化が永続稼働可能な状態に**。残 Week 2: Cloud Build 実行 + terraform apply で実稼働開始、ADK ラップ",
+  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E〜Q 完了 + R (Cloud Run Worker デプロイ構成 + コスト最適化: 4 Cloud Run Job + 4 Scheduler [default paused, daily cron], toggle-schedulers.sh, BUILD_ID 採用)。**4 段パイプライン + BQ 永続化が永続稼働可能 + 普段は月コスト $0**。残 Week 2: Cloud Build 再実行 + terraform apply で実稼働開始、ADK ラップ",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

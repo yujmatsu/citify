@@ -35,6 +35,13 @@ variable "github_repo" {
   default     = "citify"
 }
 
+# Cloud Run Worker 関連 (Phase R)
+variable "schedulers_paused" {
+  type        = bool
+  description = "Cloud Scheduler を paused (true) で作成。ハッカソン期間は default true でコスト最小化、デモ時のみ resume"
+  default     = true
+}
+
 # Week 1 後半以降で追加予定:
 # variable "billing_account" { ... }
 # variable "gemini_model" {

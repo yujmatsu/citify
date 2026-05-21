@@ -693,19 +693,31 @@ resource "google_service_account_iam_member" "scheduler_token_creator" {
 }
 
 # ---------------------------------------------------------------------------
-# Cloud Scheduler: 60 分ごとに各 Cloud Run Job を起動
+# Cloud Scheduler: 1 日 1 回各 Cloud Run Job を起動 (デモ期間用)
 # ---------------------------------------------------------------------------
-# Scheduler 自体は無料枠 (3 job / 月) を超えるが、料金は微々たるもの ($0.10/job/月)
-# offset で全 worker が同時起動しないよう minute をずらす (Gemini API quota 分散)
+# 設計:
+#   - default で paused = true: 普段は停止、月コスト ~$0
+#   - デモ期間中は `gcloud scheduler jobs resume` で起こす → 1 日 1 回 09:00 JST に自動起動
+#   - 必要な時は `gcloud run jobs execute` で手動 trigger 可能 (Scheduler 不要)
+#   - offset で minute をずらす (Gemini API quota 短期集中防止):
+#       translator     09:00 JST
+#       relevance      09:05 JST
+#       distributor    09:10 JST
+#       bq-sink-scored 09:15 JST
+#   - paused state は terraform variable で flip 可能:
+#       terraform apply -var schedulers_paused=false  # デモ期間開始
+#       terraform apply -var schedulers_paused=true   # デモ期間終了
+#     gcloud で個別 toggle も可能 (scripts/toggle-schedulers.sh 参照)
 resource "google_cloud_scheduler_job" "worker_triggers" {
   for_each = local.workers
 
   name             = "citify-worker-${each.key}-trigger"
-  description      = "Trigger Cloud Run Job citify-worker-${each.key} hourly"
-  schedule         = "${index(keys(local.workers), each.key) * 5} * * * *" # 0/5/10/15 分の交差起動
+  description      = "Trigger Cloud Run Job citify-worker-${each.key} daily at 09:0X JST (paused=${var.schedulers_paused})"
+  schedule         = "${index(keys(local.workers), each.key) * 5} 9 * * *" # 9:00 / 9:05 / 9:10 / 9:15 JST
   time_zone        = "Asia/Tokyo"
   region           = var.region
-  attempt_deadline = "320s" # Scheduler は Job を kick するだけ (Job 自体は別途稼働)
+  attempt_deadline = "320s"
+  paused           = var.schedulers_paused
 
   retry_config {
     retry_count = 1

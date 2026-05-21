@@ -1,5 +1,74 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 28 (続) — Phase R 修正 + コスト最適化
+
+### Modified (cost optimization)
+
+- [x] **cloudbuild-workers.yaml 修正**:
+  - `${COMMIT_SHA}` → `${BUILD_ID}` (手動 submit 時 COMMIT_SHA が空文字 → image 名 parse エラー解消)
+  - update-jobs step を `set -uo pipefail` (e なし) に変更し、Job 不在時は warning で continue
+- [x] **Scheduler 設定の運用見直し** (`infra/env/dev/main.tf` + `variables.tf`):
+  - 60 分 cron → **1 日 1 回 09:00 JST** (offset 0/5/10/15 min) に変更
+  - **`paused = true` を default に**: `var.schedulers_paused` variable で制御
+  - 普段は Scheduler 停止 → 月コスト ~$0
+  - デモ期間中だけ `resume`
+- [x] **`apps/workers/scripts/toggle-schedulers.sh` 新規** (executable):
+  - `pause` / `resume` / `status` / `run-once` 4 サブコマンド
+  - run-once は Scheduler 経由せず全 4 worker を即時手動起動 (デモ前に便利)
+- [x] **`apps/workers/README.md` 全面書き直し**:
+  - 運用方針 (普段 paused / 必要時手動 / デモ期間 resume) を明文化
+  - コスト見積もり表 (paused=$0、手動=$0、daily=$5、hourly=$265)
+  - リカバリ手順を統合
+
+### Decisions
+
+- ✅ **default paused + daily cron**: ハッカソンでは「常時稼働」は不要、月 $5 で十分
+- ✅ **`var.schedulers_paused` で Terraform 経由 flip**: CI 統合可能、宣言的
+- ✅ **`gcloud scheduler jobs resume/pause` で gcloud 経由 flip**: 即時切替、Terraform plan 不要
+- ✅ **`run-once` サブコマンド**: 手動デモ時に Scheduler を起こさず 4 worker を 1 度だけ起動 → ほぼ無料
+
+### コスト試算 (修正)
+
+| モード | 月コスト | 説明 |
+|---|---|---|
+| **全 Scheduler paused (default)** | **~$0** | Job リソース存在のみ、課金なし |
+| 手動 trigger のみ (`run-once` × 月数回) | ~$0 | 無料枠 (240k vCPU-sec) 内 |
+| Scheduler resume (1 日 1 回) | ~$5 | 120 exec/月、CPU 一部超過、メモリ無料枠内 |
+| 1 時間ごと自動 (前案) | ~$265 | hackathon scope では非推奨 |
+
+### Files Modified
+
+- `cloudbuild-workers.yaml` — BUILD_ID 採用、set -e 緩和
+- `infra/env/dev/main.tf` — Scheduler を daily cron + paused 化
+- `infra/env/dev/variables.tf` — schedulers_paused variable 追加
+- `apps/workers/scripts/toggle-schedulers.sh` (新規、executable)
+- `apps/workers/README.md` (全面書き直し)
+
+### 復旧手順 (前回失敗した apply のクリーンアップ込み)
+
+```bash
+cd /home/yujmatsu/projects/citify
+
+# 1. 修正済 cloudbuild で image を build + push
+gcloud builds submit --config=cloudbuild-workers.yaml --region=asia-northeast1
+
+# 2. (state に部分残骸があれば除外)
+cd infra/env/dev
+terraform state list | grep -E '(cloud_run_v2_job|cloud_scheduler)' || echo "no remnants"
+# 残っていたら個別 terraform state rm
+
+# 3. apply (Scheduler は paused で作成)
+terraform apply
+
+# 4. 動作確認 (Scheduler は paused なので Job は実行されない、手動で 1 度起動)
+./apps/workers/scripts/toggle-schedulers.sh run-once
+
+# 5. 状態確認
+./apps/workers/scripts/toggle-schedulers.sh status
+```
+
+---
+
 ## 2026-05-22 (Thu) Session 28 — Phase R: Cloud Run Worker デプロイ構成 (4 Job + 4 Scheduler)
 
 ### Completed
