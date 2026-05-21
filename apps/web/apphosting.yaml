@@ -24,10 +24,10 @@ runConfig:
   memoryMiB: 512           # Next.js SSR は軽量
 
 env:
-  # Cloud Run BFF の URL を frontend から fetch するため公開 env として注入
-  # 値は Firebase Console → App Hosting → 環境変数で設定推奨 (今はプレースホルダ)
+  # Cloud Run BFF (citify-api、asia-northeast1) の URL
+  # frontend は asia-east1 だがクロスリージョン呼び出しに対応 (latency +30-50ms)
   - variable: NEXT_PUBLIC_API_BASE
-    value: https://citify-api-PLACEHOLDER.a.run.app
+    value: https://citify-api-hnraqfjt4a-an.a.run.app
     availability:
       - BUILD
       - RUNTIME
