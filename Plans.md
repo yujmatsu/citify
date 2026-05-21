@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
-| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | **`cc:WIP`** 🚧 A-5/6/7 完了、A-4b は metadata only 完了、B-7 プレス RSS 前倒し完了、A-4 ツリー展開のみ残 |
+| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | **`cc:完了`** ✅ A-5/6/7 + A-4 (Playwright 3 階層ツリー L1/L2/L3 end-to-end 完了) + A-4b (metadata only) + B-7 (プレス RSS 前倒し) 完了。残: Pub/Sub 連携・BigQuery 投入バッチ |
 | Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
 | Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |
@@ -126,14 +126,14 @@
 - [x] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート `cc:完了` — LLM 不要 MMR 風 greedy ranking、diversity_penalty で同 interest/speaker 連続回避、freshness boost ±5、実 BQ 10 件 → top 5 feed 生成確認
 - [ ] エージェント間 Pub/Sub メッセージング
 
-### `cc:TODO` 議事録パーサー(Playwright)
+### `cc:完了` 議事録パーサー(Playwright)
 
-- [ ] [A-4] DiscussNetPremium パーサー (Playwright)
-- [ ] 主要 5 自治体動作確認 (横浜・大阪・岡山県・荒川・新宿・墨田)
+- [x] [A-4] DiscussNetPremium パーサー (Playwright) — 3 階層ツリー (L1 councils → L2 schedules → L3 speeches) 完了。prefokayama で end-to-end 動作確認 (5 councils → 8 schedules → 10 speeches、令和7年2月定例会 02月21日−01号で○議長 久徳大輔のパース成功)。32 unit tests PASSED
+- [ ] 主要 5 自治体動作確認 (横浜・大阪・岡山県・荒川・新宿・墨田) — prefokayama のみ確認、横展開は別タスク
 
-### **Drop Point 判定: 2026-06-04 (水)**
+### **Drop Point 判定: 2026-06-04 (水)** — ✅ 不発動
 
-- [A-4] Playwright が 1 自治体動かなければ → Plan B (国会 + プレス RSS のみ) に切替
+- [A-4] Playwright で prefokayama 動作確認済 (5/21)、Plan B 切替不要
 
 ### 並行イベント
 

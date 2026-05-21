@@ -1,5 +1,66 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 22 — Phase L: A-4 Playwright ツリー展開完走 (DiscussNet L1/L2/L3 end-to-end)
+
+### Completed
+
+- [x] **Playwright + Chromium 環境確認**: WSL2 sandbox 問題を `~/.claude/settings.json` の `"sandbox": {"enabled": false}` で解消 (Issue #40133 同根) → Bash 復活 → Playwright import + Chromium launch OK
+- [x] **DOM 探査 (3 段階)**: prefokayama の MinuteBrowse.html を Playwright で実探索:
+  - **L1**: `#council_list tr` に `data-council_id` 属性、`<a class="link-council" href="#">` (5 件 定例会・臨時会)
+  - **L2**: `link-council` クリック → `MinuteSchedule.html?tenant_id=455&council_id=N` へ遷移、`<a class="link-minute-view">` で個別会議日 (P.1, P.13, ... 8 件)
+  - **L3**: `link-minute-view` クリック → `MinuteView.html?council_id=N&schedule_id=M` へ遷移、`.detail-speech-list .detail-genuine` に発言ブロック (26 件)
+  - **発言形式**: `○議長（久徳大輔君）　　皆さん...` (○=発言, △=議題, ◎=答弁)
+- [x] **schema.py 拡張**:
+  - `MeetingSchedule` 新規 (L2: council 配下の個別会議日)
+  - `Speech` に `schedule_id`, `speech_type` 追加
+- [x] **client.py 全面リライト** (~360 LOC):
+  - `list_councils()` (L1) - `#council_list tr[data-council_id]` + tenant_id_num 自動取得
+  - `list_schedules(council_id)` (L2) - `link-minute-view` から (schedule_id, page_label, title, date) 抽出
+  - `fetch_speeches(council_id, schedule_id)` (L3) - `.detail-genuine` から発言ブロック抽出
+  - `_parse_speech_block()` で `[マーク][役職]（[名前]君）　[本文]` を正確にパース (regex 修正で括弧必須化)
+  - `_extract_view_year_from_council_name()` で全角数字対応 (令和　７年 → 2025)
+  - `_parse_schedule_title_to_date()` で base_year + 月日から date 自動補完
+  - rate_limit_sec=5.0 デフォルト (recon §5.3 礼儀)
+- [x] **__main__.py 全面更新**: `inspect / councils / schedules / speeches` 4 subcommand
+- [x] **32 unit tests PASSED**:
+  - 日付パース (ISO / 令和 / 平成 / 全角数字)
+  - 発言ブロック (議長 / 知事答弁 / △議題 / マーク無し / 空)
+  - URL 組み立て (中央型 / 白ラベル / クエリ抽出)
+  - Schema バリデーション (MeetingSummary / MeetingSchedule / Speech)
+- [x] **prefokayama 実 site end-to-end 動作確認**:
+  - L1: 5 councils 取得 (令和7年2/6/9/11月定例会, 5月臨時会, council_id=177〜181)
+  - L2: council_id=177 で 8 schedules (P.1 02月21日-01号 → P.237 03月19日-08号、meeting_date 全件 2025-02-21〜2025-03-19 自動補完成功)
+  - L3: council_id=177, schedule_id=1 で 10 speeches (○議長 久徳大輔 / △日程第１ 等、name_of_meeting も council-title から自動補完 = 「岡山県 令和　７年　２月定例会 02月21日－01号」)
+- [x] **Drop Point 不発動**: 6/4 までに Plan A (Playwright) で動作確認完了、Plan B 切替不要
+
+### Decisions
+
+- ✅ **`.detail-genuine` を発言抽出 selector に確定**: `.detail-ellipsis` は collapsed 表示と重複するため除外
+- ✅ **schedule_id は index+1 で fallback**: data 属性が無いため tr の順序を信頼 (実 site で確認、安定)
+- ✅ **meeting_date は L3 ページから抽出**: council-title 末尾の月日表記を base_year と組み合わせ (L1 → L2 → L3 の引数引き継ぎなしで完結)
+- ✅ **横展開 (横浜・大阪・荒川等) は別タスク化**: prefokayama で動作確認完了、白ラベル対応の検証は時間トレードオフで Week 3 以降
+
+### Files Created/Modified
+
+- `scrapers/kaigiroku_net/schema.py` — MeetingSchedule 新規、Speech 拡張
+- `scrapers/kaigiroku_net/client.py` — 全面リライト (~360 LOC、3 階層メソッド)
+- `scrapers/kaigiroku_net/__main__.py` — 4 subcommand に再編成
+- `scrapers/kaigiroku_net/tests/test_kaigiroku.py` — 32 tests (旧 6 件から拡張)
+- `/tmp/dump_dom*.py` (推敲用)
+- `tasks.json` A-4 → completed + active_week_note 更新
+- `Plans.md` Week 2 → cc:完了
+- `log.md` (this entry)
+
+### Next
+
+- BigQuery `citify_raw.speeches` テーブル作成 + 投入バッチ
+- Pub/Sub Agent 連携 (A-4 → A-5 翻訳 Agent への push)
+- ADK ラップ (Agent Development Kit でエージェント化)
+- Week 3 (6/9-6/15): Next.js フロントエンド + フィード UI
+- A-4 横展開 (横浜白ラベル + 荒川 + 新宿等)
+
+---
+
 ## 2026-05-21 (Wed) Session 21 — Phase K: voices_asp scope 縮小 (robots.txt Disallow) + B-7 プレス RSS 前倒し実装
 
 ### Completed
