@@ -1,5 +1,66 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 27 — Phase Q: BigQuery 永続化 (scored_speeches sink worker)
+
+### Completed
+
+- [x] **Terraform: `citify_curated` dataset + `scored_speeches` table** (`infra/env/dev/main.tf`):
+  - Dataset: 加工済データ用 (raw + AI 結果の join)
+  - Table schema: speech_id + user_id (REQUIRED) + 翻訳メタ + 4 軸スコア + matched_interests (ARRAY<STRING>) + reasoning + 表示用メタ + message_id (dedup) + ingested_at (REQUIRED)
+  - Partition by `ingested_at` (DAY) — 直近 N 日のフィード生成で全件スキャン回避
+  - Clustering by `user_id, municipality_code` — per-user feed query 最速化
+  - terraform validate: ✅
+- [x] **`pkg/bq_sink.py` 新規** (~140 LOC):
+  - `scored_speech_to_bq_row()`: ScoredSpeech envelope → BQ row dict (ARRAY フィールドは Python list で直接渡し)
+  - `BQSink` クラス: project_id + table_id + converter + expected_payload_type で初期化、`insert_envelope()` + `make_handler()`
+  - 遅延 import (google.cloud.bigquery)、テストで mock 注入可能
+  - 非対応 payload_type は warning skip、BQ insert errors は RuntimeError → subscriber nack
+- [x] **`pkg/bq_sink_runner.py` CLI 新規**:
+  - `python -m pkg.bq_sink_runner --project-id X --sink scored_speeches --subscription citify-speech-scored-sub --table citify-dev.citify_curated.scored_speeches`
+  - SINKS dict で sink 種別を登録 (現状 scored_speeches のみ)
+- [x] **テスト 9 件追加** (合計 87 PASSED):
+  - `pkg/tests/test_bq_sink.py`: converter (3) + BQSink insert/handler (6)
+
+### Decisions
+
+- ✅ **dataset 分離 `citify_raw` / `citify_curated`**: raw=取得元別の生データ (kokkai_speeches 等)、curated=AI 加工結果 (scored_speeches)。BQ 標準パターン
+- ✅ **partition by ingested_at, cluster by user_id/municipality_code**: 「ユーザー X の直近フィード」query を高速化、コスト最小
+- ✅ **streaming insert (insert_rows_json)**: ハッカソン規模で十分、bulk insert は将来
+- ✅ **dedup は downstream クエリ側 (message_id カラム)**: BQ MERGE は重い、SELECT 時に dedup する戦略
+- ✅ **agent ロジックと BQ insert を分離 (sink worker)**: relevance worker は AI に集中、BQ 永続化は独立 worker
+
+### Files Created/Modified
+
+- `infra/env/dev/main.tf` — citify_curated dataset + scored_speeches table 追加 (2 リソース)
+- `pkg/bq_sink.py`, `pkg/bq_sink_runner.py`, `pkg/tests/test_bq_sink.py` (新規)
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### パイプライン構成 (永続化レイヤ追加)
+
+```
+[Scraper] → [A-5 translate] → [A-6 score] → [A-7 distributor]
+                                    ↓
+                              📡 citify-speech-scored
+                                    ↓
+                          ┌─────────┴─────────┐
+                          ↓                   ↓
+                   [A-7 distributor]    [BQ sink worker] (NEW)
+                          ↓                   ↓
+                   📡 feed-snapshot      📊 BQ.scored_speeches
+                                          (partition + cluster で
+                                           クエリ最速)
+```
+
+### Next
+
+- `terraform apply` で curated dataset + scored_speeches table を反映
+- BQ sink live test: A-6 worker と BQ sink を同時起動、scored_speeches テーブルに行が入ることを確認
+- `SELECT * FROM citify_curated.scored_speeches WHERE user_id='X' ORDER BY relevance_score DESC LIMIT 10` で per-user フィード取得確認
+- (将来) feed_snapshots table + Firestore writer
+- A-5/A-6/A-7/BQ sink を Cloud Run Worker としてデプロイ
+
+---
+
 ## 2026-05-21 (Wed) Session 26 — Phase P: A-7 (distributor) worker 接続、4 段パイプライン完成
 
 ### Completed

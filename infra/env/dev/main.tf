@@ -243,6 +243,75 @@ resource "google_project_iam_member" "runtime_bq_job_user" {
 }
 
 # ---------------------------------------------------------------------------
+# BigQuery: citify_curated dataset + scored_speeches テーブル (Phase Q)
+# ---------------------------------------------------------------------------
+# 設計方針:
+#   - dataset citify_curated: 加工済データ集約 (raw + AI 結果の join)
+#   - scored_speeches: A-6 relevance worker → BQ sink で永続化
+#     1 行 = 1 ユーザー × 1 speech の評価結果 (matched_interests/score breakdown 含む)
+#   - partition by ingested_at (DAY): 直近 N 日のフィード生成で全件スキャン回避
+#   - cluster by user_id, municipality_code: per-user feed query 最速化
+resource "google_bigquery_dataset" "curated" {
+  dataset_id  = "citify_curated"
+  location    = var.region
+  description = "Citify 加工済データ (翻訳済 speech + relevance score、ユーザー × speech 単位)"
+  labels      = local.common_labels
+
+  delete_contents_on_destroy = false
+
+  access {
+    role          = "OWNER"
+    special_group = "projectOwners"
+  }
+  access {
+    role          = "WRITER"
+    user_by_email = google_service_account.citify_api_runtime.email
+  }
+  access {
+    role          = "READER"
+    special_group = "projectReaders"
+  }
+}
+
+resource "google_bigquery_table" "scored_speeches" {
+  dataset_id          = google_bigquery_dataset.curated.dataset_id
+  table_id            = "scored_speeches"
+  description         = "A-6 relevance worker 出力。1 行 = 1 ユーザー × 1 speech の評価結果"
+  deletion_protection = false
+
+  time_partitioning {
+    type  = "DAY"
+    field = "ingested_at"
+  }
+
+  clustering = ["user_id", "municipality_code"]
+
+  schema = jsonencode([
+    { name = "speech_id", type = "STRING", mode = "REQUIRED", description = "合成 ID (tenant:council:schedule:order or kokkai speechID)" },
+    { name = "user_id", type = "STRING", mode = "REQUIRED", description = "ペルソナ ID" },
+    { name = "municipality_code", type = "STRING", mode = "NULLABLE", description = "5 桁自治体コード ('00000' = 国会)" },
+    { name = "title", type = "STRING", mode = "NULLABLE", description = "A-5 翻訳タイトル (40 字以内)" },
+    { name = "summary", type = "STRING", mode = "REPEATED", description = "A-5 翻訳 3 行サマリ" },
+    { name = "detail_url", type = "STRING", mode = "NULLABLE", description = "原典 URL (引用必須)" },
+    { name = "meeting_date", type = "DATE", mode = "NULLABLE", description = "会議開催日" },
+    { name = "relevance_score", type = "INTEGER", mode = "REQUIRED", description = "A-6 総合スコア 0-100" },
+    { name = "score_topic", type = "INTEGER", mode = "NULLABLE", description = "トピック関連性 0-25" },
+    { name = "score_age", type = "INTEGER", mode = "NULLABLE", description = "年代適合性 0-25" },
+    { name = "score_geographic", type = "INTEGER", mode = "NULLABLE", description = "地理関連性 0-25" },
+    { name = "score_urgency", type = "INTEGER", mode = "NULLABLE", description = "緊急性 0-25" },
+    { name = "matched_interests", type = "STRING", mode = "REPEATED", description = "ペルソナ関心軸との合致" },
+    { name = "reasoning", type = "STRING", mode = "NULLABLE", description = "スコアの簡潔な理由 (200 字以内)" },
+    { name = "speaker_position", type = "STRING", mode = "NULLABLE", description = "役職 (固有名詞でない)" },
+    { name = "name_of_meeting", type = "STRING", mode = "NULLABLE", description = "会議名" },
+    { name = "tone", type = "STRING", mode = "NULLABLE", description = "A-5 翻訳トーン casual/neutral/formal" },
+    { name = "message_id", type = "STRING", mode = "NULLABLE", description = "Pub/Sub message_id (dedup 用)" },
+    { name = "ingested_at", type = "TIMESTAMP", mode = "REQUIRED", description = "BQ 投入タイムスタンプ (UTC, partition key)" },
+  ])
+
+  labels = local.common_labels
+}
+
+# ---------------------------------------------------------------------------
 # GCS: RAG corpus 取り込み用 staging bucket (Phase D)
 # ---------------------------------------------------------------------------
 # Vertex AI RAG Engine は GCS から file を import するため、BQ から export した

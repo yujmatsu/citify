@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E〜O 完了 + P (A-7 distributor worker Pub/Sub 接続 + FeedSnapshot + feed-snapshot topic + per-user pool + 78 unit tests)。**4 段パイプライン完成** (scraper → translator → relevance → distributor)。3 段 live は岡山県議事録で確認済 (倫理ガードレール retry + matched_interests=子育て,雇用 検出, score 30〜60 差別化)。残 Week 2: ADK ラップ、BigQuery 投入バッチ、worker Cloud Run デプロイ、4 段 live test",
+  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E〜P 完了 + Q (BigQuery 永続化 = citify_curated dataset + scored_speeches table + pkg/bq_sink.py + bq_sink_runner CLI + 87 unit tests)。**4 段パイプライン完成 + 永続化基盤完成**。4 段 live 動作確認済 (5 件発言 → matched=住居,雇用,子育て / score=60 / rank=1)。残 Week 2: terraform apply (curated) + BQ live test、ADK ラップ、worker Cloud Run デプロイ",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
