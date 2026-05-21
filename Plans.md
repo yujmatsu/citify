@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
-| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | **`cc:WIP`** 🚧 Phase E (A-5 翻訳) 5/21 前倒し完了 |
+| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | **`cc:WIP`** 🚧 Phase E (A-5) + F (A-6) + G (A-7) 完了、コア Agent 3 体 ✅。残 A-4 / Pub/Sub |
 | Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
 | Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |
@@ -123,7 +123,7 @@
 
 - [x] [A-5] 翻訳 Agent (agents/translator/) `cc:完了` — Gemini 2.5 Flash + response_schema + 3 段倫理ガードレール、casual/neutral/formal トーン出し分け、実翻訳 5 秒
 - [x] [A-6] 影響度 Agent (agents/relevance/) + スコアリング `cc:完了` — 4 軸 (topic/age/geo/urgency 各 25 点) で 3 ペルソナ実測 45-90 点で明確差別化、自動補正機能
-- [ ] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート ← **Phase G で着手予定**
+- [x] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート `cc:完了` — LLM 不要 MMR 風 greedy ranking、diversity_penalty で同 interest/speaker 連続回避、freshness boost ±5、実 BQ 10 件 → top 5 feed 生成確認
 - [ ] エージェント間 Pub/Sub メッセージング
 
 ### `cc:TODO` 議事録パーサー(Playwright)

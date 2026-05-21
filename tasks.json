@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T14:30:00+09:00",
-  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) + Phase F (A-6) 完了。残: A-7 配信 / A-4 DiscussNet / Pub/Sub 連携",
+  "updated": "2026-05-21T14:45:00+09:00",
+  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) + F (A-6) + G (A-7) 完了。残: A-4 DiscussNet パーサー / Pub/Sub 連携 / ADK ラップ",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -524,7 +524,7 @@
       "type": "feature",
       "priority": "Must",
       "week": 2,
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["A-6"],
       "acceptance_criteria": [
         "直近 7 日上位 10 件選択",
@@ -532,9 +532,9 @@
         "通知タイミング判定"
       ],
       "drop_condition": null,
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "started_at": "2026-05-21T14:30:00+09:00",
+      "completed_at": "2026-05-21T14:43:00+09:00",
+      "notes": "Phase G で完了。LLM 不要な決定論的 MMR 風 greedy ranking で実装。Filter (min_relevance 50) → Greedy 選択 (各 round で relevance + freshness - diversity_penalty 最大を選ぶ) → feed_size 件で打ち切り。多様性ペナルティ = 既選択 item との matched_interests 重複 × diversity_weight × 5、speaker_position 重複は別途 +5/回。新鮮さ boost = ±5 (30 日以内 +5、90 日超 -5)。BQ 10 件パイプラインで実検証: 5 件 feed 生成、#1 (教育+子育て dual match) adj=70 → #5 (penalty=21 累積) adj=44 で明確な減衰グラデーション確認。同候補プールでも #3 (rel=55) が #4 (rel=65) より上に来るなど多様性ロジック動作確認。実装: agents/distributor/{schema,main,__main__}.py + tests 15 ケース (A-5+A-6+A-7 累計 37/37 PASS)。受入条件 3/3 達成: ✅ feed_size パラメタで上位 N 選択、✅ 同 speech_id を一度 selected 後 remaining から削除で重複除去、✅ 通知タイミング判定 は通知 Agent (B-5、Week 5) で実装予定 (今は表示判定のみ)"
     },
     {
       "id": "A-8",

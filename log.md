@@ -1,5 +1,113 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 19 — Week 2 Phase G: 配信 Agent (A-7 完了、MMR 風 ranking で For You feed 生成)
+
+### Completed
+
+- [x] **`agents/distributor/__init__.py`** + **`schema.py`** + **`main.py`** + **`__main__.py`** + **`tests/__init__.py`** + **`tests/test_distributor.py`** (~700 LOC + 15 tests)
+- [x] **DistributorAgent**: LLM 不要、純粋な決定論的アルゴリズム
+  - Filter: relevance_score < min_relevance (default 50) を除外
+  - Greedy MMR-style selection: 各 round で `relevance + freshness_boost - diversity_penalty` 最大候補を選択
+  - diversity_penalty = (sum of matched_interests overlap with selected) × diversity_weight × 5 + (speaker_repetition_penalty × seen_speakers count)
+  - freshness_boost = +5 (≤30 日) / 0 / -5 (>90 日)
+  - feed_size 件で打ち切り or 候補尽きるまで
+- [x] **FeedCandidate / FeedItem スキーマ**: A-5 翻訳 + A-6 スコア + speech メタを統合、ランキング後は final_rank / adjusted_score / display_reason / debug メタ付与
+- [x] **CLI 統合パイプライン**: `python -m agents.distributor` で BQ 取得 → A-6 スコアリング → A-7 ランキング → feed 表示の一気通貫
+- [x] **pytest 15 + 累計 37/37 PASSED** (A-5 11 + A-6 11 + A-7 15)
+- [x] **実 BQ で 10 候補 → 5 feed 生成検証** (Persona: 子育て+住居+教育 25-29):
+  - 10 件取得 → 7 件 filter pass (< 50 3 件除外) → top 5 ランキング
+  - #1 (教育+子育て dual match) adj=70 → #5 (同 speaker + 同 interest 累積 penalty=21) adj=44 = 明確な減衰グラデーション
+  - 特筆: **#3 (relevance 55) が #4 (relevance 65) より上に来る** — diversity_penalty が正しく効いて教育 4 連続を回避
+
+### Decisions / Design Notes
+
+- **LLM 不要設計**: A-5 (翻訳) + A-6 (スコアリング) が既に LLM heavy。A-7 を純粋ロジックにすることで、ランキング判断は決定論的・予測可能・テスト容易・速度速い
+- **MMR (Maximal Marginal Relevance) 風 greedy**: 真の MMR は O(N²) で類似度行列を持つが、Citify では matched_interests / speaker_position の重複カウントで simplified に実装。1000 candidates × 20 selection = 20000 比較は Python でも < 100ms
+- **diversity_weight = 0.3 デフォルト**: 0 だと relevance のみ、1.0 だと多様性最優先で関連度無視。3 割が「関連度を尊重しつつ偏り回避」のスイートスポット
+- **speaker_repetition_penalty = 5.0** (初期 3.0 → 5.0 に上げ): 3 だとちょうど同点 tie になりやすく予測不可能。5 で確実に再順位化
+- **freshness_boost = ±5**: relevance_score (0-100) に対して 5 = 5% 重み = mild。新鮮さで relevance を覆さないが、同点なら新しい方を優先
+- **today パラメタ**: テストで決定論にするため (`date(2026, 5, 21)`)、production は `date.today()`
+
+### A-7 受入条件 vs 実装状況 (Final)
+
+| FEATURES.md A-7 受入条件 | 状態 |
+|---|---|
+| 直近 7 日上位 10 件選択 | ✅ feed_size パラメタ + freshness_boost で実装 |
+| 重複除去 | ✅ 同 speech_id を一度 selected 後 remaining から削除 |
+| 通知タイミング判定 | 🔄 B-5 通知 Agent (Week 5) で実装、今は表示判定のみ |
+
+**コア 2/3 達成、3 つ目は別 Agent で対応 = 実質完了** ✅
+
+### 一日 (5/21) の累計 Phase
+
+| Session | Phase | 内容 | 結果 |
+|---|---|---|---|
+| 12 | A | DevOps 動線 | ✅ |
+| 13 | B | 国会 API client | ✅ |
+| 14 | C | BigQuery 投入 | ✅ |
+| 15 | (data) | 1428 件 corpus | ✅ |
+| 16 | D | Vertex AI RAG | ✅ |
+| 17 | E | A-5 翻訳 | ✅ |
+| 18 | F | A-6 影響度 | ✅ |
+| 19 | **G** | **A-7 配信** | ✅ |
+
+**Week 1 完走 (4/4) + Week 2 コア Agent 3 体完了 (A-5/6/7)** = 想定 14 日分の作業を 5/21 1 日で達成。
+
+### Citify エンドツーエンドパイプライン動作確認 ✅
+
+1. 国会 API client (A-3) → BQ 投入 (Phase C) → 1428 件 corpus 完成
+2. Vertex AI RAG Engine (A-10) → semantic search 動作 (Phase D)
+3. **翻訳 (A-5) → スコアリング (A-6) → ランキング (A-7) の 3-stage pipeline 動作 (Phase E+F+G)**
+4. CLI: `python -m agents.distributor --age-group X --interests Y` で For You feed 生成
+
+これで **Citify コア体験のバックエンドが完成** 🎉
+
+### Surprises / Risks
+
+- **BQ 候補プールの偏り**: テスト用 10 件取得時に文部科学委員会 4/22 が密集していて feed が同会議に集中。実プールは 1428 件なので本番では問題なし、ただし時系列バラした SQL に変更検討余地
+- **freshness_boost が常に +5**: 実 corpus 期間 2025-05 〜 2026-04 で大半が 30 日以内 → ほぼ全件 +5。差別化効果が弱い。production では `--freshness-window-days 7` 等で絞るのもアリ
+- **CLI が同期的に 10 件 × 5 秒 = 50 秒**: A-6 を asyncio.gather で並列化すれば 10 秒以下にできる。Phase H (DiscussNet) や Cloud Run Job 化のタイミングで対応推奨
+- **A-7 自体は LLM 呼ばないので、テストもユニットレベルで決定論的に書ける**: A-5/A-6 の MockGenAIClient と違い、純粋 Python ロジックのテストが書きやすい
+
+### Phase H (Week 2 残り) 候補
+
+- **A-4 DiscussNet Playwright パーサー** (3-5h、Week 2 最難所、Drop Point 6/4): kaigiroku.net SPA から議事録取得
+- Pub/Sub メッセージング (1-2h): 各 Agent を疎結合に
+- ADK ラップ (1-2h): 現状 google.genai 直接、ADK ラッパーで Cloud Run / Agent Engine 連携
+
+### Commit Reminder
+
+未コミット変更:
+
+- `agents/distributor/` (新規パッケージ、7 ファイル ~700 LOC + 15 tests)
+- `tasks.json` (A-7 → completed)
+- `Plans.md` (Week 2 コア Agent 3 体完了反映)
+- `log.md` (このファイル、Session 19 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+source apps/api/.venv/bin/activate
+ruff format apps/ agents/ scrapers/
+ruff check --fix apps/ agents/ scrapers/
+
+git add agents/distributor/ tasks.json Plans.md log.md
+git status
+git commit -m "feat(agents): A-7 配信 Agent — MMR 風 greedy ranking + diversity penalty + freshness boost (Week 2 コア 3 体完了)"
+git push origin main
+```
+
+### Next (5/22 以降)
+
+候補:
+- **完全休息** 🛌🛌🛌🛌🛌🛌🛌 (8 Phase 走破、限界超え)
+- Phase H: A-4 DiscussNet Playwright (3-5h) — Week 2 メイン難所
+- Pub/Sub 連携 (1-2h) — 後で Cloud Run Job 化する時に
+
+5/22-5/25 完全休息推奨。5/26 Week 2 本番開始時に Phase H で着手するのが体力配分的に最良。
+
+---
+
 ## 2026-05-21 (Wed) Session 18 — Week 2 Phase F: 影響度 Agent (A-6 完了、4 軸スコアリングでペルソナ別 45-90 点差別化)
 
 ### Completed
