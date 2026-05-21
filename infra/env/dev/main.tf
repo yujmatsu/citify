@@ -101,7 +101,7 @@ locals {
       command = ["python", "-m", "agents.distributor.worker"]
       args = [
         "--project-id", "citify-dev",
-        "--input-subscription", "citify-speech-scored-sub",
+        "--input-subscription", "citify-speech-scored-distributor-sub", # fan-out 専用
         "--output-topic", "citify-feed-snapshot",
         "--min-relevance", "50",
         "--feed-size", "10",
@@ -114,7 +114,7 @@ locals {
       args = [
         "--project-id", "citify-dev",
         "--sink", "scored_speeches",
-        "--subscription", "citify-speech-scored-sub",
+        "--subscription", "citify-speech-scored-bq-sub", # fan-out 専用
         "--table", "citify-dev.citify_curated.scored_speeches",
       ]
       memory = "512Mi"
@@ -549,6 +549,9 @@ resource "google_pubsub_topic" "speech_scored" {
   labels = local.common_labels
 }
 
+# NOTE: distributor (A-7) と bq_sink は同じ topic を fan-out で読むため、
+#       それぞれ独立した subscription を持つ (competing consumers ではなく fan-out)
+# 旧 citify-speech-scored-sub も互換性のため残置 (使用しない、削除可)
 resource "google_pubsub_subscription" "speech_scored_sub" {
   name  = "citify-speech-scored-sub"
   topic = google_pubsub_topic.speech_scored.id
@@ -569,16 +572,72 @@ resource "google_pubsub_subscription" "speech_scored_sub" {
   labels = local.common_labels
 }
 
-# A-6 worker が speech_scored に publish
+# distributor (A-7) 専用 subscription (fan-out 用)
+resource "google_pubsub_subscription" "speech_scored_distributor_sub" {
+  name  = "citify-speech-scored-distributor-sub"
+  topic = google_pubsub_topic.speech_scored.id
+
+  ack_deadline_seconds         = 30
+  message_retention_duration   = "604800s"
+  enable_exactly_once_delivery = true
+
+  expiration_policy {
+    ttl = ""
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+
+  labels = merge(local.common_labels, { consumer = "distributor" })
+}
+
+# bq_sink 専用 subscription (fan-out 用)
+resource "google_pubsub_subscription" "speech_scored_bq_sub" {
+  name  = "citify-speech-scored-bq-sub"
+  topic = google_pubsub_topic.speech_scored.id
+
+  ack_deadline_seconds         = 30
+  message_retention_duration   = "604800s"
+  enable_exactly_once_delivery = true
+
+  expiration_policy {
+    ttl = ""
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+
+  labels = merge(local.common_labels, { consumer = "bq_sink" })
+}
+
+# A-6 worker が speech_scored topic に publish
 resource "google_pubsub_topic_iam_member" "runtime_publish_scored" {
   topic  = google_pubsub_topic.speech_scored.name
   role   = "roles/pubsub.publisher"
   member = "serviceAccount:${google_service_account.citify_api_runtime.email}"
 }
 
-# A-7 distributor が speech_scored を subscribe
+# (旧) citify-speech-scored-sub の subscriber 権限 (互換性のため残置)
 resource "google_pubsub_subscription_iam_member" "runtime_subscribe_scored" {
   subscription = google_pubsub_subscription.speech_scored_sub.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# distributor 専用 subscription の subscriber 権限
+resource "google_pubsub_subscription_iam_member" "runtime_subscribe_scored_distributor" {
+  subscription = google_pubsub_subscription.speech_scored_distributor_sub.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# bq_sink 専用 subscription の subscriber 権限
+resource "google_pubsub_subscription_iam_member" "runtime_subscribe_scored_bq" {
+  subscription = google_pubsub_subscription.speech_scored_bq_sub.name
   role         = "roles/pubsub.subscriber"
   member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
 }

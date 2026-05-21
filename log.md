@@ -1,5 +1,81 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 28 (続々) — Phase R 修正 2: Pub/Sub fan-out 修正 (distributor + bq_sink)
+
+### Completed
+
+- [x] **live test で subscription 競合問題を発見**:
+  - 3 件 publish したのに BQ には 1 件しか入らない
+  - 原因: distributor と bq_sink が同じ `citify-speech-scored-sub` を share
+  - Pub/Sub の competing consumers パターンで 3 件が 2 subscriber に分配 (1 件 BQ、2 件 distributor)
+- [x] **fan-out 修正** (`infra/env/dev/main.tf`):
+  - `citify-speech-scored-distributor-sub` 新規 (distributor 専用)
+  - `citify-speech-scored-bq-sub` 新規 (bq_sink 専用)
+  - 旧 `citify-speech-scored-sub` は互換性のため残置 (使用なし)
+  - 各新規 subscription に IAM (subscriber 権限) 付与
+  - Cloud Run Job `distributor` / `bq-sink-scored` の `args` を新 subscription に切替
+- [x] **README 更新**: subscription fan-out パターンを明文化、表内 ⭐ で重要箇所マーク
+
+### Decisions
+
+- ✅ **fan-out 採用 (1 topic → N subscriptions)**: Pub/Sub の標準パターン、全 subscriber が独立にメッセージ受信
+- ✅ **旧 subscription 残置**: terraform destroy しても古いコードが動くようローカル開発互換性確保 (cost 影響なし)
+- ✅ **subscription 命名規則**: `{topic}-{consumer}-sub` で目的明確化 (例: `speech-scored-distributor-sub`)
+
+### Phase R 完成構成 (最終)
+
+```
+[Scraper publish] citify-speech-translate
+   ↓
+[citify-speech-translate-sub]
+   ↓
+[A-5 translator (Cloud Run Job)] → citify-speech-translated
+   ↓
+[citify-speech-translated-sub]
+   ↓
+[A-6 relevance (Cloud Run Job)] → citify-speech-scored
+   ↓ fan-out
+   ├─→ [citify-speech-scored-distributor-sub] → [A-7 distributor] → citify-feed-snapshot
+   └─→ [citify-speech-scored-bq-sub] → [BQ sink] → BQ.scored_speeches
+```
+
+### 確認できた成功項目
+
+- ✅ Cloud Build (BUILD_ID 採用版) で image build + AR push 成功
+- ✅ Cloud Run Job × 4 デプロイ成功
+- ✅ Cloud Scheduler × 4 paused 状態で作成 (月コスト $0)
+- ✅ `toggle-schedulers.sh status` で全 PAUSED 確認
+- ✅ `toggle-schedulers.sh run-once` で 4 worker 並列起動成功
+- ✅ scrapers publish → Cloud Run pipeline → BQ insert 確認 (1 件入るところで subscription 競合発覚)
+
+### 次の手順
+
+ユーザー側で再度 apply + run-once + publish して fan-out 動作を確認:
+
+```bash
+cd /home/yujmatsu/projects/citify/infra/env/dev
+terraform apply  # 2 新規 subscription + 2 IAM + 2 Job args 更新 = 6 changes
+
+# 既存実行中の Job は古い subscription を pull している (新 args は次の execution で反映)
+# 既存 execution を停止して再起動:
+/home/yujmatsu/projects/citify/apps/workers/scripts/toggle-schedulers.sh run-once
+
+# publish して fan-out 動作確認
+cd /home/yujmatsu/projects/citify
+PYTHONPATH=. apps/api/.venv/bin/python -m scrapers.kaigiroku_net publish-speeches \
+    --tenant prefokayama --council-id 177 --schedule-id 4 \
+    --max-speeches 3 --project-id citify-dev \
+    --topic citify-speech-translate --rate-limit-sec 1
+
+# 数分待って BQ で 3 件入っているか確認
+bq query --project_id=citify-dev --use_legacy_sql=false '
+SELECT COUNT(*) as cnt FROM `citify-dev.citify_curated.scored_speeches`
+WHERE user_id = "demo-25-29" AND DATE(ingested_at) = CURRENT_DATE()
+'
+```
+
+---
+
 ## 2026-05-22 (Thu) Session 28 (続) — Phase R 修正 + コスト最適化
 
 ### Modified (cost optimization)

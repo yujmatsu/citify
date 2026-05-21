@@ -6,8 +6,10 @@
 |---|---|---|---|
 | translator | `citify-speech-translate-sub` | `citify-speech-translated` | `citify-worker-translator` |
 | relevance | `citify-speech-translated-sub` | `citify-speech-scored` | `citify-worker-relevance` |
-| distributor | `citify-speech-scored-sub` | `citify-feed-snapshot` | `citify-worker-distributor` |
-| bq-sink-scored | `citify-speech-scored-sub` | (BQ insert) | `citify-worker-bq-sink-scored` |
+| distributor | `citify-speech-scored-distributor-sub` ⭐ | `citify-feed-snapshot` | `citify-worker-distributor` |
+| bq-sink-scored | `citify-speech-scored-bq-sub` ⭐ | (BQ insert) | `citify-worker-bq-sink-scored` |
+
+⭐ **`speech-scored` topic は distributor と bq_sink の 2 つの consumer を持つため、各 worker が独立した subscription を持つ fan-out パターン**。1 つの subscription を share すると Pub/Sub の competing consumers でメッセージが分配されてしまうため。
 
 ## 運用方針 (コスト優先)
 
