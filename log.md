@@ -1,5 +1,83 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 29 — Phase S: BQ dedup view (EOD race 対応)
+
+### Completed
+
+- [x] **`citify_curated.scored_speeches_latest` view を Terraform 化** (`infra/env/dev/main.tf`):
+  - `(speech_id, user_id)` で PARTITION + `ROW_NUMBER() OVER (ORDER BY ingested_at DESC)` で最新 1 件のみ
+  - `_rn` は `SELECT * EXCEPT(_rn)` で除外、列構成は元 table と完全一致
+  - `depends_on = [google_bigquery_table.scored_speeches]` で table 先行作成を保証
+  - labels に `purpose = "dedup_view"` を追加
+- [x] **outputs.tf 拡張**:
+  - `bq_scored_speeches_full_id` (生データ table)
+  - `bq_scored_speeches_latest_view` (dedup view)
+- [x] **README 更新** (`apps/workers/README.md`):
+  - 「BigQuery 永続化先」表で生 table vs dedup view の使い分け明記
+  - dedup SQL ロジックを公開、frontend / BI ツール向けの推奨先を明示
+  - 動作確認手順を「view → table」の優先順に整理
+
+### Decisions
+
+- ✅ **regular view (not materialized view)**: シンプル、storage コスト 0、ハッカソンスコープでは十分
+  - materialized view は auto-refresh で高速だが、PARTITION BY + ROW_NUMBER の組み合わせは MV 非対応
+  - 将来 query volume が増えたら incremental MV パターンを検討
+- ✅ **`_rn` (underscore prefix)**: BQ の SELECT * EXCEPT で除外する一時列、命名衝突回避
+- ✅ **列構成を元 table と完全一致**: frontend / BI が table → view 置換だけで dedup 対応完了
+
+### Files Modified
+
+- `infra/env/dev/main.tf` — `google_bigquery_table.scored_speeches_latest` 追加 (view block + depends_on)
+- `infra/env/dev/outputs.tf` — bq_scored_speeches_full_id + bq_scored_speeches_latest_view 追加
+- `apps/workers/README.md` — view 使い分けセクション + dedup SQL 公開
+
+### デプロイ手順
+
+```bash
+cd /home/yujmatsu/projects/citify/infra/env/dev
+terraform apply
+# Plan: 1 to add (scored_speeches_latest view)
+```
+
+### 動作確認クエリ
+
+```bash
+# dedup view 経由 (推奨)
+bq query --project_id=citify-dev --use_legacy_sql=false '
+SELECT speech_id, title, relevance_score, matched_interests
+FROM `citify-dev.citify_curated.scored_speeches_latest`
+WHERE user_id = "demo-25-29"
+ORDER BY relevance_score DESC LIMIT 10
+'
+
+# 重複が排除されているか確認
+bq query --project_id=citify-dev --use_legacy_sql=false '
+WITH raw AS (
+  SELECT speech_id, user_id, COUNT(*) as cnt
+  FROM `citify-dev.citify_curated.scored_speeches`
+  GROUP BY speech_id, user_id
+  HAVING cnt > 1
+),
+view_dedup AS (
+  SELECT speech_id, user_id, COUNT(*) as cnt
+  FROM `citify-dev.citify_curated.scored_speeches_latest`
+  GROUP BY speech_id, user_id
+  HAVING cnt > 1
+)
+SELECT
+  (SELECT COUNT(*) FROM raw) AS raw_dupes,
+  (SELECT COUNT(*) FROM view_dedup) AS view_dupes
+'
+# 期待: raw_dupes > 0 (EOD race で発生), view_dupes = 0 (view で吸収)
+```
+
+### Next
+
+- terraform apply で view 反映
+- 既存 frontend / BI クエリを view ベースに移行 (Week 3)
+
+---
+
 ## 2026-05-22 (Thu) Session 28 (続々) — Phase R 修正 2: Pub/Sub fan-out 修正 (distributor + bq_sink)
 
 ### Completed

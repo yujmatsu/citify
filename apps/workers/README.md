@@ -11,6 +11,26 @@
 
 ⭐ **`speech-scored` topic は distributor と bq_sink の 2 つの consumer を持つため、各 worker が独立した subscription を持つ fan-out パターン**。1 つの subscription を share すると Pub/Sub の competing consumers でメッセージが分配されてしまうため。
 
+## BigQuery 永続化先
+
+| テーブル/ビュー | 用途 |
+|---|---|
+| `citify-dev.citify_curated.scored_speeches` | A-6 出力の生データ (Pub/Sub EOD race により稀に重複あり) |
+| `citify-dev.citify_curated.scored_speeches_latest` ⭐ | dedup 済 view、**frontend / BI が読む推奨先** |
+
+dedup ロジック (view 内):
+```sql
+SELECT * EXCEPT (_rn) FROM (
+  SELECT *, ROW_NUMBER() OVER (
+    PARTITION BY speech_id, user_id
+    ORDER BY ingested_at DESC
+  ) AS _rn
+  FROM citify_curated.scored_speeches
+) WHERE _rn = 1
+```
+
+→ `(speech_id, user_id)` ごとに最新 1 件のみ返す。生 table と列構成は同じなので、既存クエリは table 名を view 名に置換するだけで dedup 対応完了。
+
 ## 運用方針 (コスト優先)
 
 ```
@@ -73,8 +93,17 @@ PYTHONPATH=. apps/api/.venv/bin/python -m scrapers.kaigiroku_net publish-speeche
     --topic citify-speech-translate --rate-limit-sec 1
 
 # 数分待つと BQ に反映
+# 推奨: scored_speeches_latest view (dedup 済) を読む
 bq query --project_id=citify-dev --use_legacy_sql=false '
 SELECT speech_id, title, relevance_score, matched_interests
+FROM `citify-dev.citify_curated.scored_speeches_latest`
+WHERE user_id = "demo-25-29"
+ORDER BY relevance_score DESC LIMIT 10
+'
+
+# 生データを見たい場合は scored_speeches テーブルを直接 (重複あり得る)
+bq query --project_id=citify-dev --use_legacy_sql=false '
+SELECT speech_id, title, relevance_score, matched_interests, ingested_at
 FROM `citify-dev.citify_curated.scored_speeches`
 WHERE user_id = "demo-25-29"
 ORDER BY ingested_at DESC LIMIT 10

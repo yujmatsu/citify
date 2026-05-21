@@ -366,6 +366,49 @@ resource "google_bigquery_table" "scored_speeches" {
 }
 
 # ---------------------------------------------------------------------------
+# BigQuery View: scored_speeches_latest (Phase S — EOD race による重複 dedup)
+# ---------------------------------------------------------------------------
+# 設計:
+#   - Pub/Sub exactly_once_delivery は「ほぼ exactly once」、稀に重複配信あり
+#   - BQ insert は idempotent でないため、同じ (speech_id, user_id) が複数行になる可能性
+#   - この view で (speech_id, user_id) ごとに最新 1 行だけ返すよう正規化
+#   - frontend / BI ツールはこの view を読むことで重複を意識せずに済む
+#   - 列は元 table と完全一致 (rn は EXCEPT で除外)、互換性維持
+#
+# 参考クエリ (このまま実行可):
+#   SELECT speech_id, title, relevance_score, matched_interests
+#   FROM `citify-dev.citify_curated.scored_speeches_latest`
+#   WHERE user_id = 'demo-25-29' AND relevance_score >= 50
+#   ORDER BY relevance_score DESC LIMIT 10
+resource "google_bigquery_table" "scored_speeches_latest" {
+  dataset_id          = google_bigquery_dataset.curated.dataset_id
+  table_id            = "scored_speeches_latest"
+  description         = "scored_speeches を (speech_id, user_id) で dedup した view。Pub/Sub EOD race による稀な重複を吸収。frontend / BI が読む推奨先"
+  deletion_protection = false
+
+  view {
+    use_legacy_sql = false
+    query          = <<-SQL
+      SELECT * EXCEPT (_rn)
+      FROM (
+        SELECT
+          *,
+          ROW_NUMBER() OVER (
+            PARTITION BY speech_id, user_id
+            ORDER BY ingested_at DESC
+          ) AS _rn
+        FROM `${var.project_id}.${google_bigquery_dataset.curated.dataset_id}.${google_bigquery_table.scored_speeches.table_id}`
+      )
+      WHERE _rn = 1
+    SQL
+  }
+
+  labels = merge(local.common_labels, { purpose = "dedup_view" })
+
+  depends_on = [google_bigquery_table.scored_speeches]
+}
+
+# ---------------------------------------------------------------------------
 # GCS: RAG corpus 取り込み用 staging bucket (Phase D)
 # ---------------------------------------------------------------------------
 # Vertex AI RAG Engine は GCS から file を import するため、BQ から export した

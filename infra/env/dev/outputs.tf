@@ -38,6 +38,16 @@ output "bq_kokkai_table_full_id" {
   description = "BigQuery kokkai_speeches テーブルの完全 ID (project.dataset.table 形式)"
 }
 
+output "bq_scored_speeches_full_id" {
+  value       = "${var.project_id}.${google_bigquery_dataset.curated.dataset_id}.${google_bigquery_table.scored_speeches.table_id}"
+  description = "BigQuery scored_speeches テーブルの完全 ID (BQ sink 投入先、生データ)"
+}
+
+output "bq_scored_speeches_latest_view" {
+  value       = "${var.project_id}.${google_bigquery_dataset.curated.dataset_id}.${google_bigquery_table.scored_speeches_latest.table_id}"
+  description = "BigQuery scored_speeches_latest view の完全 ID (dedup 済、frontend / BI 推奨先)"
+}
+
 output "rag_staging_bucket" {
   value       = "gs://${google_storage_bucket.rag_staging.name}"
   description = "RAG corpus 取り込み用 GCS bucket URI"
