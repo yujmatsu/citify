@@ -37,3 +37,8 @@ output "bq_kokkai_table_full_id" {
   value       = "${var.project_id}.${google_bigquery_dataset.raw.dataset_id}.${google_bigquery_table.kokkai_speeches.table_id}"
   description = "BigQuery kokkai_speeches テーブルの完全 ID (project.dataset.table 形式)"
 }
+
+output "rag_staging_bucket" {
+  value       = "gs://${google_storage_bucket.rag_staging.name}"
+  description = "RAG corpus 取り込み用 GCS bucket URI"
+}

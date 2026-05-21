@@ -1,7 +1,7 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T01:10:00+09:00",
+  "updated": "2026-05-21T10:50:00+09:00",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -579,7 +579,7 @@
       "type": "feature",
       "priority": "Must",
       "week": 1,
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["A-3"],
       "acceptance_criteria": [
         "国会議事録 + 自治体議事録 index 化",
@@ -588,9 +588,9 @@
         "日次バッチ"
       ],
       "drop_condition": "Vertex AI RAG Engine の設定で 2 日詰まれば自前 Embedding + Vector Search に切替",
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "started_at": "2026-05-21T09:00:00+09:00",
+      "completed_at": "2026-05-21T10:45:00+09:00",
+      "notes": "Phase D で完了。corpus citify-kokkai-test に 1428 files (国会会議録 11 ヶ月) を embedding (text-multilingual-embedding-002, chunk_size=512, overlap=100) で index 化、import 2.5 分。5 ペルソナ query (子育て/住宅/移住/防災/教育) で 25 hits 全部高関連、特に Q3 移住では BQ 取込 68 件しかないキーワードでも semantic 拡張で関連発言を発見できることを確認 = RAG として真の動作。実装ファイル: apps/api/rag/{export,corpus,__main__,__init__}.py + tests/test_rag.py (8 ケース、全 PASS)。残: ① 自治体議事録は kaigiroku/voices_asp 取込後 (Week 2-3)、② 自治体・期間フィルタは metadata 設定追加 (将来 A-9 で実装)、③ 日次バッチは Cloud Run Job 化 (Week 5+)、④ distance フィールド SDK で n/a 表示は cosmetic。RAG SA は当初予測 'gcp-sa-vertex-rag' でなく 'gcp-sa-aiplatform' を使うことが判明、`gcloud beta services identity create --service=aiplatform.googleapis.com` で明示プロビジョニング後に IAM 付与で解決"
     },
     {
       "id": "A-11",

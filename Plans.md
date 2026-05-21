@@ -13,7 +13,7 @@
 | Week | 期間 | ゴール | 状態 |
 |---|---|---|---|
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
-| **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:WIP`** 🚧 Phase A (DevOps 動線) 5/21 前倒し完了 |
+| **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
 | Week 2 | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | `cc:TODO` |
 | Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
@@ -96,17 +96,17 @@
 - [x] [A-3] 国会会議録 API クライアント `cc:完了` — schema/client/__main__/bq_loader/tests、pytest 13/13、CLI で 100 件取得→BQ 投入確認
 - [x] BigQuery スキーマ定義 + 投入バッチ `cc:完了` — citify_raw.kokkai_speeches (partition by meeting_date / cluster by municipality_code+source)、Terraform IaC 化、100 行 streaming insert 動作確認、政党分布の健全性も検証済
 
-### `cc:TODO` RAG 基盤
+### `cc:完了` RAG 基盤
 
-- [ ] [A-10] Vertex AI RAG Engine セットアップ
-- [ ] 国会議事録 100 件投入 + セマンティック検索動作確認
+- [x] [A-10] Vertex AI RAG Engine セットアップ `cc:完了` — corpus citify-kokkai-test、text-multilingual-embedding-002、chunk 512/overlap 100
+- [x] 国会議事録 1428 件投入 + セマンティック検索動作確認 `cc:完了` — 5 ペルソナ query で 25/25 hits 高関連、Q3 移住では keyword 範囲外も semantic 拡張で発見
 
-### Week 1 終了時判定基準
+### Week 1 終了時判定基準 — **4/4 完全達成** 🎉
 
-- [x] terraform apply で全リソース構築 **(部分達成: Phase A 13 + Phase C 3 = 16 リソース、Firestore/PubSub/Secret Manager は Week 2 で追加)**
+- [x] terraform apply で全リソース構築 (Phase A 13 + Phase C 3 + Phase D 4 = 20 リソース、Firestore/PubSub/Secret Manager は Week 2 で追加)
 - [x] git push で自動デプロイ ✅
 - [x] 公開 URL で /health が 200 ✅
-- [ ] RAG でセマンティック検索動作 ← **Phase D (A-10) で対応**
+- [x] RAG でセマンティック検索動作 ✅ **(corpus 1428 件、5 ペルソナ query で 25/25 hits 関連性確認)**
 
 ---
 

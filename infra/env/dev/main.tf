@@ -243,6 +243,64 @@ resource "google_project_iam_member" "runtime_bq_job_user" {
 }
 
 # ---------------------------------------------------------------------------
+# GCS: RAG corpus 取り込み用 staging bucket (Phase D)
+# ---------------------------------------------------------------------------
+# Vertex AI RAG Engine は GCS から file を import するため、BQ から export した
+# .txt ファイルを一時格納する bucket。
+#
+# 設計方針:
+#   - asia-northeast1 (Tokyo) で RAG corpus と同 region
+#   - uniform_bucket_level_access = true (オブジェクト ACL を使わない)
+#   - lifecycle: 30 日後に自動削除 (corpus に import 済みなら staging 不要)
+#   - versioning OFF (一時データのため)
+resource "google_storage_bucket" "rag_staging" {
+  name                        = "${var.project_id}-rag-staging"
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = true # dev は terraform destroy で消せるように
+
+  labels = local.common_labels
+
+  lifecycle_rule {
+    condition {
+      age = 30
+    }
+    action {
+      type = "Delete"
+    }
+  }
+}
+
+# citify-api-runtime に bucket の read 権限 (RAG Engine が import 時に読む)
+resource "google_storage_bucket_iam_member" "rag_staging_runtime_reader" {
+  bucket = google_storage_bucket.rag_staging.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# citify-api-runtime に bucket の write 権限 (BQ → GCS export 時に書く)
+resource "google_storage_bucket_iam_member" "rag_staging_runtime_writer" {
+  bucket = google_storage_bucket.rag_staging.name
+  role   = "roles/storage.objectCreator"
+  member = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# Vertex AI の Google 管理サービスアカウントへの bucket read 権限 (Phase D 検証で動作確認済)。
+#
+# 実際の SA 名: `service-46070204654@gcp-sa-aiplatform.iam.gserviceaccount.com`
+# (当初予測の `gcp-sa-vertex-rag` ではなく aiplatform 一般 SA を RAG が使う)
+#
+# プロビジョニング履歴: 2026-05-21 に
+#    `gcloud beta services identity create --service=aiplatform.googleapis.com`
+# で明示作成 (corpus 自動 provision されなかったため手動で実行)。新規プロジェクトで
+# Terraform apply 失敗する場合は同コマンドで再現可能。
+resource "google_storage_bucket_iam_member" "rag_staging_aiplatform_reader" {
+  bucket = google_storage_bucket.rag_staging.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:service-46070204654@gcp-sa-aiplatform.iam.gserviceaccount.com"
+}
+
+# ---------------------------------------------------------------------------
 # 後続 (Week 1 後半 / Week 2 で追加予定):
 #   - module "firestore"        (modules/firestore/)
 #   - module "pubsub"           (modules/pubsub/)

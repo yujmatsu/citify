@@ -19,10 +19,12 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
 
-    # Google Cloud (Cloud Run / Logging / Secret Manager / BigQuery)
+    # Google Cloud (Cloud Run / Logging / Secret Manager / BigQuery / Vertex AI)
     "google-cloud-logging>=3.11",
     "google-cloud-secret-manager>=2.20",
     "google-cloud-bigquery>=3.25",
+    "google-cloud-storage>=2.18",
+    "google-cloud-aiplatform>=1.71",
 
     # 構造化ログ
     "structlog>=24.4",

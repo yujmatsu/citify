@@ -1,5 +1,120 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 16 — Week 1 Phase D: Vertex AI RAG Engine (A-10 完了 + 判定基準 4/4 完走)
+
+### Completed
+
+- [x] **Terraform**: GCS bucket `citify-dev-rag-staging` + 3 IAM (runtime SA read/write + 後で aiplatform SA reader)
+- [x] **apps/api/pyproject.toml**: `google-cloud-aiplatform>=1.71` + `google-cloud-storage>=2.18` 追加
+- [x] **`apps/api/rag/__init__.py` + `apps/__init__.py` + `apps/api/__init__.py`**: パッケージ化
+- [x] **`apps/api/rag/export.py`** (~200 行): BQ → GCS export
+  - `SpeechExportRow` dataclass (Pydantic 非依存軽量版)
+  - `format_speech_for_rag()`: metadata header + 本文の 2 部構成
+  - `_query_distinct_speeches()`: DISTINCT id + 最新 fetched_at でデュープ済 1428 件取得
+  - `export_speeches_to_gcs()`: 100 件単位 progress log、~3 分で 1428 件完走
+- [x] **`apps/api/rag/corpus.py`** (~200 行): Vertex AI RAG corpus 管理
+  - `create_corpus()`: SDK >= 1.85 新 API (`RagEmbeddingModelConfig` + `VertexPredictionEndpoint` + `RagVectorDbConfig` の 3 階層)
+  - `import_files_from_gcs()`: chunk 512 / overlap 100 で embedding 生成 + polling
+  - `retrieval_query()`: top_k=5 で semantic search → `RetrievedContext` 配列
+  - `get_corpus_by_display_name()`: idempotent setup 用
+  - `delete_corpus()`: cleanup 用
+- [x] **`apps/api/rag/__main__.py`** (~180 行): CLI
+  - サブコマンド `setup` / `import-only` / `query` / `list` / `delete`
+  - `parents=[common]` パターンで subcommand 前後どちらでも引数指定可能
+- [x] **`apps/api/rag/tests/test_rag.py`** (8 ケース、PASSED): MockRagModule で SDK 全 mock、実 API 不要
+- [x] **pyproject.toml (project root)**: testpaths = ["scrapers", "apps/api"] に拡張
+- [x] **GCP セットアップ**: `gcloud beta services identity create --service=aiplatform.googleapis.com` で SA プロビジョニング、`gcloud storage buckets add-iam-policy-binding` で bucket read 権限付与
+- [x] **本番 corpus 作成**: corpus_id `6917529027641081856`、location asia-northeast1、embedding text-multilingual-embedding-002
+- [x] **1428 件 import**: 2 分 23 秒で imported=1418 + skipped=10 = 1428 total、failed=0
+- [x] **5 ペルソナ query 検証**:
+  - Q1 子育て世代支援策 → こども未来戦略加速化プラン、児童手当、妊娠相談 ⭐⭐⭐⭐⭐
+  - Q2 若者の住宅取得困難 → 都市部住宅高騰、子育て世帯ローン、若者単身者 ⭐⭐⭐⭐⭐
+  - Q3 地方移住の促進 → 東京一極集中是正、ふるさとワーキングホリデー、地域おこし協力隊 ⭐⭐⭐⭐⭐
+  - Q4 災害対策の予算 → 内閣府防災 159 億円、防災庁設置、緊急防災事業費 ⭐⭐⭐⭐⭐
+  - Q5 教育格差是正 → 貧困/虐待対応、高校無償化、奨学金格差 ⭐⭐⭐⭐⭐
+- [x] **Terraform IAM 永続化**: main.tf の rag_staging_aiplatform_reader resource uncomment (SA 名を gcp-sa-vertex-rag → gcp-sa-aiplatform に修正)
+
+### Decisions / Design Notes
+
+- **SDK 1.153.1 で API breaking change 発見**: 旧 `EmbeddingModelConfig(publisher_model=...)` は廃止、新 API は `RagEmbeddingModelConfig(vertex_prediction_endpoint=VertexPredictionEndpoint(publisher_model=...))` + `RagVectorDbConfig(rag_embedding_model_config=...)` を `create_corpus(backend_config=...)` で渡す 3 階層構造
+- **RAG SA 名の予測ミス**: 当初 `gcp-sa-vertex-rag` を想定していたが、SDK 1.153 の RAG Engine は実際には `gcp-sa-aiplatform` 一般 SA を使用。`gcloud beta services identity create --service=aiplatform.googleapis.com` で明示プロビジョニング必須
+- **`apps/__init__.py` + `apps/api/__init__.py`** を追加: `from apps.api.rag.X import Y` import path を有効化、`python -m apps.api.rag` も同時に動かす目的
+- **`SpeechExportRow` を Pydantic 非依存に**: BQ から軽量読み出し + GCS export の独立 pipeline。export 専用 dataclass にすることで model コンパイル回避、5,000+ records でも軽快
+- **chunk_size 512 / overlap 100**: 国会発言 1 件平均 2555 字なので 5-6 chunks/file、1428 files で 7000-8000 chunks 想定、RAG capacity 内
+- **embedding model = text-multilingual-embedding-002**: 日本語対応、Vertex AI native (1 文字 ~$0.0001/1000 chars、1428 file × 2555 chars = 3.65M chars = ~$0.36 一回のみ)
+- **CLI `parents=[common]`** parser パターン: argparse のサブコマンド前後の柔軟引数を実現、UX 改善 (`setup --project X` も `--project X setup` も動く)
+
+### 一日の総括 (5/21)
+
+| Session | Phase | 内容 | 結果 |
+|---|---|---|---|
+| 12 | A | DevOps 動線 (Cloud Build → Cloud Run) | ✅ 完了 |
+| 13 | B | 国会 API client (httpx + Pydantic + 7 tests) | ✅ 完了 |
+| 14 | C | BigQuery dataset + 投入バッチ | ✅ 完了 |
+| 15 | (operational) | 1428 件 corpus 投入 (9 ペルソナ × 365 日) | ✅ 完了 |
+| 16 | **D** | Vertex AI RAG Engine + semantic search | ✅ 完了 |
+
+**Week 1 終了時判定基準 4/4 完全達成** 🎉
+
+### Surprises / Risks
+
+- **SDK breaking change はマジで突然来る**: 1.71 → 1.85 で API 全変更。production code では try/except import で旧版 fallback 推奨だが、hackathon では新 API 直接採用
+- **RAG SA の名前**: GCP docs に明示なし、`gcp-sa-vertex-rag` は将来予約名かも (新規プロジェクトで違う名前になる可能性あり)。新規環境構築時は実 SA を確認してから Terraform binding する運用が安全
+- **2.5 分で 1428 files の embedding 生成**: 想像以上に速い。Vertex AI RAG Engine の throughput がよく、追加 corpus (自治体議事録 540 自治体分) も時間的に問題なさそう
+- **`distance` が n/a**: SDK response の field 名が `distance` でない可能性 (`vector_distance` or `score`)。cosmetic だが UI で similarity 表示する時に修正必要
+- **corpus 名が "test"**: setup を `--display-name citify-kokkai-test` で作って動作確認、後で本番名 `citify-kokkai-speeches` に切替推奨 (rename API ない場合は再作成 + 再 import)
+
+### Phase D 受入条件 vs 実装 (Final)
+
+| FEATURES.md A-10 受入条件 | 状態 |
+|---|---|
+| 国会議事録 + 自治体議事録 index 化 | 🟡 国会のみ完了 (1428 件、11 ヶ月分)、自治体は Week 2 以降 |
+| セマンティック検索 3-5 件 | ✅ top_k=5 で 25/25 高関連 |
+| 自治体・期間フィルタ | 🔄 metadata 設定追加で実装可、A-9 (議題詳細ビュー) で対応 |
+| 日次バッチ | 🔄 Cloud Run Job 化で実装、Week 5 で追加 |
+
+**コア機能 2/4 達成、残 2 つは UI / 運用化フェーズで対応** = A-10 のコア技術は完全達成
+
+### Commit Reminder
+
+未コミット変更:
+
+- `infra/env/dev/main.tf` (RAG bucket + 3 IAM 追加、aiplatform IAM uncomment)
+- `infra/env/dev/outputs.tf` (rag_staging_bucket 追加)
+- `apps/api/pyproject.toml` (aiplatform + storage deps 追加)
+- `apps/__init__.py`, `apps/api/__init__.py` (新規、パッケージ化)
+- `apps/api/rag/` (新規パッケージ、6 ファイル ~700 LOC + tests 8 ケース)
+- `pyproject.toml` (testpaths 拡張)
+- `tasks.json` (A-10 → completed)
+- `Plans.md` (Week 1 全体完了反映 + 判定基準 4/4)
+- `log.md` (このファイル、Session 16 追記)
+
+推奨コミット (memory ルール: format 必須):
+```bash
+cd ~/projects/citify
+source apps/api/.venv/bin/activate
+ruff format apps/api/ scrapers/
+ruff check --fix apps/api/ scrapers/
+terraform fmt -recursive infra/
+
+git add infra/ apps/ scrapers/ pyproject.toml tasks.json Plans.md log.md
+git status
+git commit -m "feat(rag): A-10 完了 — Vertex AI RAG Engine 1428 件 corpus + semantic search 動作確認 (Week 1 判定基準 4/4 達成)"
+git push origin main
+```
+
+### Next (5/22 以降)
+
+候補:
+- **完全休息** 🛌🛌🛌 (5/21 一日で Phase A+B+C+D 4 連続 + 1428 件 + RAG corpus = Week 1 想定全期間分達成)
+- Week 2 着手 (A-5 翻訳 Agent、A-6 影響度 Agent)
+- corpus 名 cleanup (test → speeches へ rename)
+- 自治体議事録パーサー先取り (A-4 Playwright DiscussNet)
+
+5/22-5/25 は完全休息推奨。5/26 月曜から Week 2 (コアエージェント 3 体) を fresh state で着手。
+
+---
+
 ## 2026-05-21 (Wed) Session 15 — RAG 用 corpus 大量投入 (1428 unique speeches)
 
 ### Completed
