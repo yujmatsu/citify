@@ -1,5 +1,82 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 25 — Phase O: A-6 (relevance) worker を Pub/Sub に接続、3 段パイプライン完成
+
+### Completed
+
+- [x] **`TranslatedSpeech` combined payload 設計** (`agents/translator/schema.py`):
+  - 原典 speech メタ (speech_id, tenant_id, council_id, schedule_id, municipality_code, meeting_date, name_of_meeting, speaker_position, detail_url, content_text) + 翻訳結果 (TranslatorOutput)
+  - downstream (relevance / configurator) が 1 メッセージで両方を取得できる
+- [x] **`pkg/municipality_map.py` 新規**:
+  - `KAIGIROKU_TENANT_TO_MUNI_CODE`: tier1_supplements.csv 由来の 9 テナント (shinjuku/sumida/arakawa/yokohama/prefosaka/cityosaka/prefokayama/tosa/prefoita)
+  - `resolve_municipality_code(source, tenant_id)`: source=kokkai_api → 00000、kaigiroku_net → マップ参照、それ以外/未知 → 00000 fallback
+- [x] **translator worker (A-5) 改修**:
+  - 出力 payload を `TranslatorOutput` → `TranslatedSpeech` に変更
+  - `_build_translated_speech()` で原典 envelope + 翻訳結果を結合
+  - attributes に `municipality_code` 追加 (filter 用)
+- [x] **agents/relevance/worker.py 新規** (~210 LOC):
+  - `_envelope_to_relevance_input()`: TranslatedSpeech payload → RelevanceInput 変換、translation.summary/title を抽出
+  - `make_handler()`: TranslatedSpeech 受信 → RelevanceAgent.score() → ScoredSpeech に詰めて publish
+  - CLI: ペルソナを `--user-age-group / --user-interests / --user-municipality-codes` で渡す (将来 Firestore に置換)
+  - 非 TranslatedSpeech payload は skip、Gemini 例外は handler raise → subscriber nack
+- [x] **`ScoredSpeech` schema 新規** (`agents/relevance/schema.py`):
+  - speech_id + user_id + title + summary + detail_url + meeting_date + RelevanceOutput
+  - distributor (A-7) が直接フィード生成に使える形 (title/summary/detail_url 同梱)
+- [x] **Terraform 拡張** (3 リソース追加):
+  - Topic: `citify-speech-scored` (A-6 出力 / A-7 入力)
+  - Subscription: `citify-speech-scored-sub` (ack_deadline=30s, exactly_once)
+  - IAM × 2: citify-api-runtime に publisher + subscriber 権限
+  - terraform validate: ✅
+- [x] **テスト 12 件追加** (合計 66 PASSED):
+  - `pkg/tests/test_municipality_map.py` 6 件: kokkai_api/kaigiroku 既知/未知/None/不明 source
+  - `agents/relevance/tests/test_worker.py` 6 件: envelope 変換、ScoredSpeech 構築、handler 採点+publish、非 TranslatedSpeech skip、Gemini 失敗 nack
+  - translator worker test 1 件更新 (TranslatedSpeech publish 形式に対応)
+
+### Decisions
+
+- ✅ **TranslatedSpeech に原典本文 (content_text) も同梱**: relevance が translated_summary 無し時に fallback 評価できるよう
+- ✅ **municipality_code は worker レベルで resolve**: scraper から渡される tenant_id を 1 度マップしてしまう (downstream で重複導出を避ける)
+- ✅ **ScoredSpeech に title/summary/detail_url を同梱**: A-7 distributor は ScoredSpeech 単独でフィード組み立てができる、BQ 引き直し不要
+- ✅ **ペルソナは CLI / env 渡し (Firestore は将来)**: ハッカソンでは 1 ペルソナ固定 → 動く paipeline 優先
+
+### Files Created/Modified
+
+- `pkg/municipality_map.py`, `pkg/tests/test_municipality_map.py` (新規)
+- `agents/translator/schema.py` — TranslatedSpeech 追加
+- `agents/translator/worker.py` — _build_translated_speech 追加、handler の publish payload を変更
+- `agents/translator/tests/test_worker.py` — handler テスト 1 件を TranslatedSpeech 検証に書き換え
+- `agents/relevance/schema.py` — ScoredSpeech 追加
+- `agents/relevance/worker.py`, `agents/relevance/tests/test_worker.py` (新規)
+- `infra/env/dev/main.tf` — speech_scored topic / sub / IAM ×2 追加
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### 3 段パイプライン構成 (live 動作未確認、unit test レベルで結合済み)
+
+```
+[Scraper] kaigiroku_net (publish-speeches CLI)
+  ↓ Speech envelope
+[Pub/Sub] citify-speech-translate
+  ↓ pull (exactly_once, DLQ 5 attempts)
+[A-5] translator worker
+  ↓ TranslatedSpeech envelope (原典メタ + 翻訳結果)
+[Pub/Sub] citify-speech-translated
+  ↓ pull (exactly_once)
+[A-6] relevance worker (NEW)
+  ↓ ScoredSpeech envelope (採点 + 表示用フィールド)
+[Pub/Sub] citify-speech-scored (NEW)
+  ↓ A-7 distributor 待機中
+```
+
+### Next
+
+- `terraform apply` で `citify-speech-scored` topic / sub 反映
+- 3 段 live integration test (publish → translate → score)
+- A-7 distributor を speech-scored に接続 → フィード生成
+- BigQuery `citify_raw.speeches` + `citify_curated.scored_speeches` テーブル + 投入バッチ
+- Cloud Run Worker として A-5 / A-6 をデプロイ
+
+---
+
 ## 2026-05-21 (Wed) Session 24 — Phase N: Pub/Sub 連携 A-4 → A-5 パイプライン構築
 
 ### Completed
