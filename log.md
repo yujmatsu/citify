@@ -1,5 +1,119 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 21 — Phase K: voices_asp scope 縮小 (robots.txt Disallow) + B-7 プレス RSS 前倒し実装
+
+### Completed
+
+- [x] **Phase K-1: voices_asp scope 縮小確定**
+  - DevTools 観察で個別議事録 URL が `/voices/cgi/voiweb.exe?...` (Sapporo 例) と判明
+  - **`/voices/cgi/` は robots.txt で Disallow** = bot による scrape は倫理的に不可
+  - 当初の「JS 必須」より深刻な問題(Playwright でも解決しない)
+  - **scope を「年度メタデータ + 外部リンク」のみに縮小**
+  - tasks.json A-4b → completed (limited scope) + 詳細 notes
+  - recon doc §11 を「JS 必須」から「robots.txt Disallow」に格上げ
+- [x] **Phase K-2: B-7 プレス RSS Week 5 → Week 2 前倒し実装** (~1.5h):
+  - `scrapers/press_rss/` パッケージ新規 (6 ファイル ~600 LOC + 14 tests)
+  - `feedparser>=6.0` 採用、RSS 2.0 / Atom 1.0 両対応 + 自動エンコード検出
+  - `httpx.AsyncClient` で 301 redirect 自動追跡、retry 3 回 + exponential backoff
+  - `_struct_time_to_dt()` で feedparser の `published_parsed` を UTC datetime に変換
+  - `_entry_id()` で guid > id > link > sha256 hash の fallback
+  - CLI: `python -m scrapers.press_rss fetch --rss-url URL --municipality-code XXXXX --max N`
+- [x] **テスト 14 ケース PASSED**:
+  - Schema バリデーション (PressItem 最小、SOURCE_NAME)
+  - struct_time → datetime 変換 (UTC + None ケース)
+  - Entry ID 抽出 (4 fallback パターン)
+  - RSS 2.0 fixture (港区風)
+  - Atom 1.0 fixture (札幌市議会風)
+  - max_items 切り出し、empty feed、fetched_at が現在時刻範囲
+- [x] **NHK ニュース RSS で実動作確認**:
+  - `https://www.nhk.or.jp/rss/news/cat0.xml` → 301 redirect → `news.web.nhk/...` 経由で取得成功
+  - 3 items 取得、`pub_date` UTC、`title` 日本語、`description` 取得 OK
+  - feed_title 認識: 'NHKONEニュース'
+- [x] **state files 更新**:
+  - tasks.json B-7 → in_progress (実装完了、自治体 URL 収集 + BQ 投入 残)
+  - tasks.json A-4b → completed (limited scope)
+  - tasks.json active_week_note を「Week 2 完走 + Week 5 一部前倒し」に更新
+  - Plans.md Week 2 行 (A-5/6/7 完、A-4b metadata only、B-7 前倒し完了、A-4 ツリー展開残)
+  - voices_asp_recon.md §11.4 / §11.5 / §11.6 / §11.7 大幅追記 (戦略再評価)
+
+### Decisions / Design Notes
+
+- **倫理優先の judgement**: Yuji が B+C ハイブリッド (voices_asp metadata only + B-7 前倒し) を選択。CitifyBot は robots.txt を厳守、グレーゾーンを攻めない方針を体現
+- **feedparser 採用**: RSS / Atom の format バリエーション (RDF 含む) を自前パースするより堅牢、~80 KB の軽量依存
+- **municipality_code 必須**: PressItem スキーマで自治体識別必須化、`'00000'` は使わない(国会用、自治体専用フィールド)
+- **301 redirect 自動追跡**: `httpx.AsyncClient(follow_redirects=True)` でデフォルト OFF を上書き。NHK や自治体 RSS は頻繁に URL 変更でリダイレクト多用するため
+- **`feed.bozo` 警告**: feedparser が「parse 自信なし」と判定した時に WARNING ログ、ただし entries が取れていれば続行(寛容運用)
+- **fetched_at は UTC**: BigQuery timestamp と合わせる、tz aware で確定
+
+### B-7 受入条件 vs 実装状況 (中間評価)
+
+| FEATURES.md B-7 受入条件 | 状態 |
+|---|---|
+| RSS URL マスタ | 🟡 column は municipality_master.csv に存在 (Phase 2 で追加)、Tier 1 30 件 + 47 都道府県の **URL 実値は未収集** |
+| 日次クロール | 🔄 Cloud Run Job 化 (Week 5 で IaC、cloudbuild.yaml or 別 trigger) |
+| BigQuery 投入 | 🔄 citify_raw.press_items テーブル + 投入バッチ (kokkai_speeches と同パターン) |
+| 47 都道府県分 | 🔄 上記 URL 収集の一環 |
+
+**コア技術検証完了 = 30-40% 進捗**、運用部分は別タスクで段階的に。
+
+### 一日 (5/21) の累計
+
+| Session | Phase | 内容 | 結果 |
+|---|---|---|---|
+| 12-19 | A-G | DevOps + コア Agent 3 体 + RAG | ✅ |
+| 20a/20b | H/I | A-4 + A-4b スケルトン | 🟡 partial |
+| **21** | **K** | **voices_asp scope 縮小 + B-7 前倒し** | ✅ |
+
+**Week 1 完走 + Week 2 ほぼ完走 + Week 5 一部前倒し** = 想定 18 日分の作業を 5/21 1 日で消化。**完全に異常な progress**。
+
+### Surprises / Risks
+
+- **倫理ガードレール発動の良い前例**: A-4b で「楽な方向 (CGI 直叩き)」に流される選択肢があったが、PROJECT.md §5 の robots.txt 遵守原則を優先した判断は再現性ある。Citify は **倫理を技術都合で曲げない** プロダクトとして一貫性確保
+- **tier1_supplements.csv の press_rss_url が全部空**: Phase 2 で列定義しただけで値未収集だった。Phase K で気づいた、別途リサーチ仕事
+- **NHK が municipality_code='00000' で扱える**: メディア企業 RSS だが共通スキーマで吸収可能、将来「Citify 用 ニュース統合 layer」(C-X 系) として拡張余地
+- **feedparser の自動エンコード検出**: 多くの自治体 RSS は UTF-8 だが、レガシー (sapporo の voices_asp 同様) Shift_JIS の可能性も。feedparser が encoding header / XML prolog 両方を見て吸収するので、Citify 側で明示指定不要
+
+### Phase K の戦略的位置づけ
+
+**voices_asp で「楽な選択肢が消えた」逆境を機にプレス RSS を前倒し** = Drop Point ルール (Plans.md 末尾) を体現:
+- 「困った時の優先順位」の②「コア機能 (A 群) が動作すること」
+- ペルソナ A (新社会人東京) のカバレッジを別経路で救済 = A 群の機能性を守った
+
+### Commit Reminder
+
+未コミット変更:
+
+- `scrapers/voices_asp/` (Phase I の追加変更、recon doc 反映)
+- `scrapers/press_rss/` (新規パッケージ、7 ファイル + 14 tests)
+- `apps/api/pyproject.toml` (beautifulsoup4 + lxml + feedparser 追加)
+- `docs/scrapers/voices_asp_recon.md` (§11 大幅改訂、scope 縮小経緯)
+- `tasks.json` (A-4b → completed、B-7 → in_progress)
+- `Plans.md` (Week 2 行更新)
+- `log.md` (このファイル、Session 21 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+source apps/api/.venv/bin/activate
+ruff format apps/ agents/ scrapers/
+ruff check --fix apps/ agents/ scrapers/
+
+git add scrapers/voices_asp/ scrapers/press_rss/ apps/api/pyproject.toml docs/scrapers/voices_asp_recon.md tasks.json Plans.md log.md
+git status
+git commit -m "feat(scrapers): A-4b scope 縮小 (robots.txt Disallow) + B-7 プレス RSS 前倒し実装 (NHK で動作確認)"
+git push origin main
+```
+
+### Next (5/22 以降)
+
+ここで打ち止め強推奨。明日以降の候補:
+- **Playwright sprint** (A-4 ツリー展開 + 横断検証、Week 2 真の完走) — 3-4h
+- **Week 3 Next.js + A-1 オンボーディング UI 着手** — フロントエンド入り
+- **自治体 RSS URL 収集** (B-7 完成への運用仕事、Tier 1 30 件) — 1-2h リサーチ
+- **完全休息** — 最強推奨、11 Phase 走破は本当に異常
+
+---
+
 ## 2026-05-21 (Wed) Session 20 — Week 2 Phase I: voices_asp スケルトン (A-4b 30-40%、JS 必須判明)
 
 ### Completed

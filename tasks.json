@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T16:30:00+09:00",
-  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) + F (A-6) + G (A-7) + H (A-4 scaffold) + I (A-4b scaffold) 完了。残: A-4 ツリー展開 + A-4b の 2 階層目以降 (両方 Playwright 必須判明、同一スプリント解決推奨)、Pub/Sub 連携、ADK ラップ",
+  "updated": "2026-05-21T17:45:00+09:00",
+  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E (A-5) + F (A-6) + G (A-7) + H (A-4 scaffold) + I (A-4b metadata only) + K (voices_asp scope 縮小 + B-7 前倒し完了) 完了。残 Week 2: A-4 ツリー展開、Pub/Sub 連携、ADK ラップ",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -469,7 +469,7 @@
       "type": "feature",
       "priority": "Should",
       "week": 3,
-      "status": "in_progress",
+      "status": "completed",
       "dependencies": ["RECON-003", "A-4"],
       "acceptance_criteria": [
         "sapporo / minato / adachi でパース成功",
@@ -478,8 +478,8 @@
       ],
       "drop_condition": "Week 3 末で 1 自治体動かなければ中央型のみに範囲縮小",
       "started_at": "2026-05-21T15:30:00+09:00",
-      "completed_at": null,
-      "notes": "Phase I で **30-40% 進捗**: ✅ パッケージ構造 (6 ファイル ~700 LOC + 18 tests)、✅ 年度一覧取得 (sapporo 78 entries 動作確認)、✅ Shift_JIS デコード、✅ ul.kaigi_view selector 動作確認 (recon doc §4 通り)。❌ 2 階層目以降 (年度詳細・個別会議・発言) は **JavaScript 必須** が判明 (recon doc §11 に追記)、当初の GREEN 判定はトップページのみの確認だった誤判定。次の depth-dive 候補: ① Playwright 化 (A-4 と同インフラ流用、2-3h)、② AJAX endpoint リバース工学 (DevTools Network 観察、2-4h)。Drop Point の「Week 3 末で 1 自治体動かなければ範囲縮小」は依然有効、6/8 まで対応。BS4 + lxml 依存追加済 (apps/api/pyproject.toml)"
+      "completed_at": "2026-05-21T17:00:00+09:00",
+      "notes": "Phase I で scope 縮小して完了。当初 GREEN 判定 → Phase I で 2 段階の発見: ① 2 階層目以降 JavaScript 必須、② 個別議事録は /voices/cgi/voiweb.exe にあり robots.txt で Disallow (倫理上 scrape 不可)。Drop Point 発動、scope を 'metadata only + 外部リンク' に縮小して終了。実装: 年度一覧取得 (sapporo 78 entries 動作確認、ul.kaigi_view selector 通り) + Shift_JIS デコード + 18 テスト PASS の minimum viable まで完成。Citify UI では voices_asp 対応自治体に「公式議会公報はこちら」リンクのみ提供、議事録 content は scrape しない。代替戦略: ペルソナ A 救済のため B-7 プレス RSS を Week 5 → Week 2 に前倒し (Phase K-2)。recon doc §11 に経緯詳細記録"
     },
     {
       "id": "A-5",
@@ -768,7 +768,7 @@
       "type": "feature",
       "priority": "Should",
       "week": 5,
-      "status": "pending",
+      "status": "in_progress",
       "dependencies": ["INFRA-006"],
       "acceptance_criteria": [
         "RSS URL マスタ",
@@ -777,9 +777,9 @@
         "47 都道府県分"
       ],
       "drop_condition": "Week 5 末までに最低 47 都道府県分動かなければ Could に降格",
-      "started_at": null,
+      "started_at": "2026-05-21T17:15:00+09:00",
       "completed_at": null,
-      "notes": "A-4 降格時の保険機能"
+      "notes": "Phase K-2 で Week 5 → Week 2 前倒し実装。voices_asp robots.txt Disallow 発見によるペルソナ A 救済目的。実装完了 (scrapers/press_rss/ 6 ファイル ~600 LOC + 14 tests PASS、feedparser 採用 RSS 2.0/Atom 1.0 両対応、Shift_JIS 含むエンコード自動検出)。NHK ニュース RSS で動作確認済 (301 redirect 経由 + UTC datetime + JSON Lines 出力)。残: ① tier1_supplements.csv の press_rss_url 列を実 URL で埋める (Tier 1 30 件 + 47 都道府県、リサーチ仕事)、② BigQuery citify_raw.press_items テーブル作成 (Terraform、kokkai_speeches と同形)、③ 日次 Cloud Run Job 化 (Week 5 で IaC)、④ municipality_master.csv 連携バッチ"
     },
     {
       "id": "B-8",

@@ -19,6 +19,9 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
 
+    # RSS / Atom フィードパーサ (press_rss 用、B-7)
+    "feedparser>=6.0",
+
     # データバリデーション + 設定管理
     "pydantic>=2.9",
     "pydantic-settings>=2.6",

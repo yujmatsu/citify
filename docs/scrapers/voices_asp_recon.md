@@ -6,9 +6,10 @@
 >
 > **最終判定**: 🟢 **GREEN — BeautifulSoup + httpx で実装容易、Playwright 不要**
 >
-> ⚠️ **2026-05-21 補足** (Phase I 実装中に判明): **年度詳細ページ以降は JavaScript 必須**。
->    上記 GREEN 判定は **年度トップページのみの調査結果** に基づく誤判定だった。
->    実装上は **A-4 (kaigiroku.net) と同じ Playwright 化が必要**。詳細は §11 参照。
+> ⚠️ **2026-05-21 改訂** (Phase I 実装中の発見、§11 詳細):
+>    1. 年度トップ以降の SPA 風ページは **JavaScript 必須**
+>    2. 個別議事録の実コンテンツは **`/voices/cgi/voiweb.exe` (robots.txt Disallow)** にあり、bot 取得は **倫理的に不可**
+>    3. 結果として A-4b の content scraping は **drop**、scope を「年度メタデータ + 外部リンク」のみに縮小
 
 ---
 
@@ -288,7 +289,14 @@ Week 0 recon は **3 ページしか saved していなかった** (sapporo_voic
 | B. AJAX endpoint をリバース工学 (DevTools で XHR 観察) | 2-4h | 成功すれば軽量実装、ただし sapporo / minato / adachi で異なる可能性あり |
 | C. voices_asp スコープ縮小 (年度メタデータ index のみ取得、本文は別経路) | 1h | 妥協案、フィード生成には使えない |
 
-→ **Option A 推奨**: A-4 で既に Playwright + Chromium インフラ構築済、流用が効率的。
+→ **🛑 上記の判定が更に変わった (Phase I 後半の DevTools 観察)**: 年度詳細クリック先は AJAX でなく **`/voices/cgi/voiweb.exe?ACT=200&...&UNID=...`** への画面遷移だった。`/voices/cgi/` は voices_asp robots.txt で明確に **Disallow**:
+
+```
+User-agent: *
+Disallow: /voices/cgi/        ← 内部 CGI スクリプト
+```
+
+→ Playwright であろうと AJAX 直叩きであろうと、CitifyBot は bot として識別される以上 **倫理的に取得不可**。Option A / B は drop。**Option C (スコープ縮小) が唯一の道**。
 
 ### 11.5 Phase I 到達状況 (2026-05-21 終了時点)
 
@@ -298,15 +306,23 @@ Week 0 recon は **3 ページしか saved していなかった** (sapporo_voic
 | 18 ユニットテスト (httpx.MockTransport + fixture HTML) | ✅ 全 PASS |
 | 年度一覧取得 (sapporo で 78 entries 動作確認) | ✅ |
 | Shift_JIS デコード | ✅ |
-| 個別会議一覧取得 | ❌ JS 必須判明、Playwright 化待ち |
-| 発言抽出 | ❌ 上流に依存 |
-| minato / adachi 横断検証 | ❌ 上記未達のため未実施 |
+| 個別会議一覧取得 | 🛑 **drop** (`/voices/cgi/` robots.txt Disallow) |
+| 発言抽出 | 🛑 **drop** (同上) |
+| minato / adachi 横断検証 | 🟡 metadata only (年度一覧) scope で実施余地あり |
 
-実質 **30-40% 進捗**。アーキテクチャの土台 + 上 1 階層は完成、JS 部分が次の depth-dive。
+実質 **scope 縮小 ・metadata only として完了** = アーキテクチャの土台 + 年度メタデータ取得は完成、content scraping は drop。
 
-### 11.6 次回着手時の TODO
+### 11.6 確定 scope: metadata only + 外部リンク
 
-1. DevTools Network で sapporo の 2025 年詳細ページ XHR 観察 (AJAX endpoint 特定)
-2. AJAX が見つかれば httpx で直叩き、見つからなければ Playwright 化 (A-4 同インフラ流用)
-3. minato / adachi で再現確認 (3 配信モデル横断)
-4. 個別会議の発言抽出セレクタ確定
+Citify における voices_asp の最終扱い:
+
+1. **年度メタデータ取得** (`g08v_viewh.asp` トップ、robots.txt Allow) で「VOICES/Web 対応自治体」識別
+2. UI 上で **「公式議会公報はこちら」リンク** で当該自治体の `/voices/index.asp` に飛ばす (議事録は scrape しない)
+3. **議事録 content は scrape せず**、ペルソナ A (新社会人東京) の 8 区分のカバレッジは **B-7 プレス RSS 前倒し** で代替
+
+### 11.7 代替戦略: B-7 プレス RSS 前倒し
+
+Phase K で B-7 を Week 5 → Week 2 に前倒し実装:
+- 東京 23 区 + 政令市の **公式プレスリリース RSS** は robots.txt 制約なし、合法的に取得可能
+- 議事録の代わりに「プレス情報 (新着政策・施策発表)」をペルソナに配信
+- voices_asp 対応自治体 (港・台東・世田谷・杉並・板橋・足立・江戸川・大田・札幌) でもプレス RSS は別経路
