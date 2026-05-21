@@ -1,0 +1,40 @@
+# Firebase App Hosting — Citify Web (Next.js 16 + App Router)
+# https://firebase.google.com/docs/app-hosting/configure
+#
+# 用途:
+#   GitHub push 連動で auto build + deploy。
+#   Next.js SSR / Server Components / Static export 全部 1 つの backend で配信。
+#
+# 初回セットアップ (1 回だけ):
+#   1. Firebase Console → App Hosting → Create backend
+#   2. GitHub repo (yujmatsu/citify) を連携
+#   3. Root directory に "apps/web" を指定
+#   4. Live branch に "main" を指定
+#   5. Backend ID は "citify-web" 推奨
+#   6. Service Account は新規作成 (citify-apphosting-runtime 等)
+#
+# 以降は main ブランチ apps/web 配下を push するだけで自動 build + deploy。
+
+runConfig:
+  # Cloud Run のスケール設定 (App Hosting は Cloud Run 上で動く)
+  minInstances: 0          # コスト最優先、cold start 許容
+  maxInstances: 5          # ハッカソンスコープ
+  concurrency: 80          # SSR は I/O bound なので高めで OK
+  cpu: 1                   # 1 vCPU
+  memoryMiB: 512           # Next.js SSR は軽量
+
+env:
+  # Cloud Run BFF の URL を frontend から fetch するため公開 env として注入
+  # 値は Firebase Console → App Hosting → 環境変数で設定推奨 (今はプレースホルダ)
+  - variable: NEXT_PUBLIC_API_BASE
+    value: https://citify-api-PLACEHOLDER.a.run.app
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # 環境名 (dev / staging / prod)
+  - variable: NEXT_PUBLIC_ENV
+    value: dev
+    availability:
+      - BUILD
+      - RUNTIME

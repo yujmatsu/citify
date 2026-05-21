@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
-| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー + Pub/Sub + BQ 永続化 + Cloud Run | **`cc:完了`** ✅ A-5/6/7 + A-4 (Playwright 3 階層 + 5 自治体) + A-4b + B-7 + Pub/Sub 4 段パイプライン (live 動作確認) + BigQuery scored_speeches 投入 sink + Cloud Run Job × 4 + Scheduler × 4 構成完了。残: Cloud Build 実行 + terraform apply で実稼働開始 |
+| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー + Pub/Sub + BQ 永続化 + Cloud Run | **`cc:完了`** ✅ A-4/5/6/7 + Pub/Sub 4 段パイプライン (Cloud Run live 動作確認済) + BQ scored_speeches 永続化 + Cloud Run Job × 4 + Scheduler × 4 (paused=月$0) + fan-out 修正 + B-7 前倒し。ADK は Cloud Run + Pub/Sub 代替で達成。Week 3 移行可 |
 | Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
 | Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |
@@ -110,57 +110,70 @@
 
 ---
 
-## Week 2 (6/2-6/8): コアエージェント 3 体 + DiscussNet パーサー `cc:WIP`
+## Week 2 (6/2-6/8): コアエージェント 3 体 + DiscussNet パーサー `cc:完了`
 
-> **Phase E (5/21 前倒し) 完了** ✅ A-5 翻訳 Agent: 実 Gemini 動作確認、倫理ガードレール 3 段、tests 11/11
+> **2026-05-22 大幅前倒しで Week 2 全項目完了**。Pub/Sub 4 段パイプライン + BQ 永続化 + Cloud Run Worker 構成まで完成、本来 Week 3-5 想定だった B-7 (プレス RSS) / Cloud Run デプロイ / BQ scored_speeches 永続化も達成。
 
-### `cc:TODO` ADK セットアップ
-
-- [ ] ADK プロジェクト初期化 (now: google.genai SDK 直接利用、ADK 化は後でも可)
-- [ ] Vertex AI Agent Engine 連携 (Cloud Run + Pub/Sub で代替予定)
-
-### `cc:WIP` AI Agent 実装
+### `cc:完了` AI Agent 実装
 
 - [x] [A-5] 翻訳 Agent (agents/translator/) `cc:完了` — Gemini 2.5 Flash + response_schema + 3 段倫理ガードレール、casual/neutral/formal トーン出し分け、実翻訳 5 秒
 - [x] [A-6] 影響度 Agent (agents/relevance/) + スコアリング `cc:完了` — 4 軸 (topic/age/geo/urgency 各 25 点) で 3 ペルソナ実測 45-90 点で明確差別化、自動補正機能
 - [x] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート `cc:完了` — LLM 不要 MMR 風 greedy ranking、diversity_penalty で同 interest/speaker 連続回避、freshness boost ±5、実 BQ 10 件 → top 5 feed 生成確認
-- [x] エージェント間 Pub/Sub メッセージング — **A-4 → A-5 → A-6 → A-7 の 4 段パイプライン構築完了**。`pkg/pubsub.py` (Publisher/Subscriber 抽象 + envelope) + Terraform (6 topics + 4 subs + DLQ + IAM) + scrapers publish + 全 agent worker。`TranslatedSpeech` / `ScoredSpeech` / `FeedSnapshot` の combined payload で downstream 引き継ぎ。78 unit tests PASSED。3 段は live 動作確認済 (岡山県議事録: 倫理ガードレール retry + matched_interests=子育て,雇用 検出, score 30〜60 差別化)。残: A-7 live test + Cloud Run デプロイ
+- [x] エージェント間 Pub/Sub メッセージング `cc:完了` — **A-4 → A-5 → A-6 → A-7 の 4 段パイプライン構築完了**。`pkg/pubsub.py` (Publisher/Subscriber 抽象 + envelope) + Terraform (6 topics + 5 subs [fan-out 化済] + DLQ + IAM) + scrapers publish + 全 agent worker。`TranslatedSpeech` / `ScoredSpeech` / `FeedSnapshot` の combined payload で downstream 引き継ぎ。87 unit tests PASSED。**4 段 live 動作確認済** (Cloud Run 上で実行、岡山県議事録: 倫理ガードレール retry + matched_interests=住居/雇用/税/子育て 検出, score 30〜60 差別化, BQ scored_speeches に永続化)
+
+### `cc:完了` Agent 基盤 (ADK 代替: Cloud Run + Pub/Sub で実装)
+
+- [x] ADK プロジェクト初期化 — **方針変更で `cc:完了`** : ADK は overkill と判断、`google.genai` SDK 直接利用 + 独自 worker (`agents/{translator,relevance,distributor}/worker.py` + `pkg/bq_sink_runner.py`) で代替実装。デバッグ・コスト管理が明示的、Cloud Logging で全段可視化
+- [x] Vertex AI Agent Engine 連携 — **Cloud Run Job × 4 + Cloud Scheduler × 4 + IAM で代替実装** (`infra/env/dev/main.tf` Phase R)。Scheduler は default `paused = true` で月コスト $0、デモ期間中だけ resume で月 $5、必要時は `toggle-schedulers.sh run-once` で即起動
 
 ### `cc:完了` 議事録パーサー(Playwright)
 
 - [x] [A-4] DiscussNetPremium パーサー (Playwright) — 3 階層ツリー (L1 councils → L2 schedules → L3 speeches) 完了。prefokayama で end-to-end 動作確認 (5 councils → 8 schedules → 10 speeches、令和7年2月定例会 02月21日−01号で○議長 久徳大輔のパース成功)
 - [x] 主要 5 自治体動作確認 — prefokayama (都道府県/中央) + yokohama (政令市/白ラベル/HTTP) + arakawa (23区/中央) + cityosaka (政令市/中央) + tosa (市町村/Legacy) すべて L1/L2/L3 動作。`tbody` id 揺れ (council_list vs council-list) と発言形式 2 種類 (標準/委員会) 両対応。33 unit tests PASSED
 
+### `cc:完了` Week 5 から前倒しした項目
+
+- [x] [B-7] プレス RSS スクレイパー `cc:完了` — `scrapers/press_rss/` 新規実装 (~600 LOC + 14 tests)、feedparser で RSS 2.0/Atom 1.0 両対応、NHK ニュース RSS で live 動作確認 (Phase K で前倒し)
+- [x] [A-4b] voices_asp パーサー (limited scope) `cc:完了` — robots.txt Disallow 発覚により「メタデータ + 外部リンクのみ」に scope 縮小、recon doc 更新
+
+### `cc:完了` Week 3+ から前倒しした項目
+
+- [x] BigQuery `citify_curated.scored_speeches` 永続化 — `pkg/bq_sink.py` + `pkg/bq_sink_runner.py` + Terraform table (partition by ingested_at + cluster by user_id/municipality_code) 完了。live test で BQ insert 確認、exactly_once_delivery の race による稀な重複は dedup query で対応 (Phase Q)
+- [x] Cloud Run Worker デプロイ構成 — `apps/workers/Dockerfile` (multi-stage uv build, 4 worker 同梱) + `cloudbuild-workers.yaml` (build + push + update-jobs 自動化) + Cloud Run Job × 4 + Scheduler × 4 + IAM 拡張 (`roles/run.invoker` + scheduler tokenCreator) + 運用スクリプト `toggle-schedulers.sh` 完了。**Cloud Run 上で 4 段パイプライン live 動作確認済** (Phase R)
+- [x] Pub/Sub fan-out 設計修正 — competing consumers 問題発見 (BQ に 1/3 件しか入らない事象) → distributor / bq_sink 専用 subscription 分離で解決 (`citify-speech-scored-distributor-sub` + `citify-speech-scored-bq-sub`)
+
 ### **Drop Point 判定: 2026-06-04 (水)** — ✅ 不発動
 
 - [A-4] Playwright で prefokayama 動作確認済 (5/21)、Plan B 切替不要
 
-### 並行イベント
+### 並行イベント (作業ではない、参加判断のみ)
 
-- [ ] **6/7 (日) 13:00-18:00 ファインディ チームビルディング参加**
-- [ ] グーグル・クラウド・ジャパン Agentic AI Bootcamp 2026 受講
+- [ ] **6/7 (日) 13:00-18:00 ファインディ チームビルディング参加** (技術進捗とは別)
+- [ ] グーグル・クラウド・ジャパン Agentic AI Bootcamp 2026 受講 (技術進捗とは別)
 
 ---
 
-## Week 3 (6/9-6/15): フロントエンド + フィード UI + 議題詳細 `cc:TODO`
+## Week 3 (6/9-6/15): フロントエンド + フィード UI + 議題詳細 `cc:WIP`
 
-### `cc:TODO` Next.js セットアップ
+> **Phase T (5/22 前倒し) で主要 3 画面完了** ✅ A-1 / A-8 / A-9 + Next.js 16 + Tailwind 4 + zod + Firebase App Hosting 設定
 
-- [ ] Next.js 15 + Tailwind + shadcn/ui セットアップ
-- [ ] Firebase Hosting デプロイパイプライン
+### `cc:完了` Next.js セットアップ
 
-### `cc:TODO` UI 実装
+- [x] Next.js 16 + Tailwind 4 + zod + clsx/tailwind-merge セットアップ — `apps/web/` で `create-next-app` (App Router + TypeScript + src/ + Turbopack)、`@/*` path alias、next build PASS
+- [x] Firebase App Hosting デプロイパイプライン — `firebase.json` + `.firebaserc` + `apps/web/apphosting.yaml` (asia-northeast1, minInstances=0, maxInstances=5)。初回 backend 作成 (`firebase apphosting:backends:create`) はユーザー手動操作 (GitHub repo 連携必要)
 
-- [ ] [A-1] オンボーディング画面
-- [ ] [A-2] マイ自治体登録 UI (Phase 1+2 マスタ連携)
-- [ ] [A-8] For You フィード (縦スクロール)
-- [ ] [A-9] 議題詳細ビュー + RAG 検索結果表示
-- [ ] FastAPI BFF 経由でデータ取得
+### `cc:完了` UI 実装
+
+- [x] [A-1] オンボーディング画面 — `/onboarding` で 2 step (年代 4 択 + 関心軸 10 軸複数選択)、localStorage に persona 保存 (user_id=`demo-{age_group}`)、絵文字付きボタン UI
+- [ ] [A-2] マイ自治体登録 UI (Phase 1+2 マスタ連携) — `cc:WIP`、まだ未着手
+- [x] [A-8] For You フィード — `/feed` で TikTok 風 snap-scroll、BFF `/v1/feed/{user_id}` 経由 fetch、`FeedCard` (タイトル + 3 行サマリ + 自治体名 + relevance_score バッジ + matched_interests chip + 詳細リンク + 原典リンク + 倫理表記)
+- [x] [A-9] 議題詳細ビュー — `/feed/[speech_id]` で詳細表示、A-5 翻訳タイトル + 正式会議名併記、3 行サマリ、4 軸スコア横棒グラフ (topic/age/geographic/urgency)、matched_interests chip、reasoning 表示、リアクション 4 ボタン (UI のみ、永続化未実装)、原典リンク必須、RAG placeholder (Phase D 統合は Week 4)
+- [x] FastAPI BFF 経由でデータ取得 — `apps/api/main.py` に `/v1/feed/{user_id}` + `/v1/speeches/{speech_id}` 追加 (BQ scored_speeches_latest 経由、parameterized query、Pydantic FeedItem / FeedResponse)。zod schema (`apps/web/src/lib/api.ts`) で型安全
 
 ### `cc:TODO` 議事録パーサー第 2 系統
 
-- [ ] [A-4b] voices_asp パーサー (BeautifulSoup + Shift_JIS)
-- [ ] sapporo / minato / adachi で動作確認
+- [ ] [A-4b] voices_asp パーサー (BeautifulSoup + Shift_JIS) — `cc:WIP`、Week 2 で limited scope 完了済、本格パースは保留 (robots.txt Disallow)
+- [ ] sapporo / minato / adachi で動作確認 — A-4b 本格実装次第
 
 ---
 

@@ -1,5 +1,92 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 30 — Phase T: Week 3 着手 — Frontend MVP (Next.js + 3 画面)
+
+### Completed
+
+- [x] **FastAPI BFF endpoint 追加** (`apps/api/main.py`):
+  - `GET /v1/feed/{user_id}?min_relevance=N&limit=N` — BQ `scored_speeches_latest` 経由でフィード取得 (parameterized query, ORDER BY relevance_score DESC)
+  - `GET /v1/speeches/{speech_id}?user_id=X` — 1 件詳細 (user_id コンテキスト付き)
+  - Pydantic `FeedItem` / `FeedResponse` でレスポンス型固定
+  - `google-cloud-bigquery` 遅延 import (起動高速化、テスト mock 対応)
+- [x] **Next.js 16 scaffold** (`apps/web/`):
+  - `create-next-app` (TypeScript + Tailwind 4 + App Router + src/ + Turbopack)
+  - 追加依存: `clsx`, `tailwind-merge`, `zod`
+  - `lib/utils.ts` に `cn()` (shadcn 互換 util)
+  - `lib/api.ts` に zod schema + `fetchFeed` / `fetchSpeech` (BFF クライアント、`ApiError` クラス、no-store cache)
+  - `lib/persona.ts` で localStorage persona 管理 (`AGE_GROUPS` / `INTERESTS` 定数 + `loadPersona` / `savePersona` + `DEMO_PERSONA`)
+  - `next.config.ts` で `turbopack.root` を明示 (monorepo lockfile 警告解消)
+- [x] **A-1 オンボーディング** (`/onboarding`):
+  - 2 step (年代選択 4 択 → 関心軸選択 10 軸)
+  - 絵文字付きボタン (`🏠 住居` 等)
+  - `user_id` 自動生成 (`demo-{age_group}`)
+  - localStorage 保存 → `/feed` 遷移
+- [x] **A-8 For You フィード** (`/feed`):
+  - BFF `/v1/feed/{user_id}` 経由で取得
+  - TikTok 風 `snap-y snap-mandatory overflow-y-auto` で縦スナップ
+  - `FeedCard` component (タイトル + L1/L2/L3 サマリ + 自治体名 + relevance_score バッジ色分け + matched_interests chip + 詳細遷移リンク + 原典リンク + 倫理表記)
+  - persona 未設定なら `/onboarding` へ自動リダイレクト
+  - empty / error 状態の UI 別途
+- [x] **A-9 議題詳細** (`/feed/[speech_id]`):
+  - 翻訳タイトル + 正式会議名併記
+  - 3 行サマリ
+  - 4 軸スコア (topic/age/geographic/urgency) 横棒グラフ
+  - matched_interests chip + AI reasoning 表示
+  - リアクション 4 種 (👍🤔😢🔥、UI のみ、サーバ永続化未実装)
+  - 原典リンク (target="_blank", PROJECT.md §5 倫理準拠)
+  - RAG placeholder (Phase D 統合は Week 4)
+- [x] **Firebase App Hosting 設定**:
+  - `firebase.json` (schema 宣言のみ)
+  - `.firebaserc` ("default" → "citify-dev")
+  - `apps/web/apphosting.yaml` (runConfig: minInstances=0/maxInstances=5/cpu=1/memory=512MiB, env vars 雛形)
+  - 初回 backend 作成 (`firebase apphosting:backends:create`) はユーザー操作 (GitHub repo 連携必要)
+- [x] **`apps/web/README.md`** 全面書き直し: 構成 + 開発フロー + Firebase App Hosting 手順 + トラブルシュート
+- [x] **`apps/web/.env.local.example`**: `NEXT_PUBLIC_API_BASE` 雛形
+
+### Decisions
+
+- ✅ **Firebase App Hosting (Next.js 公式サポート) 採用**: 旧 Hosting + Cloud Functions より単純、`apphosting.yaml` だけで Next.js SSR/Static 配信可能
+- ✅ **localStorage persona** (Firestore 化は将来): ハッカソンスコープ、認証なし
+- ✅ **zod schema を Pydantic と一致**: BFF レスポンスと frontend 型を同期、break change 時に build 失敗で気づける
+- ✅ **shadcn/ui の interactive init を skip**: Tailwind + `cn()` だけで十分、必要な component は後で個別 add 可能
+- ✅ **RAG / リアクション永続化は placeholder**: A-9 は UI のみ完成、Phase D RAG 統合と reaction BQ 永続化は Week 4
+- ✅ **TikTok 風 snap-scroll**: `snap-y snap-mandatory` + min-h-[80vh] カード、モバイル前提
+
+### Files Created/Modified
+
+- `apps/api/main.py` — BFF endpoint 2 個追加 (~150 LOC)
+- `apps/web/` 全体 (新規):
+  - `package.json` (next 16.2 / react 19.2 / tailwind 4 / clsx / tailwind-merge / zod)
+  - `next.config.ts`
+  - `src/app/layout.tsx` (Citify metadata 設定)
+  - `src/app/page.tsx` (top, persona あり/なしで遷移分岐)
+  - `src/app/onboarding/page.tsx` (A-1)
+  - `src/app/feed/page.tsx` (A-8)
+  - `src/app/feed/[speech_id]/page.tsx` (A-9)
+  - `src/components/feed-card.tsx`
+  - `src/lib/api.ts` / `src/lib/persona.ts` / `src/lib/utils.ts`
+  - `apphosting.yaml`
+  - `.env.local.example`
+  - `README.md`
+- `firebase.json`, `.firebaserc` (新規、repo root)
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### 動作確認
+
+- `npm run build` PASS (TypeScript 含む)、Route 5 個 (`/`, `/_not-found`, `/feed`, `/feed/[speech_id]`, `/onboarding`) を Static + Dynamic 自動判定
+- BFF endpoint コード完成、ローカル動作確認は ADC 復旧 (`gcloud auth application-default login`) 後に実施
+
+### Next
+
+- ローカル統合テスト: BFF 起動 → Next.js dev → /feed で実 BQ データ表示
+- A-2 自治体マスタ UI (`infra/seed/municipality_master.csv` 連携)
+- Firebase App Hosting 初回 backend 作成 + 実 deploy 確認
+- リアクション永続化 (Firestore or BQ events table)
+- RAG 統合 (Phase D RAG Engine と A-9 詳細ビュー連携)
+- Week 4: Veo/Imagen + 比較ビュー
+
+---
+
 ## 2026-05-22 (Thu) Session 29 — Phase S: BQ dedup view (EOD race 対応)
 
 ### Completed

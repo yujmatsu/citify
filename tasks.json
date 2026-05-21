@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E〜Q 完了 + R (Cloud Run Worker デプロイ構成 + コスト最適化: 4 Cloud Run Job + 4 Scheduler [default paused, daily cron], toggle-schedulers.sh, BUILD_ID 採用)。**4 段パイプライン + BQ 永続化が永続稼働可能 + 普段は月コスト $0**。残 Week 2: Cloud Build 再実行 + terraform apply で実稼働開始、ADK ラップ",
+  "active_week_note": "Week 2 完了 + Week 3 主要 3 タスク (A-1/A-8/A-9) 完了。Phase T (frontend MVP): apps/api に BFF /v1/feed エンドポイント追加 (BQ scored_speeches_latest 経由)、apps/web を Next.js 16 + App Router + Tailwind 4 + zod で scaffold、A-1 オンボーディング (年代/関心軸 2 step) + A-8 For You フィード (TikTok 風 snap-scroll) + A-9 議題詳細 (スコア breakdown + リアクション + 原典リンク) 実装、next build PASS。Firebase App Hosting 設定済 (apphosting.yaml + firebase.json + .firebaserc, 初回 backend 作成は手動)。残: A-2 自治体マスタ UI + Firebase backend create + デプロイ動作確認",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -119,7 +119,11 @@
       "priority": "Must",
       "week": 0,
       "status": "completed",
-      "dependencies": ["RECON-001", "RECON-002", "RECON-003"],
+      "dependencies": [
+        "RECON-001",
+        "RECON-002",
+        "RECON-003"
+      ],
       "acceptance_criteria": [
         "§2 kaigiroku 改訂(v0.2)",
         "§3 voices_asp 新設(v0.3)",
@@ -136,7 +140,9 @@
       "priority": "Must",
       "week": 0,
       "status": "completed",
-      "dependencies": ["RECON-002"],
+      "dependencies": [
+        "RECON-002"
+      ],
       "acceptance_criteria": [
         "3 配信モデル分類",
         "SPA + JSONP API 仕様",
@@ -154,7 +160,9 @@
       "priority": "Must",
       "week": 0,
       "status": "completed",
-      "dependencies": ["RECON-003"],
+      "dependencies": [
+        "RECON-003"
+      ],
       "acceptance_criteria": [
         "GREEN 判定",
         "g08v_viewh.asp URL 仕様",
@@ -172,7 +180,9 @@
       "priority": "Should",
       "week": 0,
       "status": "completed",
-      "dependencies": ["INFRA-005"],
+      "dependencies": [
+        "INFRA-005"
+      ],
       "acceptance_criteria": [
         "scraper_type 7 種定義",
         "supplements 二層化説明",
@@ -182,7 +192,6 @@
       "completed_at": "2026-05-20T20:00:00+09:00",
       "notes": ""
     },
-
     {
       "id": "RECON-001",
       "title": "国会会議録 API 動作確認 (Risk-spike)",
@@ -235,7 +244,6 @@
       "completed_at": "2026-05-20T20:30:00+09:00",
       "notes": "GREEN 判定: 静的 XHTML, BeautifulSoup + Shift_JIS で実装容易"
     },
-
     {
       "id": "INFRA-001",
       "title": "GCP プロジェクト citify-dev 作成 + 請求 link",
@@ -260,7 +268,9 @@
       "priority": "Must",
       "week": 0,
       "status": "completed",
-      "dependencies": ["INFRA-001"],
+      "dependencies": [
+        "INFRA-001"
+      ],
       "acceptance_criteria": [
         "run/cloudbuild/aiplatform/firestore/bigquery 等有効化",
         "ADC quota project 修正"
@@ -276,7 +286,9 @@
       "priority": "Should",
       "week": 0,
       "status": "completed",
-      "dependencies": ["INFRA-001"],
+      "dependencies": [
+        "INFRA-001"
+      ],
       "acceptance_criteria": [
         "50%/90%/100% actual + 100% forecasted",
         "メール通知"
@@ -292,8 +304,13 @@
       "priority": "Must",
       "week": 0,
       "status": "completed",
-      "dependencies": ["INFRA-002"],
-      "acceptance_criteria": ["hello-citify デプロイ", "curl で 200 確認"],
+      "dependencies": [
+        "INFRA-002"
+      ],
+      "acceptance_criteria": [
+        "hello-citify デプロイ",
+        "curl で 200 確認"
+      ],
       "started_at": "2026-05-20T19:30:00+09:00",
       "completed_at": "2026-05-20T19:40:00+09:00",
       "notes": "Week 0 終了時判定基準 4/4 達成"
@@ -323,7 +340,11 @@
       "priority": "Should",
       "week": 0,
       "status": "completed",
-      "dependencies": ["INFRA-005", "RECON-002", "RECON-003"],
+      "dependencies": [
+        "INFRA-005",
+        "RECON-002",
+        "RECON-003"
+      ],
       "acceptance_criteria": [
         "tier1_supplements.csv 30 件",
         "scraper_base_url 追加",
@@ -350,7 +371,6 @@
       "completed_at": "2026-05-20T22:00:00+09:00",
       "notes": "初回 push で 14 秒 green"
     },
-
     {
       "id": "INFRA-008",
       "title": "Terraform GCS state bucket 作成 + backend 移行",
@@ -358,7 +378,9 @@
       "priority": "Must",
       "week": 1,
       "status": "completed",
-      "dependencies": ["INFRA-002"],
+      "dependencies": [
+        "INFRA-002"
+      ],
       "acceptance_criteria": [
         "citify-dev-tf-state バケット作成",
         "backend gcs 有効化",
@@ -376,7 +398,10 @@
       "priority": "Must",
       "week": 1,
       "status": "completed",
-      "dependencies": ["INFRA-004", "INFRA-007"],
+      "dependencies": [
+        "INFRA-004",
+        "INFRA-007"
+      ],
       "acceptance_criteria": [
         "main push でビルド + Cloud Run へ自動デプロイ",
         "Cloud Build Trigger 設定"
@@ -386,15 +411,16 @@
       "completed_at": "2026-05-21T23:42:00+09:00",
       "notes": "Phase A で完了。Trigger 'citify-api-main' (id: d0deb628-64ca-4581-8644-dbd9e3f6aef0)、Artifact Registry citify-api、SA × 2、IAM bindings 計 9 個を Terraform 化。実 push で 4 step 完走 (build 1m32s)。Cloud Run URL: https://citify-api-hnraqfjt4a-an.a.run.app。途中ハマり: ① bash 変数 $URL の substitution エラー → $$URL エスケープ、② Dockerfile --mount=type=cache は BuildKit 必須 (legacy builder では失敗) → 削除、③ uv pip install に VIRTUAL_ENV 必要 (UV_PROJECT_ENVIRONMENT は uv sync 用)、④ images: ブロックは全 step 完了後の自動 push なので deploy 前に明示 push step が必要"
     },
-
     {
       "id": "A-1",
       "title": "ユーザーオンボーディング",
       "type": "feature",
       "priority": "Must",
       "week": 3,
-      "status": "pending",
-      "dependencies": ["A-2"],
+      "status": "completed",
+      "dependencies": [
+        "A-2"
+      ],
       "acceptance_criteria": [
         "郵便番号から自治体判定",
         "年代選択 10 歳刻み",
@@ -402,9 +428,9 @@
         "For You 遷移"
       ],
       "drop_condition": null,
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "started_at": "2026-05-22",
+      "completed_at": "2026-05-22",
+      "notes": "Phase T で完了。Next.js 16.2 App Router + Tailwind 4 + zod + clsx/tailwind-merge。 /onboarding で年代 (18-24/25-29/30-34/35+) + 関心軸 (10 軸) 2 step、localStorage 保存 (user_id=demo-{age_group})。 next build PASSED。"
     },
     {
       "id": "A-2",
@@ -413,7 +439,10 @@
       "priority": "Must",
       "week": 3,
       "status": "in_progress",
-      "dependencies": ["INFRA-005", "INFRA-006"],
+      "dependencies": [
+        "INFRA-005",
+        "INFRA-006"
+      ],
       "acceptance_criteria": [
         "1,788 自治体マスタ",
         "5 自治体まで登録",
@@ -432,7 +461,10 @@
       "priority": "Must",
       "week": 1,
       "status": "completed",
-      "dependencies": ["RECON-001", "INFRA-008"],
+      "dependencies": [
+        "RECON-001",
+        "INFRA-008"
+      ],
       "acceptance_criteria": [
         "直近 30 日取得",
         "キーワード絞り込み",
@@ -451,7 +483,10 @@
       "priority": "Must",
       "week": 2,
       "status": "completed",
-      "dependencies": ["RECON-002", "INFRA-008"],
+      "dependencies": [
+        "RECON-002",
+        "INFRA-008"
+      ],
       "acceptance_criteria": [
         "tenant_id 引数で起動",
         "会議名・日付・発言抽出",
@@ -470,7 +505,10 @@
       "priority": "Should",
       "week": 3,
       "status": "completed",
-      "dependencies": ["RECON-003", "A-4"],
+      "dependencies": [
+        "RECON-003",
+        "A-4"
+      ],
       "acceptance_criteria": [
         "sapporo / minato / adachi でパース成功",
         "Shift_JIS 対応",
@@ -488,7 +526,9 @@
       "priority": "Must",
       "week": 2,
       "status": "completed",
-      "dependencies": ["A-10"],
+      "dependencies": [
+        "A-10"
+      ],
       "acceptance_criteria": [
         "3 行サマリ生成",
         "年代別トーン調整",
@@ -507,7 +547,9 @@
       "priority": "Must",
       "week": 2,
       "status": "completed",
-      "dependencies": ["A-5"],
+      "dependencies": [
+        "A-5"
+      ],
       "acceptance_criteria": [
         "0-100 スコア + 理由",
         "スコア 50 以上のみフィード表示",
@@ -525,7 +567,9 @@
       "priority": "Must",
       "week": 2,
       "status": "completed",
-      "dependencies": ["A-6"],
+      "dependencies": [
+        "A-6"
+      ],
       "acceptance_criteria": [
         "直近 7 日上位 10 件選択",
         "重複除去",
@@ -542,8 +586,10 @@
       "type": "feature",
       "priority": "Must",
       "week": 3,
-      "status": "pending",
-      "dependencies": ["A-7"],
+      "status": "completed",
+      "dependencies": [
+        "A-7"
+      ],
       "acceptance_criteria": [
         "優先度順カード並び",
         "タイトル+3行サマリ+自治体+サムネ表示",
@@ -551,9 +597,9 @@
         "詳細遷移"
       ],
       "drop_condition": null,
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "started_at": "2026-05-22",
+      "completed_at": "2026-05-22",
+      "notes": "Phase T で完了。Next.js 16.2 App Router + Tailwind 4 + zod + clsx/tailwind-merge。 /feed で BFF /v1/feed/{user_id} 経由で BQ scored_speeches_latest を fetch、TikTok 風 snap-scroll カード。 next build PASSED。"
     },
     {
       "id": "A-9",
@@ -561,8 +607,11 @@
       "type": "feature",
       "priority": "Must",
       "week": 3,
-      "status": "pending",
-      "dependencies": ["A-8", "A-10"],
+      "status": "completed",
+      "dependencies": [
+        "A-8",
+        "A-10"
+      ],
       "acceptance_criteria": [
         "平易化タイトル+正式タイトル併記",
         "RAG 3 件表示",
@@ -570,9 +619,9 @@
         "リアクションボタン"
       ],
       "drop_condition": null,
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "started_at": "2026-05-22",
+      "completed_at": "2026-05-22",
+      "notes": "Phase T で完了。Next.js 16.2 App Router + Tailwind 4 + zod + clsx/tailwind-merge。 /feed/[speech_id] で詳細表示、4 軸スコア breakdown、リアクション、原典リンク。 next build PASSED。"
     },
     {
       "id": "A-10",
@@ -581,7 +630,9 @@
       "priority": "Must",
       "week": 1,
       "status": "completed",
-      "dependencies": ["A-3"],
+      "dependencies": [
+        "A-3"
+      ],
       "acceptance_criteria": [
         "国会議事録 + 自治体議事録 index 化",
         "セマンティック検索 3-5 件",
@@ -600,7 +651,10 @@
       "priority": "Must",
       "week": 1,
       "status": "completed",
-      "dependencies": ["INFRA-004", "INFRA-009"],
+      "dependencies": [
+        "INFRA-004",
+        "INFRA-009"
+      ],
       "acceptance_criteria": [
         "本番 URL アクセス可",
         "スケール 0",
@@ -619,7 +673,10 @@
       "priority": "Must",
       "week": 1,
       "status": "in_progress",
-      "dependencies": ["INFRA-007", "INFRA-009"],
+      "dependencies": [
+        "INFRA-007",
+        "INFRA-009"
+      ],
       "acceptance_criteria": [
         "main マージで自動デプロイ",
         "PR で Lint + Test",
@@ -638,7 +695,9 @@
       "priority": "Must",
       "week": 1,
       "status": "in_progress",
-      "dependencies": ["INFRA-008"],
+      "dependencies": [
+        "INFRA-008"
+      ],
       "acceptance_criteria": [
         "terraform apply で全リソース構築",
         "dev/prod モジュール共用",
@@ -650,7 +709,6 @@
       "completed_at": null,
       "notes": "Phase A + C 進捗: ✅ GCS リモート state、✅ Artifact Registry / SA x 2 / IAM / Cloud Build Trigger (13 リソース)、✅ BigQuery dataset citify_raw + table kokkai_speeches + bigquery.jobUser (3 リソース、Phase C)、🔄 Firestore / Pub/Sub / Secret Manager / Cloud Storage (Week 2 で A-5/A-6 着手時に追加)、🔄 dev/prod 環境分離 (Week 5+)、🔄 README 手順記載"
     },
-
     {
       "id": "B-1",
       "title": "リアクション機能 + みんなの反応",
@@ -658,7 +716,9 @@
       "priority": "Should",
       "week": 4,
       "status": "pending",
-      "dependencies": ["A-9"],
+      "dependencies": [
+        "A-9"
+      ],
       "acceptance_criteria": [
         "ボタンタップで Firestore 記録",
         "年代別バケット集計",
@@ -677,7 +737,10 @@
       "priority": "Should",
       "week": 4,
       "status": "pending",
-      "dependencies": ["A-9", "A-10"],
+      "dependencies": [
+        "A-9",
+        "A-10"
+      ],
       "acceptance_criteria": [
         "マイ自治体 2 つ比較",
         "同テーマ並べ",
@@ -695,7 +758,9 @@
       "priority": "Should",
       "week": 4,
       "status": "pending",
-      "dependencies": ["A-9"],
+      "dependencies": [
+        "A-9"
+      ],
       "acceptance_criteria": [
         "60 秒縦動画 9:16",
         "抽象シーンのみ(政治家不可)",
@@ -714,7 +779,9 @@
       "priority": "Should",
       "week": 4,
       "status": "pending",
-      "dependencies": ["A-8"],
+      "dependencies": [
+        "A-8"
+      ],
       "acceptance_criteria": [
         "1 議題 1 枚 16:9 or 1:1",
         "抽象的・象徴的",
@@ -733,7 +800,9 @@
       "priority": "Should",
       "week": 5,
       "status": "pending",
-      "dependencies": ["A-7"],
+      "dependencies": [
+        "A-7"
+      ],
       "acceptance_criteria": [
         "通知 ON 時のみ送信",
         "上位 3 議題サマリ",
@@ -751,7 +820,10 @@
       "priority": "Should",
       "week": 5,
       "status": "pending",
-      "dependencies": ["A-4", "A-4b"],
+      "dependencies": [
+        "A-4",
+        "A-4b"
+      ],
       "acceptance_criteria": [
         "DB-Search URL パターン解析",
         "BigQuery 投入(共通スキーマ)",
@@ -769,7 +841,9 @@
       "priority": "Should",
       "week": 5,
       "status": "in_progress",
-      "dependencies": ["INFRA-006"],
+      "dependencies": [
+        "INFRA-006"
+      ],
       "acceptance_criteria": [
         "RSS URL マスタ",
         "日次クロール",
@@ -788,7 +862,9 @@
       "priority": "Should",
       "week": 5,
       "status": "pending",
-      "dependencies": ["A-1"],
+      "dependencies": [
+        "A-1"
+      ],
       "acceptance_criteria": [
         "設定画面でペルソナ選択",
         "関心軸デフォルト切替",
@@ -799,7 +875,6 @@
       "completed_at": null,
       "notes": ""
     },
-
     {
       "id": "C-1",
       "title": "ストック静止画ライブラリ",
@@ -808,7 +883,10 @@
       "week": 6,
       "status": "pending",
       "dependencies": [],
-      "acceptance_criteria": ["Imagen 事前生成", "ジャンル別カテゴリ"],
+      "acceptance_criteria": [
+        "Imagen 事前生成",
+        "ジャンル別カテゴリ"
+      ],
       "drop_condition": "Veo (B-3) が動けば実装不要",
       "started_at": null,
       "completed_at": null,
@@ -821,7 +899,9 @@
       "priority": "Could",
       "week": 6,
       "status": "pending",
-      "dependencies": ["A-4b"],
+      "dependencies": [
+        "A-4b"
+      ],
       "acceptance_criteria": [
         "目黒・豊島・葛飾でパース成功",
         "Shift_JIS 対応",
@@ -840,7 +920,10 @@
       "week": 6,
       "status": "pending",
       "dependencies": [],
-      "acceptance_criteria": ["募集中案件一覧", "関連議題として表示"],
+      "acceptance_criteria": [
+        "募集中案件一覧",
+        "関連議題として表示"
+      ],
       "drop_condition": "Week 6 末までに着手できなければ諦める",
       "started_at": null,
       "completed_at": null,
@@ -854,7 +937,10 @@
       "week": 6,
       "status": "pending",
       "dependencies": [],
-      "acceptance_criteria": ["CKAN API 取得", "議題の裏付けに使用"],
+      "acceptance_criteria": [
+        "CKAN API 取得",
+        "議題の裏付けに使用"
+      ],
       "drop_condition": "Week 6 末までに着手できなければ諦める",
       "started_at": null,
       "completed_at": null,
@@ -868,7 +954,10 @@
       "week": 6,
       "status": "pending",
       "dependencies": [],
-      "acceptance_criteria": ["主要省庁 3-5 件取得", "会期外素材として表示"],
+      "acceptance_criteria": [
+        "主要省庁 3-5 件取得",
+        "会期外素材として表示"
+      ],
       "drop_condition": "Week 6 末までに着手できなければ諦める",
       "started_at": null,
       "completed_at": null,
@@ -899,8 +988,12 @@
       "priority": "Could",
       "week": 6,
       "status": "pending",
-      "dependencies": ["A-9"],
-      "acceptance_criteria": ["Imagen で OGP 画像生成"],
+      "dependencies": [
+        "A-9"
+      ],
+      "acceptance_criteria": [
+        "Imagen で OGP 画像生成"
+      ],
       "drop_condition": "Could から動かない可能性大",
       "started_at": null,
       "completed_at": null,
@@ -913,8 +1006,12 @@
       "priority": "Could",
       "week": 6,
       "status": "pending",
-      "dependencies": ["A-10"],
-      "acceptance_criteria": ["キーワード全文検索"],
+      "dependencies": [
+        "A-10"
+      ],
+      "acceptance_criteria": [
+        "キーワード全文検索"
+      ],
       "drop_condition": "Could から動かない可能性大",
       "started_at": null,
       "completed_at": null,
@@ -927,14 +1024,19 @@
       "priority": "Could",
       "week": 6,
       "status": "pending",
-      "dependencies": ["A-1", "A-9"],
-      "acceptance_criteria": ["Firestore 保存", "閲覧履歴管理"],
+      "dependencies": [
+        "A-1",
+        "A-9"
+      ],
+      "acceptance_criteria": [
+        "Firestore 保存",
+        "閲覧履歴管理"
+      ],
       "drop_condition": "Could から動かない可能性大",
       "started_at": null,
       "completed_at": null,
       "notes": ""
     },
-
     {
       "id": "C-X-DISCUSSCABINET",
       "title": "Discuss Cabinet (北区) 構造調査",
@@ -952,7 +1054,6 @@
       "completed_at": null,
       "notes": "Phase 2 (Session 5) で発見、北区が採用"
     },
-
     {
       "id": "USER-INTERVIEW",
       "title": "若者ユーザー 3-5 名にインタビュー",
@@ -960,14 +1061,19 @@
       "priority": "Must",
       "week": 6,
       "status": "pending",
-      "dependencies": ["A-9", "B-2"],
-      "acceptance_criteria": ["3 名以上のポジティブ反応", "フィードバック反映"],
+      "dependencies": [
+        "A-9",
+        "B-2"
+      ],
+      "acceptance_criteria": [
+        "3 名以上のポジティブ反応",
+        "フィードバック反映"
+      ],
       "drop_condition": "SNS 公募でもダメなら自分で UX 検証",
       "started_at": null,
       "completed_at": null,
       "notes": "フクシア式、Zenn 記事の説得力に直結"
     },
-
     {
       "id": "SUBMIT-001",
       "title": "Zenn 記事執筆 (技術解説 + ストーリー)",
@@ -975,7 +1081,9 @@
       "priority": "Must",
       "week": 7,
       "status": "pending",
-      "dependencies": ["USER-INTERVIEW"],
+      "dependencies": [
+        "USER-INTERVIEW"
+      ],
       "acceptance_criteria": [
         "技術解説",
         "設計思想",
@@ -994,7 +1102,9 @@
       "priority": "Must",
       "week": 7,
       "status": "pending",
-      "dependencies": ["SUBMIT-004"],
+      "dependencies": [
+        "SUBMIT-004"
+      ],
       "acceptance_criteria": [
         "タグ findy_hackathon 必須",
         "動画 URL",
@@ -1013,8 +1123,16 @@
       "priority": "Must",
       "week": 7,
       "status": "pending",
-      "dependencies": ["SUBMIT-001", "SUBMIT-002", "SUBMIT-004", "SUBMIT-005"],
-      "acceptance_criteria": ["フォーム送信", "確認メール保存"],
+      "dependencies": [
+        "SUBMIT-001",
+        "SUBMIT-002",
+        "SUBMIT-004",
+        "SUBMIT-005"
+      ],
+      "acceptance_criteria": [
+        "フォーム送信",
+        "確認メール保存"
+      ],
       "drop_condition": null,
       "started_at": null,
       "completed_at": null,
@@ -1027,7 +1145,10 @@
       "priority": "Must",
       "week": 6,
       "status": "pending",
-      "dependencies": ["A-9", "B-2"],
+      "dependencies": [
+        "A-9",
+        "B-2"
+      ],
       "acceptance_criteria": [
         "主要動線 (オンボーディング → フィード → 詳細 → 比較) を撮影",
         "YouTube/Vimeo 公開"

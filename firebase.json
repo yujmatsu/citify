@@ -1,0 +1,4 @@
+{
+  "$schema": "https://raw.githubusercontent.com/firebase/firebase-tools/master/schema/firebase-config.json",
+  "comment": "Firebase App Hosting で Next.js (apps/web) を deploy。バックエンド設定本体は Firebase Console + apphosting.yaml で管理。"
+}
