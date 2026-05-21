@@ -25,8 +25,10 @@ options:
   machineType: E2_HIGHCPU_8
   dynamic_substitutions: true
 
+# NOTE: BUILD_ID を tag に採用 (GitHub trigger / 手動 submit 両対応)。
+#       COMMIT_SHA は GitHub trigger 経由でしか入らないため避ける。
 images:
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}"
   - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest"
 
 steps:
@@ -37,10 +39,9 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - build
-      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}
       - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
       - --cache-from=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
-      - --build-arg=GIT_SHA=${COMMIT_SHA}
       - --file=apps/workers/Dockerfile
       - . # repo root を context に (pkg/, agents/, scrapers/ をコピーするため)
 
@@ -57,6 +58,7 @@ steps:
   # ---------------------------------------------------------------------------
   # 3. Cloud Run Jobs の image 更新 (各 worker)
   # NOTE: Job の構成 (command/args/SA) は Terraform 管理、ここは image tag のみ更新
+  #       初回は Job がまだ無いので || で warning にして continue
   # ---------------------------------------------------------------------------
   - id: update-jobs
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -64,8 +66,8 @@ steps:
     args:
       - -c
       - |
-        set -euo pipefail
-        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}"
+        set -uo pipefail
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}"
         for JOB in citify-worker-translator citify-worker-relevance citify-worker-distributor citify-worker-bq-sink-scored; do
           echo "Updating job $$JOB to image $$IMAGE"
           gcloud run jobs update "$$JOB" \
@@ -73,3 +75,4 @@ steps:
             --image="$$IMAGE" \
             --quiet || echo "WARN: job $$JOB not found (first build? deploy via terraform first)"
         done
+        echo "✅ update-jobs completed (warnings are expected on first build)"

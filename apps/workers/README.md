@@ -25,10 +25,12 @@ Pub/Sub subscription (exactly_once_delivery)
 
 ## 初回デプロイ手順
 
+⚠️ **必ず Cloud Build → Terraform の順で実行**。Cloud Run Job は image が存在しないと作成失敗します。
+
 ```bash
 cd /home/yujmatsu/projects/citify
 
-# 1. image を build + push (Cloud Build 実行)
+# 1. image を build + push (Cloud Build 実行、初回 ~5-10 分)
 gcloud builds submit --config=cloudbuild-workers.yaml --region=asia-northeast1
 
 # (初回のみ: Cloud Run Job リソースがまだ無いので update-jobs step は警告で済む)
@@ -39,6 +41,42 @@ terraform apply  # 4 jobs + 4 schedulers + 2 IAM resources
 
 # 3. (option) 即座に動作確認したい場合は手動 trigger
 gcloud run jobs execute citify-worker-translator --region=asia-northeast1 --wait
+```
+
+## デプロイが途中で失敗した場合のリカバリ
+
+### ケース 1: cloudbuild で image push エラー (例: `invalid image name`)
+cloudbuild-workers.yaml の `${COMMIT_SHA}` などの変数が空文字になっている可能性。`BUILD_ID` を使うように既に修正済み。再実行で OK。
+
+### ケース 2: terraform apply で `Image not found` エラー
+Cloud Build が先に走っていない、または前回の build が失敗。
+```bash
+# Cloud Build を成功させてから terraform apply を再実行
+cd /home/yujmatsu/projects/citify
+gcloud builds submit --config=cloudbuild-workers.yaml --region=asia-northeast1
+cd infra/env/dev
+terraform apply
+```
+
+### ケース 3: terraform apply が partial に進んで Job が "error state" になった
+Job を一度削除してから再 apply:
+```bash
+# 失敗した Job を確認
+gcloud run jobs list --region=asia-northeast1 | grep citify-worker
+
+# image 不在で Failed になった Job を削除 (Terraform state からも除外)
+cd /home/yujmatsu/projects/citify/infra/env/dev
+terraform state rm 'google_cloud_run_v2_job.workers["translator"]'
+terraform state rm 'google_cloud_run_v2_job.workers["relevance"]'
+terraform state rm 'google_cloud_run_v2_job.workers["distributor"]'
+terraform state rm 'google_cloud_run_v2_job.workers["bq-sink-scored"]'
+
+# image が確実に push されていることを確認してから再 apply
+gcloud artifacts docker images list \
+  asia-northeast1-docker.pkg.dev/citify-dev/citify-api/workers \
+  --include-tags --limit=5
+
+terraform apply
 ```
 
 ## image 更新時
