@@ -94,6 +94,10 @@ def _build_scored_speech(
         detail_url=p.get("detail_url", ""),
         meeting_date=p.get("meeting_date") if isinstance(p.get("meeting_date"), str) else None,
         score=score,
+        # distributor (A-7) 用メタ
+        speaker_position=p.get("speaker_position"),
+        name_of_meeting=p.get("name_of_meeting"),
+        tone=translation.get("tone"),
     )
 
 

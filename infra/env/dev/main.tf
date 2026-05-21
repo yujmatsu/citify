@@ -460,6 +460,47 @@ resource "google_pubsub_subscription_iam_member" "runtime_subscribe_scored" {
   member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
 }
 
+# --- Topic: feed-snapshot (A-7 出力 / frontend or Firestore writer 入力) ---
+resource "google_pubsub_topic" "feed_snapshot" {
+  name = "citify-feed-snapshot"
+
+  message_retention_duration = "604800s"
+
+  labels = local.common_labels
+}
+
+resource "google_pubsub_subscription" "feed_snapshot_sub" {
+  name  = "citify-feed-snapshot-sub"
+  topic = google_pubsub_topic.feed_snapshot.id
+
+  ack_deadline_seconds         = 30
+  message_retention_duration   = "604800s"
+  enable_exactly_once_delivery = true
+
+  expiration_policy {
+    ttl = ""
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+
+  labels = local.common_labels
+}
+
+resource "google_pubsub_topic_iam_member" "runtime_publish_feed_snapshot" {
+  topic  = google_pubsub_topic.feed_snapshot.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+resource "google_pubsub_subscription_iam_member" "runtime_subscribe_feed_snapshot" {
+  subscription = google_pubsub_subscription.feed_snapshot_sub.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
 # DLQ への publish 権限 (subscription が dead_letter 送信時に必要)
 # Pub/Sub サービスアカウント: service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com
 data "google_project" "current" {

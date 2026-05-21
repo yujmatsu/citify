@@ -1,5 +1,76 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 26 — Phase P: A-7 (distributor) worker 接続、4 段パイプライン完成
+
+### Completed
+
+- [x] **`ScoredSpeech` schema 拡張** (`agents/relevance/schema.py`):
+  - `speaker_position`, `name_of_meeting`, `tone` を追加
+  - distributor の diversity penalty (同役職連続抑制) と display 用に必要
+- [x] **relevance worker (A-6) 更新**: TranslatedSpeech payload から 3 つの新フィールドを ScoredSpeech に展開
+- [x] **`FeedSnapshot` schema 新規** (`agents/distributor/schema.py`):
+  - 1 ユーザー分の最新フィード状態 (user_id + generated_at + pool_size + items: list[FeedItem])
+- [x] **agents/distributor/worker.py 新規** (~190 LOC):
+  - `_scored_to_candidate()`: ScoredSpeech → FeedCandidate 変換 (meeting_date を str→date)
+  - `_UserPool`: per-user の OrderedDict + Lock (speech_id 重複排除 + multi-thread 安全)
+  - `make_handler()`: ScoredSpeech 受信 → user pool 更新 → generate_feed() 即再生成 → FeedSnapshot publish
+  - 同一 speech_id は最新スコアで上書き、累積した全候補で毎回 MMR ranking
+  - CLI: `--min-relevance 50 --feed-size 20` (FEATURES.md A-6/A-7 default)
+- [x] **Terraform 拡張** (3 リソース):
+  - Topic: `citify-feed-snapshot` (A-7 出力 / frontend or Firestore writer 入力)
+  - Subscription: `citify-feed-snapshot-sub`
+  - IAM × 2: citify-api-runtime に publisher + subscriber
+  - terraform validate: ✅
+- [x] **テスト 12 件追加** (合計 78 PASSED):
+  - `agents/distributor/tests/test_worker.py`: ScoredSpeech→FeedCandidate 変換 (3), `_UserPool` upsert/dedupe (2), handler (5), schema round-trip (1), 非 ScoredSpeech skip (1)
+
+### Decisions
+
+- ✅ **インメモリ pool (per-user OrderedDict + Lock) 採用**: ハッカソンスコープ、Firestore 化は将来
+- ✅ **毎メッセージ毎に feed 再生成**: 候補数が小 (~数十件) なので O(n²) MMR ranking でも問題なし
+- ✅ **speech_id 重複は最新で上書き**: 同じ発言が異なるユーザーの relevance で再到達したケースをまとめる (LRU 風)
+- ✅ **pool_size と feed_size を attributes に**: downstream の filter / debug 用
+- ✅ **min_relevance 未満は items=[] でも snapshot 自体は publish**: フィードが「空になった」状態も明示的に通知
+
+### Files Created/Modified
+
+- `agents/relevance/schema.py` — ScoredSpeech 拡張
+- `agents/relevance/worker.py` — `_build_scored_speech` に 3 フィールド追加
+- `agents/distributor/schema.py` — FeedSnapshot 追加
+- `agents/distributor/worker.py` (新規)
+- `agents/distributor/tests/test_worker.py` (新規)
+- `infra/env/dev/main.tf` — feed_snapshot topic / sub / IAM ×2 追加
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### 4 段パイプライン完成構成
+
+```
+[Scraper] kaigiroku_net (publish-speeches CLI)
+  ↓ Speech envelope
+[Pub/Sub] citify-speech-translate
+  ↓
+[A-5] translator worker → TranslatedSpeech
+[Pub/Sub] citify-speech-translated
+  ↓
+[A-6] relevance worker → ScoredSpeech (user_id × speech_id)
+[Pub/Sub] citify-speech-scored
+  ↓
+[A-7] distributor worker (NEW) → FeedSnapshot (per user_id 累積 + MMR ranking)
+[Pub/Sub] citify-feed-snapshot (NEW)
+  ↓
+frontend or Firestore writer 待機中
+```
+
+### Next
+
+- `terraform apply` で feed-snapshot topic 反映
+- 4 段 live integration test (publish → translate → score → snapshot)
+- BigQuery `citify_curated.scored_speeches` / `citify_curated.feed_snapshots` 投入バッチ
+- A-5/A-6/A-7 を Cloud Run Worker としてデプロイ
+- frontend が gcloud pubsub pull で FeedSnapshot を読む実装 (Week 3)
+
+---
+
 ## 2026-05-21 (Wed) Session 25 — Phase O: A-6 (relevance) worker を Pub/Sub に接続、3 段パイプライン完成
 
 ### Completed

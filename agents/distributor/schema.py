@@ -2,13 +2,14 @@
 
 FeedCandidate = A-5 翻訳 + A-6 スコア + speech メタの統合
 FeedItem      = FeedCandidate + ランキング後メタ (final_rank, adjusted_score, display_reason)
+FeedSnapshot  = 1 ユーザー分のフィード現在状態 (A-7 → frontend / Firestore)
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FeedCandidate(BaseModel):
@@ -63,3 +64,17 @@ class FeedItem(BaseModel):
         default=0.0, description="この item に課された多様性ペナルティ (debug)"
     )
     freshness_boost: int = Field(default=0, description="新鮮さ補正 (debug、+5 / 0 / -5)")
+
+
+class FeedSnapshot(BaseModel):
+    """1 ユーザー分のフィード状態 (worker → frontend / Firestore)。
+
+    新着 ScoredSpeech 受信時に再生成される最新スナップショット。
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    user_id: str
+    generated_at: datetime = Field(description="このスナップショット生成時刻 (UTC)")
+    pool_size: int = Field(ge=0, description="ランキング対象となった ScoredSpeech 件数")
+    items: list[FeedItem] = Field(description="ランキング済 feed (上位 feed_size 件)")

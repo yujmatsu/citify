@@ -128,3 +128,8 @@ class ScoredSpeech(BaseModel):
     detail_url: str = Field(description="原典 URL (引用必須)")
     meeting_date: str | None = Field(default=None, description="ISO 日付文字列 or None")
     score: RelevanceOutput = Field(description="relevance スコア + 内訳")
+
+    # distributor (A-7) のランキング・多様性算定に必要なメタ
+    speaker_position: str | None = Field(default=None, description="役職 (diversity penalty 用)")
+    name_of_meeting: str | None = Field(default=None, description="会議名 (display 用)")
+    tone: str | None = Field(default=None, description="A-5 翻訳トーン (casual/neutral/formal)")

@@ -124,7 +124,7 @@
 - [x] [A-5] 翻訳 Agent (agents/translator/) `cc:完了` — Gemini 2.5 Flash + response_schema + 3 段倫理ガードレール、casual/neutral/formal トーン出し分け、実翻訳 5 秒
 - [x] [A-6] 影響度 Agent (agents/relevance/) + スコアリング `cc:完了` — 4 軸 (topic/age/geo/urgency 各 25 点) で 3 ペルソナ実測 45-90 点で明確差別化、自動補正機能
 - [x] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート `cc:完了` — LLM 不要 MMR 風 greedy ranking、diversity_penalty で同 interest/speaker 連続回避、freshness boost ±5、実 BQ 10 件 → top 5 feed 生成確認
-- [x] エージェント間 Pub/Sub メッセージング — `pkg/pubsub.py` (Publisher/Subscriber 抽象 + envelope) + Terraform topics/subscriptions/DLQ/IAM (5 topics/3 subs) + scrapers publish + translator worker + relevance worker。**A-4 → A-5 → A-6 の 3 段パイプライン構築完了**。`TranslatedSpeech` (翻訳結果 + 原典メタ) + `ScoredSpeech` (採点結果 + ペルソナ ID + 表示用フィールド) の combined payload で downstream 引き継ぎ。66 unit tests PASSED。A-4 → A-5 は live 動作確認済 (岡山県議事録 5 件、全 attempt=1 成功)。残: A-6 live test + terraform apply (scored topic) + Cloud Run デプロイ
+- [x] エージェント間 Pub/Sub メッセージング — **A-4 → A-5 → A-6 → A-7 の 4 段パイプライン構築完了**。`pkg/pubsub.py` (Publisher/Subscriber 抽象 + envelope) + Terraform (6 topics + 4 subs + DLQ + IAM) + scrapers publish + 全 agent worker。`TranslatedSpeech` / `ScoredSpeech` / `FeedSnapshot` の combined payload で downstream 引き継ぎ。78 unit tests PASSED。3 段は live 動作確認済 (岡山県議事録: 倫理ガードレール retry + matched_interests=子育て,雇用 検出, score 30〜60 差別化)。残: A-7 live test + Cloud Run デプロイ
 
 ### `cc:完了` 議事録パーサー(Playwright)
 

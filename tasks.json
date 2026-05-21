@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E〜N 完了 + O (A-6 worker Pub/Sub 接続完了 = TranslatedSpeech combined payload + ScoredSpeech + speech-scored topic + relevance worker + tenant_id→muni map + 66 unit tests)。残 Week 2: ADK ラップ、BigQuery 投入バッチ、A-5/A-6 worker Cloud Run デプロイ、3 段 live integration test",
+  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E〜O 完了 + P (A-7 distributor worker Pub/Sub 接続 + FeedSnapshot + feed-snapshot topic + per-user pool + 78 unit tests)。**4 段パイプライン完成** (scraper → translator → relevance → distributor)。3 段 live は岡山県議事録で確認済 (倫理ガードレール retry + matched_interests=子育て,雇用 検出, score 30〜60 差別化)。残 Week 2: ADK ラップ、BigQuery 投入バッチ、worker Cloud Run デプロイ、4 段 live test",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
