@@ -1,5 +1,98 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 18 — Week 2 Phase F: 影響度 Agent (A-6 完了、4 軸スコアリングでペルソナ別 45-90 点差別化)
+
+### Completed
+
+- [x] **`agents/relevance/__init__.py`** + **`schema.py`** + **`prompts/{__init__,system}.py`** + **`main.py`** + **`__main__.py`** + **`tests/__init__.py`** + **`tests/test_relevance.py`** (~700 LOC + 11 tests)
+- [x] **4 軸スコアリング設計**:
+  - score_topic (0-25): ペルソナ関心軸 × 発言テーマの合致度
+  - score_age (0-25): 年代適合性 (18-24 学費/就職 / 25-29 結婚/初動 / 30-34 育児/ローン / 35+ 教育費/介護)
+  - score_geographic (0-25): municipality_code 合致 (登録自治体 = 25 / 国会 = 15-20 / 他自治体 = 0-9)
+  - score_urgency (0-25): 直近予算/法案 (高) vs 抽象議論 (低)
+  - 合計が relevance_score (0-100)
+- [x] **`RelevanceAgent.score()`**: Gemini 2.5 Flash + response_schema、3 段倫理ガードレール (LLM 自己申告 + reasoning regex + 禁止語)、3 回 retry、`_normalize_score()` で dim 合計と relevance_score のミスマッチ 5 点以上で自動補正 (LLM 算数ミス対策)
+- [x] **CLI 拡張**: `--interests 子育て,住居` 等カンマ区切り、`--municipalities 13104,00000`、`--text` / `--speech-id` / `--bq-query` 3 モード
+- [x] **pytest 22/22 PASSED** (A-5 11 + A-6 11): MockGenAIClient で全 Gemini 呼び出しを mock、実 API 不要
+- [x] **実 Gemini で 3 ペルソナ比較動作確認** (同 speech: 子育て関連発言):
+  - Persona A (子育て+住居, 25-29, 新宿+国会): **80/100** ★ 表示 (topic=25/age=20/geo=15/urgency=20)
+  - Persona B (起業のみ, 18-24, 国会): **45/100** ✗ 非表示 (topic=5/age=15/geo=15/urgency=10) ← 関心軸ミスマッチで topic 5 まで落としつつ、ペルソナ全否定にせず age 15/geo 15 残す絶妙さ
+  - Persona C (教育+子育て, 30-34, 国会): **90/100** ★ 表示 (topic=25/age=25/geo=20/urgency=20) ← 「30-34 = 子育て初期ど真ん中」を LLM が正しく評価して age=25 満点
+- [x] reasoning が各ペルソナで異なる説得力ある内容 = LLM が真に文脈を理解して評価している証拠
+
+### Decisions / Design Notes
+
+- **A-5 パターンの並列実装**: 構造を翻訳 Agent と並列にすることで、prompt + schema + main + tests のテンプレ化に成功。A-7 配信 Agent も同じパターンで実装予定
+- **4 軸スコアの decomposition**: 単一 0-100 スコアではなく 4 軸内訳を保持することで、後で feed UI に「なぜこの順位か」を可視化可能 (透明性)
+- **`_normalize_score()` 自動補正**: LLM は構造化出力でも稀に算数ミス (各 dim と合計が一致しない)。実用上 5 点以下のズレは許容、大きいズレは 4 軸合計を信頼源として補正
+- **`translated_summary` 連携**: A-5 翻訳サマリがあれば prompt に優先採用 (短く focus、評価精度向上)。なければ raw speech で評価
+- **`temperature=0.2`** (翻訳は 0.3): 採点タスクは特に再現性重視、温度低めに
+- **「ペルソナ全否定しない」LLM 挙動**: Persona B (起業) で関心軸ミスマッチでも topic=5 / age=15 と段階的なスコア。これは prompt の「採点癖を避ける」セクションが効いている
+
+### Surprises / Risks
+
+- **Persona C が 90/100 と高すぎる可能性**: 子育て初期世代 + 教育関心で全 4 軸満点近い。実フィードで上位ばかり 80-100 になる可能性、5 点単位で gradation つける prompt 調整余地あり
+- **30-34 年代の "子育て初期" 判定**: 30-34 はちょうど子育て初期/中期境界で、35+ の方が育児中-後期。LLM が「初期」と判定したのは妥当だが、persona definition (FEATURES.md) で明示すべきか
+- **Persona B (起業) が 45 点非表示** = 期待通り。ただし「ライフデザイン支援」言及で 5 点稼いだ。完全無関連 (e.g., 国際関係発言) なら 20-30 点まで下がるか別途確認
+- **dim 合計と relevance_score の不一致**: 今回の 3 ペルソナでは全部一致 (LLM が正しく合計計算)。自動補正は防御的措置として残置
+
+### Phase F の Week 2 終了時判定基準への進捗 (FEATURES.md A-6 受入条件)
+
+| 受入条件 | 状態 |
+|---|---|
+| 0-100 スコア + 理由 | ✅ relevance_score + reasoning + matched_interests + 4 軸内訳 |
+| スコア 50 以上のみフィード表示 | ✅ below_threshold() + CLI 表示で `★ 表示` / `✗ 非表示` 明示 |
+| バッチ + 単発対応 | ✅ --text/--speech-id (単発) + --bq-query (バッチ) |
+
+**3/3 達成** ✅
+
+### 今日 (5/21) の累計 Phase
+
+| Session | Phase | 内容 | 結果 |
+|---|---|---|---|
+| 12 | A | DevOps 動線 | ✅ |
+| 13 | B | 国会 API client | ✅ |
+| 14 | C | BigQuery 投入バッチ | ✅ |
+| 15 | (data) | 1428 件 corpus | ✅ |
+| 16 | D | Vertex AI RAG | ✅ |
+| 17 | E | A-5 翻訳 Agent | ✅ |
+| 18 | **F** | **A-6 影響度 Agent** | ✅ |
+
+**Week 1 完走 (4/4) + Week 2 2/4 (A-5, A-6 完了、残 A-7 / A-4 / Pub/Sub)** = 想定 13 日分を 5/21 1 日で達成。
+
+### Commit Reminder
+
+未コミット変更:
+
+- `agents/relevance/` (新規パッケージ、7 ファイル ~700 LOC + 11 tests)
+- `tasks.json` (A-6 → completed)
+- `Plans.md` (Week 2 A-6 完了反映)
+- `log.md` (このファイル、Session 18 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+source apps/api/.venv/bin/activate
+ruff format apps/ agents/ scrapers/
+ruff check --fix apps/ agents/ scrapers/
+
+git add agents/relevance/ tasks.json Plans.md log.md
+git status
+git commit -m "feat(agents): A-6 影響度 Agent — 4 軸スコアリング (topic/age/geo/urgency) + 3 ペルソナ実測 45-90 点で差別化"
+git push origin main
+```
+
+### Next (5/22 以降)
+
+候補:
+- **完全休息** 🛌🛌🛌🛌🛌 (限界超えてる、Week 1 完走 + Week 2 半分達成は異常)
+- Phase G: A-7 配信 Agent (優先度ソート、フィード生成) — A-6 が出来てるのでテンプレ展開で 1-1.5h
+- Phase H: A-4 DiscussNet Playwright (Week 2 最難所、Drop Point 6/4 設定) — 3-5h
+
+A-7 は A-6 の出力 (relevance_score, dimensions, matched_interests) を入力として優先度ソート + 多様性確保 (同 topic 連続回避等) するロジック。
+
+---
+
 ## 2026-05-21 (Wed) Session 17 — Week 2 Phase E: 翻訳 Agent (A-5 完了、Gemini 2.5 Flash で議事録 → 若者向け 3 行サマリ)
 
 ### Completed

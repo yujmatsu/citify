@@ -122,7 +122,7 @@
 ### `cc:WIP` AI Agent 実装
 
 - [x] [A-5] 翻訳 Agent (agents/translator/) `cc:完了` — Gemini 2.5 Flash + response_schema + 3 段倫理ガードレール、casual/neutral/formal トーン出し分け、実翻訳 5 秒
-- [ ] [A-6] 影響度 Agent (agents/relevance/) + スコアリング ← **Phase F で着手予定**
+- [x] [A-6] 影響度 Agent (agents/relevance/) + スコアリング `cc:完了` — 4 軸 (topic/age/geo/urgency 各 25 点) で 3 ペルソナ実測 45-90 点で明確差別化、自動補正機能
 - [ ] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート ← **Phase G で着手予定**
 - [ ] エージェント間 Pub/Sub メッセージング
 

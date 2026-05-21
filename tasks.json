@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T14:00:00+09:00",
-  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) 完了。",
+  "updated": "2026-05-21T14:30:00+09:00",
+  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) + Phase F (A-6) 完了。残: A-7 配信 / A-4 DiscussNet / Pub/Sub 連携",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -506,7 +506,7 @@
       "type": "feature",
       "priority": "Must",
       "week": 2,
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["A-5"],
       "acceptance_criteria": [
         "0-100 スコア + 理由",
@@ -514,9 +514,9 @@
         "バッチ + 単発対応"
       ],
       "drop_condition": null,
-      "started_at": null,
-      "completed_at": null,
-      "notes": ""
+      "started_at": "2026-05-21T14:00:00+09:00",
+      "completed_at": "2026-05-21T14:28:00+09:00",
+      "notes": "Phase F で完了。4 軸スコアリング (topic / age / geographic / urgency 各 0-25 → 合計 0-100)、Gemini 2.5 Flash + response_schema (Pydantic) で構造化出力。実テスト 3 ペルソナで明確な差別化確認: 子育て+住居 25-29 = 80、起業 18-24 = 45 (非表示)、教育+子育て 30-34 = 90 (最高)。LLM の dim 合計と relevance_score のミスマッチ自動補正機能、3 段倫理ガードレール (LLM 自己申告 + 禁止語 regex)、最大 3 回 retry。実装: agents/relevance/{schema,main,__main__}.py + prompts/system.py + tests 11 ケース (A-5 と合わせて 22/22 PASS)。受入条件 3/3 達成: ✅ 0-100 スコア + reasoning フィールド、✅ 50 未満は below_threshold で非表示判定、✅ CLI で --text/--speech-id/--bq-query の 3 モード対応 (バッチ + 単発)"
     },
     {
       "id": "A-7",
