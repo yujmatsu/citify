@@ -71,6 +71,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p_speeches.add_argument("--schedule-id", required=True)
     p_speeches.add_argument("--max-speeches", type=int, default=200)
 
+    p_publish = sub.add_parser(
+        "publish-speeches",
+        parents=[common],
+        help="L3 発言を取得 → Pub/Sub topic に publish",
+    )
+    p_publish.add_argument("--council-id", required=True)
+    p_publish.add_argument("--schedule-id", required=True)
+    p_publish.add_argument("--max-speeches", type=int, default=200)
+    p_publish.add_argument("--project-id", required=True, help="GCP project ID")
+    p_publish.add_argument(
+        "--topic", default="citify-speech-translate", help="送信先 Pub/Sub topic 名"
+    )
+
     return parser
 
 
@@ -128,6 +141,29 @@ async def _cmd_speeches(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_publish_speeches(args: argparse.Namespace) -> int:
+    from .publish import publish_speeches
+
+    async with _client(args) as client:
+        speeches = await client.fetch_speeches(
+            council_id=args.council_id,
+            schedule_id=args.schedule_id,
+            max_speeches=args.max_speeches,
+        )
+    print(f"# Fetched {len(speeches)} speeches, publishing to topic={args.topic}", file=sys.stderr)
+    msg_ids = publish_speeches(
+        project_id=args.project_id,
+        topic=args.topic,
+        speeches=speeches,
+    )
+    print(f"# Published {len(msg_ids)} messages", file=sys.stderr)
+    for mid in msg_ids[:5]:
+        print(mid)
+    if len(msg_ids) > 5:
+        print(f"# ... and {len(msg_ids) - 5} more", file=sys.stderr)
+    return 0
+
+
 def _client(args: argparse.Namespace) -> KaigirokuNetClient:
     return KaigirokuNetClient(
         tenant_id=args.tenant,
@@ -150,6 +186,7 @@ def main() -> int:
         "councils": _cmd_councils,
         "schedules": _cmd_schedules,
         "speeches": _cmd_speeches,
+        "publish-speeches": _cmd_publish_speeches,
     }
     return asyncio.run(handlers[args.cmd](args))
 

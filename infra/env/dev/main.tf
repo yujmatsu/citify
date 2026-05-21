@@ -301,9 +301,144 @@ resource "google_storage_bucket_iam_member" "rag_staging_aiplatform_reader" {
 }
 
 # ---------------------------------------------------------------------------
-# 後続 (Week 1 後半 / Week 2 で追加予定):
+# Pub/Sub: A-4 → A-5 → A-6 のエージェント間メッセージング (Phase N)
+# ---------------------------------------------------------------------------
+# パイプライン:
+#   scrapers (kaigiroku_net / kokkai / press_rss)
+#       → publish to "citify-speech-translate" topic
+#       → A-5 (translator worker, Cloud Run)
+#           subscribe "citify-speech-translate-sub"
+#           publish to "citify-speech-translated" topic
+#       → A-6 (relevance scorer worker, 将来)
+#           subscribe "citify-speech-translated-sub"
+#
+# 設計方針:
+#   - DLQ (Dead Letter Queue) を 1 トピック分用意、5 回 nack で送信
+#   - message_retention = 7 days (議事録量を考えると十分)
+#   - ack_deadline = 60 sec (翻訳に 30 秒程度かかる)
+#   - exactly_once_delivery = true (BQ への重複書き込みを避けるため)
+
+# --- Topic: speech-translate (A-5 入力) ---
+resource "google_pubsub_topic" "speech_translate" {
+  name = "citify-speech-translate"
+
+  message_retention_duration = "604800s" # 7 days
+
+  labels = local.common_labels
+}
+
+# --- DLQ Topic (5 回失敗時の送信先) ---
+resource "google_pubsub_topic" "speech_translate_dlq" {
+  name = "citify-speech-translate-dlq"
+
+  message_retention_duration = "604800s" # 7 days
+
+  labels = merge(local.common_labels, { purpose = "dlq" })
+}
+
+# --- Subscription: speech-translate-sub (A-5 worker pull) ---
+resource "google_pubsub_subscription" "speech_translate_sub" {
+  name  = "citify-speech-translate-sub"
+  topic = google_pubsub_topic.speech_translate.id
+
+  ack_deadline_seconds         = 60 # 翻訳 ~30 sec + 余裕
+  message_retention_duration   = "604800s"
+  enable_message_ordering      = false
+  enable_exactly_once_delivery = true
+
+  expiration_policy {
+    ttl = "" # 永続化 (空文字 = never expire)
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+
+  dead_letter_policy {
+    dead_letter_topic     = google_pubsub_topic.speech_translate_dlq.id
+    max_delivery_attempts = 5
+  }
+
+  labels = local.common_labels
+}
+
+# --- Topic: speech-translated (A-5 出力 / A-6 入力) ---
+resource "google_pubsub_topic" "speech_translated" {
+  name = "citify-speech-translated"
+
+  message_retention_duration = "604800s"
+
+  labels = local.common_labels
+}
+
+resource "google_pubsub_subscription" "speech_translated_sub" {
+  name  = "citify-speech-translated-sub"
+  topic = google_pubsub_topic.speech_translated.id
+
+  ack_deadline_seconds         = 30
+  message_retention_duration   = "604800s"
+  enable_exactly_once_delivery = true
+
+  expiration_policy {
+    ttl = ""
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+
+  labels = local.common_labels
+}
+
+# --- IAM: citify-api-runtime に publish + subscribe 権限 ---
+resource "google_pubsub_topic_iam_member" "runtime_publish_translate" {
+  topic  = google_pubsub_topic.speech_translate.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+resource "google_pubsub_subscription_iam_member" "runtime_subscribe_translate" {
+  subscription = google_pubsub_subscription.speech_translate_sub.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+resource "google_pubsub_topic_iam_member" "runtime_publish_translated" {
+  topic  = google_pubsub_topic.speech_translated.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+resource "google_pubsub_subscription_iam_member" "runtime_subscribe_translated" {
+  subscription = google_pubsub_subscription.speech_translated_sub.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# DLQ への publish 権限 (subscription が dead_letter 送信時に必要)
+# Pub/Sub サービスアカウント: service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+resource "google_pubsub_topic_iam_member" "pubsub_sa_dlq_publish" {
+  topic  = google_pubsub_topic.speech_translate_dlq.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}
+
+# Pub/Sub SA は DLQ 送信時に元 subscription を ack する必要があるため subscriber 権限も付与
+resource "google_pubsub_subscription_iam_member" "pubsub_sa_subscribe_translate" {
+  subscription = google_pubsub_subscription.speech_translate_sub.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}
+
+# ---------------------------------------------------------------------------
+# 後続 (Week 2 後半 / Week 3 以降で追加予定):
 #   - module "firestore"        (modules/firestore/)
-#   - module "pubsub"           (modules/pubsub/)
 #   - module "secret_manager"   (modules/secret_manager/)
 #   - module "cloud_storage"    (modules/cloud_storage/)
 #   - module "rag_engine"       (Vertex AI RAG Engine)

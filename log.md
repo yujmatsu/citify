@@ -1,5 +1,78 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 24 — Phase N: Pub/Sub 連携 A-4 → A-5 パイプライン構築
+
+### Completed
+
+- [x] **`pkg/pubsub.py` 新規** (~280 LOC): Citify 横断の Pub/Sub 抽象
+  - `MessageEnvelope` (schema_version + source + payload_type + payload) — Pydantic モデルから自動 wrap
+  - `PubSubPublisher` (lazy import で google-cloud-pubsub の依存をテストから分離)
+  - `PubSubSubscriber` (streaming pull + ack/nack + JSON parse 失敗時の DLQ 行き ack)
+- [x] **Terraform Pub/Sub 構成** (`infra/env/dev/main.tf`):
+  - Topic: `citify-speech-translate` (A-5 入力, 7 day retention)
+  - Subscription: `citify-speech-translate-sub` (ack_deadline=60s, exactly_once, 5 回 nack で DLQ)
+  - DLQ Topic: `citify-speech-translate-dlq`
+  - Topic: `citify-speech-translated` (A-5 出力 / A-6 入力)
+  - Subscription: `citify-speech-translated-sub`
+  - IAM: citify-api-runtime に publisher/subscriber 権限、Pub/Sub SA に DLQ publisher 権限
+  - terraform validate: ✅、terraform fmt 適用済
+- [x] **scrapers → publish 統合** (`scrapers/kaigiroku_net/publish.py` + `__main__.py`):
+  - `publish_speeches()` ヘルパ (publisher 注入可能、attributes に tenant/council/schedule_id)
+  - 新 CLI subcommand: `python -m scrapers.kaigiroku_net publish-speeches --project-id X --topic Y --tenant prefokayama --council-id 177 --schedule-id 1`
+- [x] **A-5 Pub/Sub worker** (`agents/translator/worker.py` ~150 LOC):
+  - `_envelope_to_translate_input()`: Speech payload → TranslateInput (合成 speech_id = `tenant:council:schedule:order`)
+  - `make_handler()`: 1 envelope を翻訳 → 出力 envelope を生成 → publish
+  - 非 Speech payload は skip、空 content も skip
+  - Gemini 例外は handler で raise → subscriber が nack
+  - CLI: `python -m agents.translator.worker --project-id X --input-subscription S --output-topic T`
+- [x] **テスト 21 件追加** (合計 54 PASSED):
+  - `pkg/tests/test_pubsub.py` 10 件: envelope round-trip、publisher mock、subscriber ack/nack/parse 失敗
+  - `scrapers/kaigiroku_net/tests/test_publish.py` 4 件: 空/正常/属性/None schedule_id
+  - `agents/translator/tests/test_worker.py` 7 件: envelope 変換、handler 翻訳+publish、skip 条件、Gemini 失敗時の伝播
+- [x] **`google-cloud-pubsub>=2.27` を `apps/api/pyproject.toml` に追加** (pip install は権限制約で保留、ユーザー側で実行依頼)
+
+### Decisions
+
+- ✅ **共通 `pkg/` トップレベルパッケージ採用**: scrapers / agents 両方が import するため、agents/_common/ より独立した位置に
+- ✅ **遅延 import パターン**: `google.cloud.pubsub` を `_ensure_client()` 時のみ import、テストで mock 注入可
+- ✅ **JSON envelope 標準化**: `schema_version=v1` + `source` + `payload_type` + `payload` の 4 要素、将来の payload schema 変更に耐える
+- ✅ **DLQ + exactly_once_delivery**: 翻訳結果の BQ 重複書き込みを防ぐ、5 回失敗で人間調査行き
+- ✅ **JSON parse 失敗は ack (再送せず)**: 構造的に壊れたメッセージを delivery loop に入れない (DLQ に行かせず即終端)
+- ✅ **content_text 空 / 非 Speech payload は handler skip**: nack でも ack でもなく無音 ack (Pub/Sub 標準動作)
+
+### Files Created/Modified
+
+- `pkg/__init__.py`, `pkg/pubsub.py`, `pkg/tests/test_pubsub.py` (新規)
+- `infra/env/dev/main.tf` — Pub/Sub 4 リソース + IAM 6 件追加
+- `scrapers/kaigiroku_net/publish.py` (新規)
+- `scrapers/kaigiroku_net/__main__.py` — `publish-speeches` subcommand 追加
+- `scrapers/kaigiroku_net/tests/test_publish.py` (新規)
+- `agents/translator/worker.py` (新規)
+- `agents/translator/tests/test_worker.py` (新規)
+- `apps/api/pyproject.toml` — google-cloud-pubsub 追加
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### 既知の課題
+
+- ⚠️ **pip install 未実行**: `certifi/cacert.pem` 読み取り deny でローカルから `pip install google-cloud-pubsub` 不可。ユーザー側で手動実行を依頼:
+  ```bash
+  cd /home/yujmatsu/projects/citify/apps/api
+  source .venv/bin/activate
+  pip install google-cloud-pubsub
+  ```
+- ⚠️ **terraform apply 未実行**: dev 環境で実トポロジ反映待ち
+- ⚠️ **既存 test_translator.py 8 件失敗**: `google.genai._interactions.types.signing_secret` 読み取り deny の環境問題、本セッションの変更とは無関係
+
+### Next
+
+- pip install + terraform apply (ユーザー手動)
+- Live integration test: scrapers publish → worker 翻訳 → BQ 投入確認
+- A-5 worker を Cloud Run Worker としてデプロイ (cloudbuild.yaml に追加)
+- A-6 (relevance) を speech_translated subscription に接続
+- BigQuery `citify_raw.speeches` テーブル + 投入バッチ
+
+---
+
 ## 2026-05-21 (Wed) Session 23 — Phase M: A-4 横展開検証 (5 自治体 中央型+白ラベル+Legacy 完動)
 
 ### Completed

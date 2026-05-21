@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E (A-5) + F (A-6) + G (A-7) + H (A-4 scaffold) + I (A-4b metadata only) + K (voices_asp scope 縮小 + B-7 前倒し完了) + L (A-4 ツリー展開完了 = Playwright 3 階層 L1/L2/L3 end-to-end 動作) + M (A-4 横展開 = 5 自治体 prefokayama/yokohama/arakawa/cityosaka/tosa 中央型+白ラベル+Legacy 全て動作確認) 完了。残 Week 2: Pub/Sub 連携、ADK ラップ、BigQuery 投入バッチ",
+  "active_week_note": "Week 2 完走 + 一部 Week 5 前倒し。Phase E (A-5) + F (A-6) + G (A-7) + H (A-4 scaffold) + I (A-4b metadata only) + K (voices_asp scope 縮小 + B-7 前倒し完了) + L (A-4 ツリー展開完了 = Playwright 3 階層 L1/L2/L3 end-to-end 動作) + M (A-4 横展開 = 5 自治体 prefokayama/yokohama/arakawa/cityosaka/tosa 中央型+白ラベル+Legacy 全て動作確認) + N (Pub/Sub 連携 A-4→A-5 完了 = pkg/pubsub.py + Terraform topics/subs/DLQ/IAM + scrapers publish + translator worker + 54 unit tests) 完了。残 Week 2: ADK ラップ、BigQuery 投入バッチ、A-5 worker Cloud Run デプロイ",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
