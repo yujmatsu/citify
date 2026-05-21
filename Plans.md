@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
-| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー + Pub/Sub + BQ 永続化 | **`cc:完了`** ✅ A-5/6/7 + A-4 (Playwright 3 階層 + 5 自治体) + A-4b + B-7 + Pub/Sub 4 段パイプライン (live 動作確認) + BigQuery scored_speeches 投入 sink 完了。残: terraform apply + ADK ラップ + Cloud Run デプロイ |
+| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー + Pub/Sub + BQ 永続化 + Cloud Run | **`cc:完了`** ✅ A-5/6/7 + A-4 (Playwright 3 階層 + 5 自治体) + A-4b + B-7 + Pub/Sub 4 段パイプライン (live 動作確認) + BigQuery scored_speeches 投入 sink + Cloud Run Job × 4 + Scheduler × 4 構成完了。残: Cloud Build 実行 + terraform apply で実稼働開始 |
 | Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
 | Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |

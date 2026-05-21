@@ -66,7 +66,61 @@ locals {
     "roles/secretmanager.secretAccessor", # Secret Manager 連携 (Week 1 後半)
     "roles/logging.logWriter",            # 構造化ログ書き込み
     "roles/cloudtrace.agent",             # Cloud Trace export
+    "roles/run.invoker",                  # Cloud Scheduler → Cloud Run Job 起動 (Phase R)
   ]
+
+  # Cloud Run Job として deploy する worker 一覧 (Phase R)
+  # NOTE: image は cloudbuild-workers.yaml で push、Terraform は job 構成のみ管理
+  # NOTE: subscribers blocking call なので timeout に近い時間まで動く
+  workers = {
+    translator = {
+      command = ["python", "-m", "agents.translator.worker"]
+      args = [
+        "--project-id", "citify-dev",
+        "--input-subscription", "citify-speech-translate-sub",
+        "--output-topic", "citify-speech-translated",
+      ]
+      memory = "1Gi"
+      cpu    = "1"
+    }
+    relevance = {
+      command = ["python", "-m", "agents.relevance.worker"]
+      args = [
+        "--project-id", "citify-dev",
+        "--input-subscription", "citify-speech-translated-sub",
+        "--output-topic", "citify-speech-scored",
+        "--user-id", "demo-25-29",
+        "--user-age-group", "25-29",
+        "--user-interests", "住居", "雇用", "税", "子育て",
+        "--user-municipality-codes", "33000", "00000",
+      ]
+      memory = "1Gi"
+      cpu    = "1"
+    }
+    distributor = {
+      command = ["python", "-m", "agents.distributor.worker"]
+      args = [
+        "--project-id", "citify-dev",
+        "--input-subscription", "citify-speech-scored-sub",
+        "--output-topic", "citify-feed-snapshot",
+        "--min-relevance", "50",
+        "--feed-size", "10",
+      ]
+      memory = "512Mi"
+      cpu    = "1"
+    }
+    bq-sink-scored = {
+      command = ["python", "-m", "pkg.bq_sink_runner"]
+      args = [
+        "--project-id", "citify-dev",
+        "--sink", "scored_speeches",
+        "--subscription", "citify-speech-scored-sub",
+        "--table", "citify-dev.citify_curated.scored_speeches",
+      ]
+      memory = "512Mi"
+      cpu    = "1"
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -568,6 +622,109 @@ resource "google_pubsub_subscription_iam_member" "runtime_subscribe_feed_snapsho
   subscription = google_pubsub_subscription.feed_snapshot_sub.name
   role         = "roles/pubsub.subscriber"
   member       = "serviceAccount:${google_service_account.citify_api_runtime.email}"
+}
+
+# ---------------------------------------------------------------------------
+# Cloud Run Jobs: 4 worker (translator / relevance / distributor / bq_sink) (Phase R)
+# ---------------------------------------------------------------------------
+# 設計:
+#   - 1 image (workers:latest) で 4 worker 同梱、CMD で種別切替
+#   - timeout = 3540s (59 分) で 1 度の実行
+#   - Cloud Scheduler が 60 分ごとに起動 → ほぼ常時 1 インスタンス稼働
+#   - max_retries = 0: 失敗しても再試行しない (次の Scheduler 起動で再開)
+#   - SA = citify-api-runtime (Pub/Sub publish/subscribe + BQ insert 権限済み)
+#   - image は cloudbuild-workers.yaml で push 後、`gcloud run jobs update` で適用
+
+# 初回 apply 時は image がまだ存在しないため、:latest tag が見つかるよう placeholder image を使う
+# (cloudbuild-workers.yaml の build を最初に 1 度実行してから terraform apply するのが正しい順序)
+resource "google_cloud_run_v2_job" "workers" {
+  for_each = local.workers
+
+  name     = "citify-worker-${each.key}"
+  location = var.region
+
+  template {
+    template {
+      service_account = google_service_account.citify_api_runtime.email
+      timeout         = "3540s" # 59 min, just under 1h Scheduler interval
+      max_retries     = 0       # 次の起動で再開、cascading failure 防止
+
+      containers {
+        image   = "${var.region}-docker.pkg.dev/${var.project_id}/citify-api/workers:latest"
+        command = each.value.command
+        args    = each.value.args
+
+        env {
+          name  = "GOOGLE_CLOUD_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "GCP_REGION"
+          value = var.region
+        }
+
+        resources {
+          limits = {
+            cpu    = each.value.cpu
+            memory = each.value.memory
+          }
+        }
+      }
+    }
+  }
+
+  labels = local.common_labels
+
+  deletion_protection = false
+
+  # 初回 apply 時に image がない場合は手動 cloudbuild submit を先に実行する想定
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image, # cloudbuild が更新するので drift 無視
+    ]
+  }
+}
+
+# Scheduler service identity に SA TokenCreator 権限 (Scheduler が SA を impersonate して Job 起動)
+resource "google_service_account_iam_member" "scheduler_token_creator" {
+  service_account_id = google_service_account.citify_api_runtime.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+}
+
+# ---------------------------------------------------------------------------
+# Cloud Scheduler: 60 分ごとに各 Cloud Run Job を起動
+# ---------------------------------------------------------------------------
+# Scheduler 自体は無料枠 (3 job / 月) を超えるが、料金は微々たるもの ($0.10/job/月)
+# offset で全 worker が同時起動しないよう minute をずらす (Gemini API quota 分散)
+resource "google_cloud_scheduler_job" "worker_triggers" {
+  for_each = local.workers
+
+  name             = "citify-worker-${each.key}-trigger"
+  description      = "Trigger Cloud Run Job citify-worker-${each.key} hourly"
+  schedule         = "${index(keys(local.workers), each.key) * 5} * * * *" # 0/5/10/15 分の交差起動
+  time_zone        = "Asia/Tokyo"
+  region           = var.region
+  attempt_deadline = "320s" # Scheduler は Job を kick するだけ (Job 自体は別途稼働)
+
+  retry_config {
+    retry_count = 1
+  }
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.workers[each.key].name}:run"
+
+    oauth_token {
+      service_account_email = google_service_account.citify_api_runtime.email
+      scope                 = "https://www.googleapis.com/auth/cloud-platform"
+    }
+  }
+
+  depends_on = [
+    google_service_account_iam_member.scheduler_token_creator,
+    google_project_iam_member.runtime, # runtime に run.invoker が付くまで待つ
+  ]
 }
 
 # DLQ への publish 権限 (subscription が dead_letter 送信時に必要)

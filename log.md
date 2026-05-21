@@ -1,5 +1,73 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 28 — Phase R: Cloud Run Worker デプロイ構成 (4 Job + 4 Scheduler)
+
+### Completed
+
+- [x] **`apps/workers/Dockerfile` 新規** (multi-stage uv build):
+  - Stage 1: `python:3.12-slim + uv 0.5` で venv に依存インストール (Playwright 不要、scrapers の重い依存は除外)
+  - Stage 2: 非 root user + venv + pkg/agents/scrapers コピー
+  - default CMD はエラー出力 (Cloud Run Job 側で必ず override する想定)
+- [x] **`cloudbuild-workers.yaml` 新規**:
+  - image: `${REGION}-docker.pkg.dev/${PROJECT_ID}/citify-api/workers:{COMMIT_SHA,latest}`
+  - apps/workers/Dockerfile を repo root context でビルド (pkg/agents/scrapers を取り込めるよう)
+  - update-jobs step: `gcloud run jobs update --image=NEW_TAG` を 4 job 全てに適用 (初回は warning で OK)
+- [x] **Terraform: Cloud Run Job × 4 + Cloud Scheduler × 4** (`infra/env/dev/main.tf`):
+  - `locals.workers` map で 4 worker 定義 (translator/relevance/distributor/bq-sink-scored)、各 command/args/memory/cpu を hardcode
+  - `google_cloud_run_v2_job.workers["{name}"]` を for_each で 4 個生成、timeout 3540s + max_retries 0
+  - `lifecycle.ignore_changes` で image tag drift を無視 (cloudbuild が更新するため)
+  - `google_cloud_scheduler_job.worker_triggers["{name}"]` を for_each で 4 個生成、cron は `0/5/10/15 * * * *` (offset で Gemini quota 分散)
+  - HTTP target: Cloud Run Admin API (`/apis/run.googleapis.com/v1/.../jobs/{name}:run`) を OAuth で叩く
+- [x] **IAM 拡張**:
+  - `roles/run.invoker` を citify-api-runtime に追加 (Scheduler → Job 起動)
+  - `iam.serviceAccountTokenCreator` を Scheduler service identity に付与 (SA impersonation)
+- [x] **`apps/workers/README.md` 新規**: デプロイ手順 + 動作確認 + トラブルシュート
+
+### Decisions
+
+- ✅ **Cloud Run Job + Scheduler の組み合わせ採用**:
+  - 既存 streaming pull コードを 1 行も変えずに永続稼働
+  - HTTP server / FastAPI 追加実装不要
+  - Cloud Run Service の always-on CPU より柔軟 (timeout 60 min を超えても自動再起動)
+- ✅ **1 image / 4 Job**: image build 1 回、CMD 切替で 4 worker 起動
+- ✅ **timeout=3540s (59 min) + cron 60 min**: 1 分の隙間は許容 (Pub/Sub に message 蓄積)
+- ✅ **offset cron (0/5/10/15)**: Gemini API quota が短期集中しないよう各 worker を交差起動
+- ✅ **image tag は ignore_changes**: terraform と cloudbuild の双方向更新を許容、drift なし
+- ✅ **AR repo は既存 `citify-api` を再利用**: image 名 `workers` で論理分離
+
+### Files Created/Modified
+
+- `apps/workers/Dockerfile` (新規)
+- `apps/workers/README.md` (新規)
+- `cloudbuild-workers.yaml` (新規)
+- `infra/env/dev/main.tf` — locals.workers + Cloud Run Job × 4 + Scheduler × 4 + IAM × 2 追加 (10 リソース)
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### デプロイ手順 (user action 待ち)
+
+```bash
+cd /home/yujmatsu/projects/citify
+
+# 1. Cloud Build で image build + AR push
+gcloud builds submit --config=cloudbuild-workers.yaml --region=asia-northeast1
+
+# 2. Terraform で Job + Scheduler + IAM を反映
+cd infra/env/dev
+terraform apply  # 10 resources to add
+
+# 3. 動作確認 (オプション、Scheduler 待たずに手動 trigger)
+gcloud run jobs execute citify-worker-translator --region=asia-northeast1 --wait
+```
+
+### Next
+
+- 上記デプロイ手順を実行 → 永続稼働開始
+- 動作確認: scraper publish 後、Job が次の Scheduler tick で自動処理することを確認
+- (将来) Cloud Build trigger 設定 (apps/workers 配下変更時に自動再デプロイ)
+- (将来) Firestore に複数ユーザー登録 → relevance worker を fan-out 対応に拡張
+
+---
+
 ## 2026-05-21 (Wed) Session 27 — Phase Q: BigQuery 永続化 (scored_speeches sink worker)
 
 ### Completed

@@ -1,0 +1,75 @@
+# =============================================================================
+# Citify Workers Cloud Build パイプライン
+# =============================================================================
+# 用途:
+#   4 つの worker (translator / relevance / distributor / bq_sink) を含む
+#   1 つの Docker image をビルドして Artifact Registry に push。
+#   Cloud Run Job の deploy は Terraform 管理 (image 更新のみ本 yaml で実施)。
+#
+# 手動実行:
+#   gcloud builds submit --config=cloudbuild-workers.yaml --region=asia-northeast1
+#
+# 自動実行 (Terraform で trigger を別途追加予定、Week 3 以降):
+#   - main push で apps/workers/ 変更時にトリガー
+# =============================================================================
+
+substitutions:
+  _REGION: asia-northeast1
+  _REPO: citify-api # 既存の AR repo を再利用 (image 名で分離)
+  _IMAGE: workers
+
+timeout: 1200s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  dynamic_substitutions: true
+
+images:
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest"
+
+steps:
+  # ---------------------------------------------------------------------------
+  # 1. Docker build (apps/workers/Dockerfile, build context = repo root)
+  # ---------------------------------------------------------------------------
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
+      - --cache-from=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
+      - --build-arg=GIT_SHA=${COMMIT_SHA}
+      - --file=apps/workers/Dockerfile
+      - . # repo root を context に (pkg/, agents/, scrapers/ をコピーするため)
+
+  # ---------------------------------------------------------------------------
+  # 2. Artifact Registry へ push
+  # ---------------------------------------------------------------------------
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}
+
+  # ---------------------------------------------------------------------------
+  # 3. Cloud Run Jobs の image 更新 (各 worker)
+  # NOTE: Job の構成 (command/args/SA) は Terraform 管理、ここは image tag のみ更新
+  # ---------------------------------------------------------------------------
+  - id: update-jobs
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}"
+        for JOB in citify-worker-translator citify-worker-relevance citify-worker-distributor citify-worker-bq-sink-scored; do
+          echo "Updating job $$JOB to image $$IMAGE"
+          gcloud run jobs update "$$JOB" \
+            --region=${_REGION} \
+            --image="$$IMAGE" \
+            --quiet || echo "WARN: job $$JOB not found (first build? deploy via terraform first)"
+        done
