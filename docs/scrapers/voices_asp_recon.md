@@ -5,6 +5,10 @@
 > **実施日**: 2026-05-20 / **実施者**: Yuji + Claude Code
 >
 > **最終判定**: 🟢 **GREEN — BeautifulSoup + httpx で実装容易、Playwright 不要**
+>
+> ⚠️ **2026-05-21 補足** (Phase I 実装中に判明): **年度詳細ページ以降は JavaScript 必須**。
+>    上記 GREEN 判定は **年度トップページのみの調査結果** に基づく誤判定だった。
+>    実装上は **A-4 (kaigiroku.net) と同じ Playwright 化が必要**。詳細は §11 参照。
 
 ---
 
@@ -240,3 +244,69 @@ VOICES/Web は **URL クエリパラメタで階層的にデータをドリル**
 ## 10. 改訂履歴
 
 - 2026-05-20 v1.0 初版作成 (Week 0 構造調査の第 2 系統 voices_asp、GREEN 判定)
+- 2026-05-21 v1.1 §11 追加: Phase I 実装中に判明した「2 階層目以降 JS 必須」問題
+
+---
+
+## 11. Phase I 実装中の発見 — 2 階層目以降は JS 必須 (2026-05-21)
+
+### 11.1 観察事実
+
+`scrapers/voices_asp/` 実装後、sapporo の年度詳細ページ
+(`g08v_viewh.asp?Sflg=11&FYY=2025&TYY=2025`) を GET したところ:
+
+- HTML サイズ: **4014 bytes** (年度トップ 10133 bytes の 40%)
+- table_count: 0、`ul.kaigi_view` count: 0
+- noscript 内に「**当サイトではJavaScriptを使用しています。検索機能を利用するためには、JavaScriptをonにしてください**」
+
+→ **会議一覧の実データは JS による AJAX で動的読み込み** されており、static GET では取得不可能。
+
+### 11.2 影響範囲 (server-render で取れる / 取れない)
+
+| ページ | 取得可能 (no JS) |
+|---|---|
+| `/voices/index.asp` | ✅ |
+| `/voices/g08v_viewh.asp` (年度トップ) | ✅ ul.kaigi_view に 39 年 × 2 系統 = 78 entries |
+| `/voices/g08v_viewh.asp?Sflg=10` (全件) | ❌ 4000 bytes の shell のみ |
+| `/voices/g08v_viewh.asp?Sflg=11&FYY=N&TYY=N` (年度詳細) | ❌ 同上 |
+| `/voices/g08v_views.asp?…` (委員会) | ❌ (推定、未確認だが同実装と想定) |
+| 個別会議録ページ | ❌ (上流に依存) |
+
+### 11.3 当初 recon 誤判定の原因
+
+Week 0 recon は **3 ページしか saved していなかった** (sapporo_voices.html / sapporo_index.html / sapporo_g08v_viewh.html、いずれもトップ階層):
+
+- これらは全て年度トップで server-render される
+- recon 中に「2 階層目に drill down」して確認していなかった
+- 結果: 全 voices_asp ページが server-render と誤認 → GREEN 判定
+
+### 11.4 戦略再評価
+
+| Option | 工数 | 評価 |
+|---|---|---|
+| A. Playwright 化 (A-4 と同じインフラ流用) | 2-3h | A-4 ツリー展開と並行解決可、最有力 |
+| B. AJAX endpoint をリバース工学 (DevTools で XHR 観察) | 2-4h | 成功すれば軽量実装、ただし sapporo / minato / adachi で異なる可能性あり |
+| C. voices_asp スコープ縮小 (年度メタデータ index のみ取得、本文は別経路) | 1h | 妥協案、フィード生成には使えない |
+
+→ **Option A 推奨**: A-4 で既に Playwright + Chromium インフラ構築済、流用が効率的。
+
+### 11.5 Phase I 到達状況 (2026-05-21 終了時点)
+
+| 項目 | 状態 |
+|---|---|
+| パッケージ構造 `scrapers/voices_asp/` | ✅ 完成 (6 ファイル ~700 LOC) |
+| 18 ユニットテスト (httpx.MockTransport + fixture HTML) | ✅ 全 PASS |
+| 年度一覧取得 (sapporo で 78 entries 動作確認) | ✅ |
+| Shift_JIS デコード | ✅ |
+| 個別会議一覧取得 | ❌ JS 必須判明、Playwright 化待ち |
+| 発言抽出 | ❌ 上流に依存 |
+| minato / adachi 横断検証 | ❌ 上記未達のため未実施 |
+
+実質 **30-40% 進捗**。アーキテクチャの土台 + 上 1 階層は完成、JS 部分が次の depth-dive。
+
+### 11.6 次回着手時の TODO
+
+1. DevTools Network で sapporo の 2025 年詳細ページ XHR 観察 (AJAX endpoint 特定)
+2. AJAX が見つかれば httpx で直叩き、見つからなければ Playwright 化 (A-4 同インフラ流用)
+3. minato / adachi で再現確認 (3 配信モデル横断)
+4. 個別会議の発言抽出セレクタ確定

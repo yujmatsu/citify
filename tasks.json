@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T14:45:00+09:00",
-  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) + F (A-6) + G (A-7) 完了。残: A-4 DiscussNet パーサー / Pub/Sub 連携 / ADK ラップ",
+  "updated": "2026-05-21T16:30:00+09:00",
+  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) + F (A-6) + G (A-7) + H (A-4 scaffold) + I (A-4b scaffold) 完了。残: A-4 ツリー展開 + A-4b の 2 階層目以降 (両方 Playwright 必須判明、同一スプリント解決推奨)、Pub/Sub 連携、ADK ラップ",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -469,7 +469,7 @@
       "type": "feature",
       "priority": "Should",
       "week": 3,
-      "status": "pending",
+      "status": "in_progress",
       "dependencies": ["RECON-003", "A-4"],
       "acceptance_criteria": [
         "sapporo / minato / adachi でパース成功",
@@ -477,9 +477,9 @@
         "g08v_viewh.asp 年度ドリル"
       ],
       "drop_condition": "Week 3 末で 1 自治体動かなければ中央型のみに範囲縮小",
-      "started_at": null,
+      "started_at": "2026-05-21T15:30:00+09:00",
       "completed_at": null,
-      "notes": "Phase 2 で発見、Tier 1 で 9 自治体カバー。BeautifulSoup + httpx で容易。recon_doc: docs/scrapers/voices_asp_recon.md"
+      "notes": "Phase I で **30-40% 進捗**: ✅ パッケージ構造 (6 ファイル ~700 LOC + 18 tests)、✅ 年度一覧取得 (sapporo 78 entries 動作確認)、✅ Shift_JIS デコード、✅ ul.kaigi_view selector 動作確認 (recon doc §4 通り)。❌ 2 階層目以降 (年度詳細・個別会議・発言) は **JavaScript 必須** が判明 (recon doc §11 に追記)、当初の GREEN 判定はトップページのみの確認だった誤判定。次の depth-dive 候補: ① Playwright 化 (A-4 と同インフラ流用、2-3h)、② AJAX endpoint リバース工学 (DevTools Network 観察、2-4h)。Drop Point の「Week 3 末で 1 自治体動かなければ範囲縮小」は依然有効、6/8 まで対応。BS4 + lxml 依存追加済 (apps/api/pyproject.toml)"
     },
     {
       "id": "A-5",

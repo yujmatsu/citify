@@ -1,5 +1,105 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 20 — Week 2 Phase I: voices_asp スケルトン (A-4b 30-40%、JS 必須判明)
+
+### Completed
+
+- [x] **`scrapers/voices_asp/` パッケージ** 新規作成 (~700 LOC):
+  - `__init__.py`, `schema.py` (MeetingSummary / Speech / YearEntry / MeetingType Literal)
+  - `client.py` (VoicesAspClient: httpx async + BeautifulSoup + Shift_JIS 強制デコード)
+  - `__main__.py` (CLI: inspect / years / list / fetch 4 サブコマンド)
+  - `tests/test_voices_asp.py` (18 ケース、PASSED)
+- [x] **依存追加**: `beautifulsoup4>=4.12` + `lxml>=5.0` (apps/api/pyproject.toml)
+- [x] **sapporo で動作確認** (中央型 https://sapporo.gijiroku.com/voices/):
+  - 年度トップ `/g08v_viewh.asp` で **78 entries 取得** (本会議 Sflg=11 × 39 年 + 臨時会 Sflg=21 × 39 年)
+  - ul.kaigi_view li a セレクタが recon doc §4 通り動作
+  - 1987-2025 (昭和62年〜令和7年) の年度ラベル + FYY パラメタ抽出 OK
+- [x] **重要発見の記録** (`docs/scrapers/voices_asp_recon.md` §11 新設):
+  - **2 階層目以降は JavaScript 必須** が判明
+  - 当初 GREEN 判定は **トップページのみの確認による誤判定**
+  - 戦略再評価: A-4 (kaigiroku.net) と同じ Playwright 問題に統合
+- [x] **tasks.json A-4b → in_progress** + 詳細 notes (30-40% 進捗、次の depth-dive)
+- [x] **Plans.md Week 2 行** に A-4/A-4b 状態反映
+
+### Decisions / Design Notes
+
+- **`response.encoding = "shift_jis"` 明示**: httpx の自動検出ではなく強制指定 (VOICES/Web は charset=shift_jis 統一)
+- **lxml parser + XMLParsedAsHTMLWarning 抑制**: VOICES/Web は XHTML 1.0 で xml prolog を持つが HTML として読みたい (`select()` 使うため)
+- **YearEntry を Pydantic 別 schema** に分離: MeetingSummary と異なり、年度はカテゴリでありメタデータが少ない
+- **`year_list` と `meeting_list` セレクタを併用**: トップページは ul.kaigi_view、年度詳細は別構造のはず → フォールバック設計
+- **`a[href*='g08v_']` セレクタが 82 件 match** (年度トップ): しかし非年度ナビ (定例会をすべて表示、トップへ戻る 等) を含む → ul.kaigi_view 限定が正解
+
+### Surprises / Risks
+
+- **🚨 Recon doc が誤判定だった**: §0 で「JavaScript 依存: なし」と書いてあったが、実際は **トップページのみ** server-render。Week 0 の recon は 3 ページしか保存していなかった (sapporo_voices.html / index.html / g08v_viewh.html、全て階層 1)
+- **2 階層目を試してなかった**: Yuji と私が Phase 2 で voices_asp を「楽な選択肢」と判断した根拠が崩れる。**新規ベンダー調査時は drill down level 2 まで必ず確認** という反省点 (memory に追記する価値あり)
+- **A-4 と A-4b が同じ Playwright 問題に収束**: 当初の「3 系統並行戦略」が「2 系統 (国会 + Playwright 系統)」に集約。Cloud Run コンテナ +400 MB の影響は voices_asp も同じ
+- **78 entries 中 Sflg=11 と Sflg=21 が両方混在**: 当初 `--type honkai` で本会議のみ期待したが、Sflg=21 (臨時会) も含まれる。これは ul.kaigi_view が type 分離してないため。post-filter で分けるか、別 ul を探す
+
+### A-4b 受入条件 vs 実装状況 (中間評価)
+
+| FEATURES.md A-4b 受入条件 | 状態 |
+|---|---|
+| sapporo / minato / adachi でパース成功 | 🟡 **sapporo の年度一覧のみ確認**、minato / adachi 未実施 |
+| Shift_JIS 対応 | ✅ httpx で encoding="shift_jis" 強制、テスト fixture も同 encoding でラウンドトリップ確認 |
+| g08v_viewh.asp 年度ドリル | 🟡 **トップから年度リンク取得は OK**、年度詳細から会議リストは JS 必須で未対応 |
+
+**実質 30-40% 進捗** = アーキテクチャ完成 + 上 1 階層動作確認、JS 部分は Playwright 化待ち。
+
+### 一日 (5/21) の累計
+
+| Session | Phase | 内容 | 結果 |
+|---|---|---|---|
+| 12 | A | DevOps 動線 | ✅ |
+| 13 | B | 国会 API | ✅ |
+| 14 | C | BigQuery | ✅ |
+| 15 | (data) | 1428 件 | ✅ |
+| 16 | D | RAG Engine | ✅ |
+| 17 | E | A-5 翻訳 | ✅ |
+| 18 | F | A-6 影響度 | ✅ |
+| 19 | G | A-7 配信 | ✅ |
+| 20a | H | A-4 スケルトン | 🟡 30% (ツリー展開待ち) |
+| **20b** | **I** | **A-4b スケルトン** | 🟡 **30-40%** (Playwright 化待ち) |
+
+**Week 1 完走 + Week 2 約 90%** (A-5/6/7 ✅、A-4 + A-4b はスケルトン + 1 階層動作)。Playwright sprint で 2-3h あれば両方とも完成見込み。
+
+### Commit Reminder
+
+未コミット変更:
+
+- `scrapers/voices_asp/` (新規パッケージ、6 ファイル + 18 tests)
+- `apps/api/pyproject.toml` (beautifulsoup4 + lxml 追加)
+- `docs/scrapers/voices_asp_recon.md` (§11 補足、誤判定の経緯)
+- `tasks.json` (A-4b → in_progress)
+- `Plans.md` (Week 2 行更新)
+- `log.md` (このファイル、Session 20 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+source apps/api/.venv/bin/activate
+ruff format apps/ agents/ scrapers/
+ruff check --fix apps/ agents/ scrapers/
+
+git add scrapers/voices_asp/ apps/api/pyproject.toml docs/scrapers/voices_asp_recon.md tasks.json Plans.md log.md
+git status
+git commit -m "feat(scrapers): A-4b voices_asp スケルトン (年度一覧 server-render OK、2 階層目以降 JS 必須判明)"
+git push origin main
+```
+
+### Next (5/22 以降)
+
+**Playwright sprint** (推定 3-4h、A-4 + A-4b 両方解決):
+1. A-4 の DOM ツリー展開 (kaigiroku.net 個別会議への drill down)
+2. A-4b の AJAX endpoint or Playwright 化 (sapporo の年度詳細以降)
+3. 両方とも同一 Playwright + Chromium インフラを共有
+4. minato / adachi の白ラベル 2 種類で voices_asp 横断検証
+5. 横浜 / 新宿 / 墨田 で kaigiroku.net 横断検証
+
+これを fresh state でやれば品質高い。本日(5/21)はここで打ち止め推奨。
+
+---
+
 ## 2026-05-21 (Wed) Session 19 — Week 2 Phase G: 配信 Agent (A-7 完了、MMR 風 ranking で For You feed 生成)
 
 ### Completed
