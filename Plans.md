@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
-| Week 2 | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | `cc:TODO` |
+| **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー | **`cc:WIP`** 🚧 Phase E (A-5 翻訳) 5/21 前倒し完了 |
 | Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
 | Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |
@@ -110,18 +110,20 @@
 
 ---
 
-## Week 2 (6/2-6/8): コアエージェント 3 体 + DiscussNet パーサー `cc:TODO`
+## Week 2 (6/2-6/8): コアエージェント 3 体 + DiscussNet パーサー `cc:WIP`
+
+> **Phase E (5/21 前倒し) 完了** ✅ A-5 翻訳 Agent: 実 Gemini 動作確認、倫理ガードレール 3 段、tests 11/11
 
 ### `cc:TODO` ADK セットアップ
 
-- [ ] ADK プロジェクト初期化
-- [ ] Vertex AI Agent Engine 連携
+- [ ] ADK プロジェクト初期化 (now: google.genai SDK 直接利用、ADK 化は後でも可)
+- [ ] Vertex AI Agent Engine 連携 (Cloud Run + Pub/Sub で代替予定)
 
-### `cc:TODO` AI Agent 実装
+### `cc:WIP` AI Agent 実装
 
-- [ ] [A-5] 翻訳 Agent (agents/translator/) + プロンプトチューニング
-- [ ] [A-6] 影響度 Agent (agents/relevance/) + スコアリング
-- [ ] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート
+- [x] [A-5] 翻訳 Agent (agents/translator/) `cc:完了` — Gemini 2.5 Flash + response_schema + 3 段倫理ガードレール、casual/neutral/formal トーン出し分け、実翻訳 5 秒
+- [ ] [A-6] 影響度 Agent (agents/relevance/) + スコアリング ← **Phase F で着手予定**
+- [ ] [A-7] 配信 Agent (agents/distributor/) + 優先度ソート ← **Phase G で着手予定**
 - [ ] エージェント間 Pub/Sub メッセージング
 
 ### `cc:TODO` 議事録パーサー(Playwright)

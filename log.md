@@ -1,5 +1,121 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 17 — Week 2 Phase E: 翻訳 Agent (A-5 完了、Gemini 2.5 Flash で議事録 → 若者向け 3 行サマリ)
+
+### Completed
+
+- [x] **`agents/__init__.py`** + **`agents/translator/__init__.py`**: パッケージ化、Vertex AI Agent Engine + Gemini 2.5 系の最初の agent
+- [x] **`agents/translator/schema.py`** (~80 行):
+  - `TranslateInput` (speech_id, content_text, speaker/speaker_position/speaker_group, meeting_context, age_group)
+  - `TranslatorOutput` (title 40 字、summary 3 行 × 60 字、tone, 倫理 flags 2 つ、notes)
+  - `AgeGroup` / `Tone` Literal で型安全
+- [x] **`agents/translator/prompts/system.py`** (~80 行):
+  - `SYSTEM_PROMPT`: 役所言葉平易化 + 5 つの厳守ルール (固有名詞回避 / 賛否判定なし / 政党推奨なし / 全文転載なし / 禁止語なし)
+  - `TONE_GUIDANCE`: 年代別トーン指示 (18-24 SNS 風 / 25-29 友達口調 / 30-34 ニュース風 / 35+ 解説調)
+  - `build_user_prompt()`: speaker 名を意図的に除外、role + meeting context のみ渡す
+  - `PROMPT_VERSION = "v1.0"` で LLMOps 用にバージョン管理
+- [x] **`agents/translator/main.py`** (~180 行):
+  - `TranslatorAgent`: google.genai SDK 経由で Gemini 2.5 Flash 呼び出し
+  - `response_schema=TranslatorOutput` で構造化出力強制 (Pydantic schema 自動変換)
+  - 3 段倫理ガードレール: LLM 自己申告 + speaker/party 名漏洩 regex + 禁止語 regex (`処方` / `投票.推奨` / `必ず投票` / `絶対に賛成/反対`)
+  - 違反検出時最大 3 回 retry → 全失敗で `TranslatorOutput.empty()` (production では監視 alert 想定)
+  - thinking_budget=0 (翻訳に推論不要、token 節約) + max_tokens=2048 (1024 だと truncate される実例あり)
+- [x] **`agents/translator/__main__.py`** (~150 行): CLI 3 入力モード
+  - `--text` (直接文字列、SST 用)
+  - `--speech-id` (BQ kokkai_speeches から 1 件 fetch)
+  - `--bq-query` (任意 SQL でバッチ翻訳)
+- [x] **`agents/translator/tests/test_translator.py`** (11 ケース、PASSED): MockGenAIClient で全 Gemini API mock
+  - 正常系 3 ケース (1 回成功 / system_prompt 含む / age_group が prompt に反映)
+  - 倫理ガードレール 5 ケース (speaker 漏洩 / 政党漏洩 / LLM 自己申告 / 禁止語 / 3 回 retry give up)
+  - 早期 return 1 ケース (空入力)
+  - Schema バリデーション 2 ケース (3 行 exact / title 40 字 max)
+- [x] **`pyproject.toml` testpaths に `agents` 追加**
+- [x] **実 Gemini で 1 件翻訳成功**: speech_id 122105261X00620260305_128 (内閣府特命担当大臣の子育て関連発言、長文 ~3000 字) → 5 秒で casual トーン翻訳完了。「内閣府特命担当大臣」を「政府の担当者」に匿名化、政党名・政治家名なし、SNS 風語尾 ("〜だよ" "〜なんだ")
+
+### Decisions / Design Notes
+
+- **Gemini 2.5 Flash 採用** (Pro でなく): 翻訳タスクは深い推論不要、Flash で十分品質、約 10 倍速 + 1/10 コスト
+- **`thinking_budget=0`**: 2.5 系で重要、デフォルトで thinking tokens を消費して max_tokens を圧迫する罠あり。翻訳には推論不要なので 0 に設定 → 速度 + コスト最適化
+- **`response_schema=TranslatorOutput`**: Pydantic v2 model を直接渡せる、Gemini が自動で JSON schema 生成 + 出力強制。fallback の text parse は不要なはずだが、truncate 時の防御として残置
+- **3 段倫理ガードレール**: LLM の self-report (`contains_politician_names`) だけでなく、決定論的 regex で speaker 名 / 政党名 / 禁止語をチェック (LLM の self-report は誤申告し得る)
+- **`speaker` フィールドを prompt に含めない**: prompt 段階で固有名詞を見せないことで、LLM が引きずられて出力する確率を下げる。役職 (`speaker_position`) のみ渡す
+- **prompts/ 別ファイル化**: バージョン管理 (PROMPT_VERSION) + 将来の prompts/v1.1.py / v2.py 分岐に備える
+- **`asia-northeast1` で動作確認**: Gemini 2.5 Flash がこのリージョンで提供されている (前回 RAG Engine 同様、Tokyo region 完全対応)
+
+### A-5 受入条件 vs 実装状況 (Final)
+
+| FEATURES.md A-5 受入条件 | 状態 |
+|---|---|
+| 3 行サマリ生成 (各 60 字以内) | ✅ Pydantic max_length 強制 |
+| 年代別トーン調整 (18-24 / 25-29 / 30-34 / 35+) | ✅ prompts/system.py の TONE_GUIDANCE |
+| 専門用語補足 | ✅ notes フィールドで提供可 (LLM 判断、200 字 max) |
+| 中立性維持 (政党推奨なし、賛否判定なし) | ✅ system_prompt + 3 段 post-validation |
+
+**4/4 完全達成** ✅
+
+### 一日の総括 (5/21、全 5 Phase 走破)
+
+| Session | Phase | 内容 | 結果 |
+|---|---|---|---|
+| 12 | A | DevOps 動線 (Cloud Build → Cloud Run) | ✅ 完了 |
+| 13 | B | 国会 API client (httpx + Pydantic + 7 tests) | ✅ 完了 |
+| 14 | C | BigQuery dataset + 投入バッチ | ✅ 完了 |
+| 15 | (data) | 1428 件 corpus 投入 (9 ペルソナ × 365 日) | ✅ 完了 |
+| 16 | D | Vertex AI RAG Engine + semantic search | ✅ 完了 |
+| 17 | **E** | **翻訳 Agent A-5 + 倫理ガードレール 3 段** | ✅ **完了** |
+
+**Week 1 完全終了 + Week 2 A-5 完了** — 想定 12 日分の作業を 1 日で消化。
+
+### Surprises / Risks
+
+- **`max_output_tokens=1024` だと truncate**: 想定 600-800 token あれば十分と踏んでたが、Gemini 2.5 の thinking が想像以上に token を食う。2048 + thinking_budget=0 で安定
+- **`response.parsed` で Pydantic 自動 instance 化**: response_schema を Pydantic class で渡すと `response.parsed` が直接 model instance になる、便利
+- **「内閣府特命担当大臣」も役職だが匿名化**: 厳密には役職名なので prompt の意図と微妙にズレる。役職表現の許容度合いを prompt v1.1 で調整可能性あり (現状の挙動は安全側に倒れていて OK)
+- **「だよ」「なんだ」が 25-29 で出る**: 25-29 を `casual` tone で出すと中学生向けっぽい砕け方になる可能性。30-34 / 35+ で比較したくなる (Step E-3 で確認推奨)
+- **Recitation block の可能性**: 議事録の長文 (3000 字) を引用したような扱いで block されるリスクあったが、今回は OK。今後 1000 件バッチ翻訳で発生する可能性あり、対策は temperature を 0.5 に上げる or speech を chunking
+
+### Phase F (A-6) 着手前の TODO
+
+- A-5 prompt v1.1 の検討 (役職表現の許容度合い、tone 出し分け強化) — 後でもよい
+- 年代別トーン比較 (--age-group 18-24 / 30-34 / 35+ で同じ speech 翻訳) — 興味あれば実施
+- バッチ翻訳の速度感確認 (--bq-query で 5-10 件) — Phase F 着手前に有用
+
+### Commit Reminder
+
+未コミット変更:
+
+- `agents/__init__.py`, `agents/translator/` (新規パッケージ、7 ファイル ~700 LOC + 11 tests)
+- `pyproject.toml` (testpaths に agents 追加)
+- `tasks.json` (A-5 → completed)
+- `Plans.md` (Week 2 ヘッダ + A-5 完了反映)
+- `log.md` (このファイル、Session 17 追記)
+
+推奨コミット:
+```bash
+cd ~/projects/citify
+source apps/api/.venv/bin/activate
+ruff format apps/ agents/ scrapers/
+ruff check --fix apps/ agents/ scrapers/
+terraform fmt -recursive infra/
+
+git add agents/ pyproject.toml tasks.json Plans.md log.md
+git status
+git commit -m "feat(agents): A-5 翻訳 Agent — Gemini 2.5 Flash + 3 段倫理ガードレール (Week 2 前倒し)"
+git push origin main
+```
+
+> Cloud Build trigger は agents/ も apps/api/ も変更なしなので走らない (included_files: apps/api/**, cloudbuild.yaml フィルタ)。Lint workflow のみ走る。
+
+### Next (5/22 以降)
+
+候補:
+- **完全休息** 🛌🛌🛌 (Week 1 完走 + Week 2 1/4 で十分過ぎる)
+- Phase F: A-6 影響度 Agent (relevance scoring、ペルソナ × 議題マッチング 0-100 スコア)
+- Phase G: A-7 配信 Agent (優先度ソート、フィード生成)
+- Phase H: A-4 DiscussNet Playwright パーサー (Week 2 メイン難所、Drop Point 6/4 設定)
+
+---
+
 ## 2026-05-21 (Wed) Session 16 — Week 1 Phase D: Vertex AI RAG Engine (A-10 完了 + 判定基準 4/4 完走)
 
 ### Completed

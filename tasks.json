@@ -1,7 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T10:50:00+09:00",
+  "updated": "2026-05-21T14:00:00+09:00",
+  "active_week_note": "Week 2 開始 5/21 13:30 (4 日前倒し)。Phase E (A-5) 完了。",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -486,7 +487,7 @@
       "type": "feature",
       "priority": "Must",
       "week": 2,
-      "status": "pending",
+      "status": "completed",
       "dependencies": ["A-10"],
       "acceptance_criteria": [
         "3 行サマリ生成",
@@ -495,9 +496,9 @@
         "中立性維持"
       ],
       "drop_condition": null,
-      "started_at": null,
-      "completed_at": null,
-      "notes": "Gemini 2.5 Flash"
+      "started_at": "2026-05-21T13:30:00+09:00",
+      "completed_at": "2026-05-21T13:56:00+09:00",
+      "notes": "Phase E で完了。Gemini 2.5 Flash + response_schema (Pydantic) で構造化出力、thinking_budget=0 + max_tokens=2048 で truncation 回避、3 段倫理ガードレール (LLM 自己申告 + speaker/party 名漏洩検出 + 禁止語 regex)、最大 3 回 retry。実 API で 1 件翻訳 5 秒、tone casual で 25-29 向け SNS 風出力 ('〜だよ', '〜なんだ')、政治家名→役職表現の匿名化動作確認。実装: agents/translator/{schema,main,__main__}.py + prompts/system.py + tests 11 ケース全 PASS。CLI 3 入力モード対応 (--text/--speech-id/--bq-query)。受入条件 4/4 達成: ✅ 3 行サマリ、✅ 年代別トーン (casual/neutral/formal で出し分け)、✅ 専門用語補足は notes フィールドで提供可、✅ 中立性は post-validation で保証 (固有名詞/政党名/禁止語)"
     },
     {
       "id": "A-6",

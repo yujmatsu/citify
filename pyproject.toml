@@ -19,6 +19,7 @@ asyncio_mode = "auto"
 testpaths = [
     "scrapers",
     "apps/api",
+    "agents",
 ]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
