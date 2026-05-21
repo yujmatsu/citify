@@ -1,5 +1,57 @@
 # Citify 作業ログ
 
+## 2026-05-21 (Wed) Session 23 — Phase M: A-4 横展開検証 (5 自治体 中央型+白ラベル+Legacy 完動)
+
+### Completed
+
+- [x] **5 自治体検証完了**:
+
+| Tenant | Type | Tier | URL | L1 | L2 | L3 | 発言形式 |
+|---|---|---|---|---|---|---|---|
+| prefokayama | 中央型 | 都道府県 | HTTPS | ✓ 5 件 | ✓ 8 件 | ✓ 10 件 | 標準 (○議長 久徳大輔) |
+| **yokohama** | **白ラベル** | 政令市 | **HTTP** | ✓ 5 件 | ✓ 3 件 | ✓ 5 件 | 委員会 (○川口広委員長) |
+| arakawa | 中央型 | 23区 | HTTPS | ✓ 5 件 | ✓ 3 件 | ✓ 3 件 | 委員会 (○竹内明浩委員長) |
+| cityosaka | 中央型 | 政令市 | HTTPS | ✓ 3 件 | — | ✓ 3 件 | 委員会 (○塩中一成委員長) |
+| tosa | 中央型 (Legacy) | 市町村 | HTTPS | ✓ 3 件 | — | ✓ 3 件 | 標準 (○議長 糸矢幸吉) |
+
+- [x] **DOM 揺れ 2 件対応**:
+  - `<tbody id="council_list">` (prefokayama) vs `<tbody id="council-list">` (yokohama) → COUNCIL_LIST_SELECTORS に両対応
+  - `_discover_tenant_id_num` の link-council selector を `#council_list` 限定から外し、全体検索に変更
+- [x] **max_items バグ修正**: `i >= max_items` (raw rows index) → `len(councils) >= max_items` (収集数) で空ヘッダ行による max 消費を防止
+- [x] **発言フォーマット 2 種対応**:
+  - 標準形式: `○議長（名前君）` → speaker=名前, position=役職
+  - 委員会形式: `○川口広委員長` (括弧なし) → speaker=全体, position=None (重複バグ修正)
+- [x] **新規テスト追加** (1 件): `test_parse_speech_block_yokohama_committee` で委員会形式を保証
+- [x] **33 unit tests PASSED** (32 → 33)
+- [x] **recon doc §11 追加**: 互換性マトリクス + DOM 揺れ + 残課題まとめ
+- [x] **schedule_id=1 = 目次自治体の発見**: yokohama / tosa は schedule_id=1 が "目次"、schedule_id=2 から実会議 (将来 skip ロジック推奨)
+
+### Decisions
+
+- ✅ **5 自治体で同一コード動作 = Playwright Plan A 全面成功**: Drop Point 完全不発動
+- ✅ **白ラベル (HTTP) も中央型 (HTTPS) も `--base-url` で吸収**: yokohama は HTTP/Shift_JIS ながら問題なく動作
+- ✅ **発言フォーマット 2 種を単一 regex で吸収**: 括弧の有無で分岐
+- ✅ **DiscussNet 540 自治体カバレッジに confidence 獲得**: ピッチで「都道府県・政令市・23 区・市町村まで広範カバー」を主張可能
+
+### Files Created/Modified
+
+- `scrapers/kaigiroku_net/client.py` — COUNCIL_LIST_SELECTORS 拡張、max_items 判定修正、_parse_speech_block 重複バグ修正
+- `scrapers/kaigiroku_net/tests/test_kaigiroku.py` — yokohama 委員会形式テスト追加 (33 total)
+- `docs/scrapers/kaigiroku_net_recon.md` — §11 (互換性マトリクス + 横展開結果) 追加、改訂履歴更新
+- `tasks.json` A-4 notes 更新 + active_week_note 更新
+- `Plans.md` Week 2 5 自治体動作確認チェック
+- `log.md` (this entry)
+- `/tmp/yokohama_probe.py` (調査用)
+
+### Next
+
+- BigQuery `citify_raw.speeches` 投入バッチ (推奨)
+- Pub/Sub Agent 連携 (A-4 → A-5 翻訳 Agent への push)
+- ADK ラップ (エージェント化)
+- Week 3 (6/9-6/15): Next.js + フィード UI
+
+---
+
 ## 2026-05-21 (Wed) Session 22 — Phase L: A-4 Playwright ツリー展開完走 (DiscussNet L1/L2/L3 end-to-end)
 
 ### Completed

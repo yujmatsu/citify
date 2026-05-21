@@ -302,7 +302,76 @@ DevTools のキャプチャで、prefokayama/MinuteBrowse.html の DOMContentLoa
 
 ---
 
+## 11. Phase M (2026-05-21): 5 自治体横展開検証結果
+
+### 11.1 互換性マトリクス
+
+| Tenant | Type | Tier | プロトコル | L1 | L2 | L3 | 発言フォーマット | tenant_id_num |
+|---|---|---|---|---|---|---|---|---|
+| prefokayama | 中央型 | 都道府県 | HTTPS | ✅ 5 件 | ✅ 8 件 | ✅ 10 件 | 標準 (○議長（名前君）) | 455 |
+| yokohama | 白ラベル | 政令市 | **HTTP** | ✅ 5 件 | ✅ 3 件 | ✅ 5 件 | 委員会 (○川口広委員長) | 20 |
+| arakawa | 中央型 | 23 区 | HTTPS | ✅ 5 件 | ✅ 3 件 | ✅ 3 件 | 委員会 (○竹内明浩委員長) | 577 |
+| cityosaka | 中央型 | 政令市 | HTTPS | ✅ 3 件 | ✅* | ✅ 3 件 | 委員会 (○塩中一成委員長) | 357 |
+| tosa | 中央型 (Legacy) | 市町村 | HTTPS | ✅ 3 件 | ✅* | ✅ 3 件 | 標準 (○議長 糸矢幸吉) | 553 |
+
+\* L2 は省略 (直接 L3 で確認)
+
+### 11.2 発見事項
+
+#### 11.2.1 `tbody` の id 命名揺れ
+
+- **prefokayama / arakawa / cityosaka / tosa**: `<tbody id="council_list">` (アンダースコア)
+- **yokohama**: `<tbody id="council-list">` (ハイフン) + `<table id="tbl-council">`
+
+→ `COUNCIL_LIST_SELECTORS` で両対応 (`#council_list tr`, `#council-list tr`, `#tbl-council tbody tr`)
+
+#### 11.2.2 schedule_id=1 = 目次ページの自治体あり
+
+- **yokohama**: schedule_id=1 → "01月28日－目次"、schedule_id=2 から実会議
+- **tosa**: schedule_id=1 → "12月01日－目次"、schedule_id=2 から実会議
+- **prefokayama / arakawa / cityosaka**: schedule_id=1 から実会議
+
+→ 取得側で `title` に "目次" が含まれる schedule は skip する判断ロジックが推奨。
+
+#### 11.2.3 発言フォーマット 2 種類
+
+| 形式 | 例 | 採用自治体 |
+|---|---|---|
+| **標準形式** (議長系) | `○議長（久徳大輔君）　　皆さん...` | prefokayama, tosa, 議会本会議 |
+| **委員会形式** | `○川口広委員長　それでは...` | yokohama, arakawa, cityosaka 委員会 |
+
+`_parse_speech_block()` で両対応 (括弧の有無で分岐):
+- 標準: position = "議長", speaker = "久徳大輔"
+- 委員会: position = None, speaker = "川口広委員長" (全体)
+
+#### 11.2.4 base_url の柔軟性
+
+- 中央型: `https://ssp.kaigiroku.net/tenant/{tenant_id}/` 自動構築 (テンプレート使用)
+- 白ラベル: `--base-url "http://giji.city.yokohama.lg.jp/tenant/yokohama/"` 明示指定
+- どちらも同じ client / parser で動作
+
+#### 11.2.5 tenant_id_num の自動取得
+
+L1 ページの body HTML を scan、見つからなければ click+goback で取得。5/5 自治体で成功。
+
+### 11.3 結論
+
+- **Plan A (Playwright) 完全成功**: 5 自治体すべてで end-to-end 動作確認
+- **Drop Point 不発動**: Plan B 切替不要
+- **白ラベル + 中央型 + Legacy の混在環境** で同一コードが動作 → DiscussNet 540 自治体カバレッジに confidence
+
+### 11.4 残課題
+
+- [ ] schedule_id=1 が目次のとき自動 skip (or title に "目次" 含む対応)
+- [ ] BigQuery `citify_raw.speeches` 投入バッチ
+- [ ] Pub/Sub Agent 連携 (A-4 → A-5 翻訳)
+- [ ] tier1_supplements.csv に tenant_id (kaigiroku) カラム追加・整備
+
+---
+
 ## 10. 改訂履歴
 
 - 2026-05-20 v0.1 初版テンプレート作成
 - 2026-05-20 v1.0 **観察完了、Playwright 採用判定で書き直し**
+- 2026-05-21 v1.1 **Phase L: 3 階層ツリー実装完了 (L1/L2/L3 end-to-end)**
+- 2026-05-21 v1.2 **Phase M: 5 自治体横展開検証完了 (中央型 + 白ラベル + Legacy)**

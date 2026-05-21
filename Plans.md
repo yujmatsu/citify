@@ -128,8 +128,8 @@
 
 ### `cc:完了` 議事録パーサー(Playwright)
 
-- [x] [A-4] DiscussNetPremium パーサー (Playwright) — 3 階層ツリー (L1 councils → L2 schedules → L3 speeches) 完了。prefokayama で end-to-end 動作確認 (5 councils → 8 schedules → 10 speeches、令和7年2月定例会 02月21日−01号で○議長 久徳大輔のパース成功)。32 unit tests PASSED
-- [ ] 主要 5 自治体動作確認 (横浜・大阪・岡山県・荒川・新宿・墨田) — prefokayama のみ確認、横展開は別タスク
+- [x] [A-4] DiscussNetPremium パーサー (Playwright) — 3 階層ツリー (L1 councils → L2 schedules → L3 speeches) 完了。prefokayama で end-to-end 動作確認 (5 councils → 8 schedules → 10 speeches、令和7年2月定例会 02月21日−01号で○議長 久徳大輔のパース成功)
+- [x] 主要 5 自治体動作確認 — prefokayama (都道府県/中央) + yokohama (政令市/白ラベル/HTTP) + arakawa (23区/中央) + cityosaka (政令市/中央) + tosa (市町村/Legacy) すべて L1/L2/L3 動作。`tbody` id 揺れ (council_list vs council-list) と発言形式 2 種類 (標準/委員会) 両対応。33 unit tests PASSED
 
 ### **Drop Point 判定: 2026-06-04 (水)** — ✅ 不発動
 

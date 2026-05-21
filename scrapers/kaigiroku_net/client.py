@@ -32,8 +32,13 @@ DEFAULT_RATE_LIMIT_SEC = 5.0  # 自治体サイトへの礼儀 (recon §5.3)
 CENTRAL_BASE_URL_TEMPLATE = "https://ssp.kaigiroku.net/tenant/{tenant_id}/"
 
 # 会議一覧 SPA の候補セレクタ
+# 注: tenant により tbody の id 命名が異なる:
+#   - prefokayama: "#council_list" (underscore)
+#   - yokohama:    "#council-list" (hyphen) + table#tbl-council
 COUNCIL_LIST_SELECTORS = [
     "#council_list tr",
+    "#council-list tr",
+    "#tbl-council tbody tr",
     "tbody.councilList tr",  # 旧テンプレ互換
     "table.meeting-list tr",
 ]
@@ -128,18 +133,25 @@ def _parse_speech_block(text: str) -> tuple[str | None, str, str | None, str]:
 
     speech_type = m.group(1)
     position_raw = (m.group(2) or "").strip()  # 例: "議長"
-    speaker_raw = (m.group(3) or "").strip()  # 例: "久徳大輔君"
+    speaker_raw = (m.group(3) or "").strip()  # 括弧内名前、例: "久徳大輔君"
     body_first_line = (m.group(4) or "").strip()
 
     # 敬称除去: 君 / さん / 氏 を末尾から削除
-    speaker = re.sub(r"[君さん氏]+$", "", speaker_raw).strip() or position_raw
+    speaker_from_parens = re.sub(r"[君さん氏]+$", "", speaker_raw).strip()
 
-    # speaker 抽出できなければ position を speaker として扱う (例: △議題)
-    if not speaker:
-        speaker = position_raw or "(不明)"
+    if speaker_from_parens:
+        # 標準形式 (prefokayama): "○議長（久徳大輔君）"
+        #   → speaker="久徳大輔", position="議長"
+        speaker = speaker_from_parens
+        position = position_raw or None
+    elif position_raw:
+        # 括弧なし形式 (yokohama 委員会): "○川口広委員長"
+        #   group(2) 自体が氏名+役職を含む → speaker=全体、position=None
+        speaker = position_raw
         position = None
     else:
-        position = position_raw or None
+        speaker = "(不明)"
+        position = None
 
     # 本文連結 (1行目残部 + 改行以降)
     if body_first_line and rest:
@@ -311,8 +323,8 @@ class KaigirokuNetClient:
             tenant_id_num: str | None = None
 
             councils: list[MeetingSummary] = []
-            for i, raw in enumerate(raw_rows):
-                if i >= max_items:
+            for raw in raw_rows:
+                if len(councils) >= max_items:
                     break
                 cid = (raw.get("council_id") or "").strip()
                 if not cid:
@@ -617,7 +629,7 @@ class KaigirokuNetClient:
 
         # フォールバック: link-council を click して URL から取得
         try:
-            link = page.locator("#council_list a.link-council").first
+            link = page.locator("a.link-council").first
             if await link.count() == 0:
                 return None
             # ナビゲーション後の URL を取得

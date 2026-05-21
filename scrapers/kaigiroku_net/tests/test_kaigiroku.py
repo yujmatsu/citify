@@ -131,6 +131,19 @@ def test_parse_speech_block_multiline_body():
     assert "本日は天候不順" in body
 
 
+def test_parse_speech_block_yokohama_committee():
+    """yokohama 委員会形式: '○川口広委員長' (役職を末尾に持ち括弧なし)。
+
+    speaker に全体を入れ、position=None にして重複を避ける。
+    """
+    text = "○川口広委員長　それでは、これより委員会を開会いたします。"
+    st, sp, pos, body = _parse_speech_block(text)
+    assert st == "○"
+    assert sp == "川口広委員長"
+    assert pos is None  # 重複しない
+    assert "委員会を開会" in body
+
+
 def test_parse_speech_block_unknown_format():
     """マーク無し → speech_type None、speaker (不明)。"""
     text = "ただの本文テキスト"
