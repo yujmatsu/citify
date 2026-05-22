@@ -1,21 +1,30 @@
-"""国会会議録クライアントの CLI エントリ。
+"""国会会議録クライアントの CLI エントリ (subcommand 構造)。
 
 使用例 (プロジェクトルートから):
+
+    # ── fetch: API → stdout (JSON Lines) または BQ 投入
     # 過去 30 日の発言を最大 5 件、JSON Lines で stdout に
-    python -m scrapers.kokkai --query "少子化" --max 5
+    python -m scrapers.kokkai fetch --query "少子化" --max 5
 
     # 期間指定
-    python -m scrapers.kokkai --from 2026-05-01 --until 2026-05-21 --max 10
+    python -m scrapers.kokkai fetch --from 2026-05-01 --until 2026-05-21 --max 10
 
-    # 院・会議絞り込み
-    python -m scrapers.kokkai --house 衆議院 --meeting 予算委員会 --max 20
-
-    # ファイル出力
-    python -m scrapers.kokkai --query 子育て --max 100 > /tmp/kokkai_sample.jsonl
-
-    # BigQuery に直接投入 (要 ADC / GOOGLE_APPLICATION_CREDENTIALS)
-    python -m scrapers.kokkai --query "子育て" --max 100 \\
+    # BQ に直接投入
+    python -m scrapers.kokkai fetch --query "子育て" --max 100 \\
         --bq-project citify-dev --bq-dataset citify_raw
+
+    # ── publish-from-bq: 既存 BQ kokkai_speeches から Pub/Sub publish
+    # 5 件をランダムに publish (4 段パイプラインに流す)
+    python -m scrapers.kokkai publish-from-bq \\
+        --project-id citify-dev --topic citify-speech-translate --limit 5
+
+    # 「子育て」キーワードで絞ってから publish
+    python -m scrapers.kokkai publish-from-bq \\
+        --project-id citify-dev --topic citify-speech-translate \\
+        --limit 5 --keyword 子育て --order recent
+
+# 後方互換: subcommand 省略時は fetch として実行 (旧 CLI 互換)
+    python -m scrapers.kokkai --query "少子化" --max 5
 """
 
 from __future__ import annotations
@@ -30,11 +39,8 @@ from datetime import date, timedelta
 from .client import KokkaiClient
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m scrapers.kokkai",
-        description="国会会議録 API クライアント (Citify scrapers/kokkai)",
-    )
+def _build_fetch_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """fetch subcommand の引数定義 (旧 CLI と同一)。"""
     parser.add_argument("--query", "-q", type=str, default=None, help="キーワード絞り込み (any)")
     parser.add_argument("--speaker", type=str, default=None, help="発言者名で絞り込み")
     parser.add_argument("--house", dest="house", type=str, default=None, help="衆議院 / 参議院")
@@ -60,32 +66,25 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="ページ間待機秒数 (倫理: 最低 1.0 推奨)",
     )
-    parser.add_argument("--verbose", "-v", action="store_true", help="DEBUG ログ")
-
-    # BigQuery 投入オプション (--bq-dataset 指定時に有効化)
-    bq = parser.add_argument_group(
-        "BigQuery 投入",
-        "--bq-dataset を指定すると stdout でなく BigQuery に streaming insert する",
-    )
-    bq.add_argument(
+    parser.add_argument(
         "--bq-dataset",
         type=str,
         default=None,
         help="BigQuery dataset_id (例: citify_raw)。指定時のみ BQ モード",
     )
-    bq.add_argument(
+    parser.add_argument(
         "--bq-table",
         type=str,
         default="kokkai_speeches",
         help="BigQuery table_id (default: kokkai_speeches)",
     )
-    bq.add_argument(
+    parser.add_argument(
         "--bq-project",
         type=str,
         default=None,
         help="BigQuery project_id (default: GOOGLE_CLOUD_PROJECT env)",
     )
-    bq.add_argument(
+    parser.add_argument(
         "--bq-batch-size",
         type=int,
         default=100,
@@ -94,7 +93,53 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _run(args: argparse.Namespace) -> int:
+def _build_publish_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """publish-from-bq subcommand の引数定義。"""
+    parser.add_argument("--project-id", required=True, help="GCP project ID")
+    parser.add_argument(
+        "--topic", default="citify-speech-translate", help="Pub/Sub publish 先 topic"
+    )
+    parser.add_argument("--limit", type=int, default=50, help="publish 件数上限")
+    parser.add_argument("--days", type=int, default=None, help="過去 N 日に絞る (None で全期間)")
+    parser.add_argument(
+        "--keyword", type=str, default=None, help="speech 本文部分一致 (例: '住居')"
+    )
+    parser.add_argument(
+        "--house", dest="name_of_house", type=str, default=None, help="衆議院 / 参議院"
+    )
+    parser.add_argument(
+        "--meeting", dest="name_of_meeting", type=str, default=None, help="会議名で絞り込み"
+    )
+    parser.add_argument(
+        "--order",
+        choices=["rand", "recent", "oldest"],
+        default="rand",
+        help="ORDER BY (rand / recent / oldest)",
+    )
+    return parser
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m scrapers.kokkai",
+        description="国会会議録 API クライアント + Pub/Sub publisher (Citify scrapers/kokkai)",
+    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="DEBUG ログ")
+
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_fetch = sub.add_parser("fetch", help="国会 API → stdout / BQ")
+    _build_fetch_parser(p_fetch)
+
+    p_pub = sub.add_parser("publish-from-bq", help="既存 BQ kokkai_speeches → Pub/Sub")
+    _build_publish_parser(p_pub)
+
+    # 後方互換: subcommand 省略時用 (= 旧 CLI 引数を root に置く)
+    _build_fetch_parser(parser)
+    return parser
+
+
+async def _cmd_fetch(args: argparse.Namespace) -> int:
     from_date = (
         date.fromisoformat(args.from_date)
         if args.from_date
@@ -105,7 +150,6 @@ async def _run(args: argparse.Namespace) -> int:
     bq_mode = args.bq_dataset is not None
     loader = None
     if bq_mode:
-        # 遅延 import: BQ モード以外では google-cloud-bigquery 不要
         from .bq_loader import BigQueryLoader
 
         project_id = args.bq_project or os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -143,7 +187,6 @@ async def _run(args: argparse.Namespace) -> int:
             if bq_mode:
                 records_buffer.append(record)
             else:
-                # 1 行 1 record の JSON Lines (BigQuery 投入時にそのまま使える形式)
                 print(record.model_dump_json(by_alias=True))
 
     if bq_mode and loader is not None:
@@ -154,6 +197,27 @@ async def _run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_publish_from_bq(args: argparse.Namespace) -> int:
+    from .publish import fetch_and_publish_kokkai_speeches_from_bq
+
+    msg_ids = fetch_and_publish_kokkai_speeches_from_bq(
+        project_id=args.project_id,
+        topic=args.topic,
+        limit=args.limit,
+        days=args.days,
+        keyword=args.keyword,
+        name_of_house=args.name_of_house,
+        name_of_meeting=args.name_of_meeting,
+        order=args.order,
+    )
+    print(f"# Published {len(msg_ids)} kokkai speeches to topic={args.topic}", file=sys.stderr)
+    for mid in msg_ids[:5]:
+        print(mid)
+    if len(msg_ids) > 5:
+        print(f"# ... and {len(msg_ids) - 5} more", file=sys.stderr)
+    return 0
+
+
 def main() -> int:
     args = _build_parser().parse_args()
     logging.basicConfig(
@@ -161,7 +225,12 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         stream=sys.stderr,
     )
-    return asyncio.run(_run(args))
+
+    cmd = getattr(args, "cmd", None)
+    if cmd == "publish-from-bq":
+        return _cmd_publish_from_bq(args)
+    # default / "fetch" / 旧 CLI 互換
+    return asyncio.run(_cmd_fetch(args))
 
 
 if __name__ == "__main__":
