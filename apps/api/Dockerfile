@@ -25,10 +25,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # 依存関係インストール
 # NOTE: BuildKit 専用の --mount=type=cache はレガシー builder (Cloud Build) で
 #       失敗するため不使用。Cloud Run のビルドは毎回フレッシュなので cache なくても OK
+# NOTE: google-cloud-bigquery は /v1/feed endpoint (BQ scored_speeches_latest 読み込み) で必須
 COPY pyproject.toml ./
 RUN uv pip install --no-cache \
     fastapi uvicorn[standard] httpx pydantic pydantic-settings \
-    google-cloud-logging google-cloud-secret-manager structlog
+    google-cloud-logging google-cloud-secret-manager google-cloud-bigquery \
+    structlog
 
 # ============================================================================
 # Stage 2: runtime — 最小ランタイム
