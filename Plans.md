@@ -153,9 +153,9 @@
 
 ---
 
-## Week 3 (6/9-6/15): フロントエンド + フィード UI + 議題詳細 `cc:WIP`
+## Week 3 (6/9-6/15): フロントエンド + フィード UI + 議題詳細 `cc:完了`
 
-> **Phase T (5/22 前倒し) で主要 3 画面完了** ✅ A-1 / A-8 / A-9 + Next.js 16 + Tailwind 4 + zod + Firebase App Hosting 設定
+> **Phase T / U / V (5/22 前倒し) で全主要画面完了** ✅ A-1 (オンボーディング) / A-2 (マイ自治体登録) / A-8 (For You) / A-9 (議題詳細) + Next.js 16 + Tailwind 4 + zod + Firebase App Hosting + 国会データ E2E パイプライン
 
 ### `cc:完了` Next.js セットアップ
 
@@ -165,7 +165,7 @@
 ### `cc:完了` UI 実装
 
 - [x] [A-1] オンボーディング画面 — `/onboarding` で 2 step (年代 4 択 + 関心軸 10 軸複数選択)、localStorage に persona 保存 (user_id=`demo-{age_group}`)、絵文字付きボタン UI
-- [ ] [A-2] マイ自治体登録 UI (Phase 1+2 マスタ連携) — `cc:WIP`、まだ未着手
+- [x] [A-2] マイ自治体登録 UI (Phase 1+2 マスタ連携) — `cc:完了` (Phase V) 1,795 自治体 (国会 + 都道府県 + 23 区 + 政令市 + 市町村) を JSON 化 (`/public/municipalities.json` 207KB)、`/municipalities` ページで検索 (前方一致 名前/読み仮名/コード) + 都道府県/Tier フィルタ + チップ式選択 (最大 5 件) + 国会 (00000) 強制付与 + localStorage 保存。Onboarding 完了後に自動遷移 (年代 → 関心軸 → 自治体)、フィードからも編集可能
 - [x] [A-8] For You フィード — `/feed` で TikTok 風 snap-scroll、BFF `/v1/feed/{user_id}` 経由 fetch、`FeedCard` (タイトル + 3 行サマリ + 自治体名 + relevance_score バッジ + matched_interests chip + 詳細リンク + 原典リンク + 倫理表記)
 - [x] [A-9] 議題詳細ビュー — `/feed/[speech_id]` で詳細表示、A-5 翻訳タイトル + 正式会議名併記、3 行サマリ、4 軸スコア横棒グラフ (topic/age/geographic/urgency)、matched_interests chip、reasoning 表示、リアクション 4 ボタン (UI のみ、永続化未実装)、原典リンク必須、RAG placeholder (Phase D 統合は Week 4)
 - [x] FastAPI BFF 経由でデータ取得 — `apps/api/main.py` に `/v1/feed/{user_id}` + `/v1/speeches/{speech_id}` 追加 (BQ scored_speeches_latest 経由、parameterized query、Pydantic FeedItem / FeedResponse)。zod schema (`apps/web/src/lib/api.ts`) で型安全

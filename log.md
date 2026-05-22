@@ -1,5 +1,72 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 33 — Phase V: A-2 マイ自治体登録 UI
+
+### Completed
+
+- [x] **CSV → JSON 変換** (`infra/seed/municipality_master.csv` → `apps/web/public/municipalities.json`):
+  - 1,795 自治体 (国会 + 都道府県 + 23 区 + 政令市 + 市町村)
+  - 207 KB の static JSON (圧縮で実質 50-80 KB、CDN cache 強)
+  - フィールド: code / name / prefecture / kana / tier / is_active
+- [x] **`src/lib/municipalities.ts` 新規** (~80 LOC):
+  - zod `MunicipalitySchema` 型定義
+  - `loadMunicipalities()` で fetch + in-memory cache
+  - `searchMunicipalities()` で前方一致 (名前/読み仮名/コード) + 都道府県/Tier フィルタ
+  - `listPrefectures()` / `findByCode()` / `formatMunicipalityLabel()` util
+- [x] **`/municipalities` ページ新規**:
+  - 検索 input (名前・読み仮名・コード)
+  - 都道府県 dropdown + Tier (1/2/3/all) ボタンフィルタ
+  - 検索結果 list (最大 100 件、Tier + 配信中フラグ表示)
+  - 選択中チップ (emerald 色、最大 5 件、上限超過で disabled)
+  - 国会 (00000) は保存時に自動追加
+  - 「保存してフィードへ」ボタン (sticky bottom) → localStorage 保存 → /feed 遷移
+- [x] **Onboarding 完了後の遷移先を /feed → /municipalities に変更**:
+  - 流れ: 年代 → 関心軸 → **自治体登録 (3 step 目)** → フィード
+- [x] **トップ / フィードに自治体編集リンク追加**:
+  - トップ (persona あり時): 「マイ自治体」「ペルソナを変更」
+  - フィード end 状態: 「マイ自治体を編集」「年代・関心軸を変更」
+  - フィード empty 状態: 「マイ自治体を編集」「トップに戻る」
+- [x] **next build PASSED**: Route 6 個 (`/`, `/_not-found`, `/feed`, `/feed/[speech_id]`, `/municipalities`, `/onboarding`)
+
+### Decisions
+
+- ✅ **Static JSON (BFF 不要) 採用**: 1,795 件は frontend で全件読み込み可能 (207 KB)、検索もクライアント側 O(N) で十分高速、サーバ往復不要、コスト 0
+- ✅ **localStorage に保存**: ペルソナ管理と同じ仕組みで一貫、Firestore 化は将来
+- ✅ **国会 (00000) 自動付与**: 全ユーザーに国会データが届くよう保証 (kaigiroku データだけだと寂しいため)
+- ✅ **最大 5 件制約 + 上限超過 UI**: 「上限」ラベル + cursor-not-allowed で明示
+- ✅ **CSV → JSON 変換は build 時 (将来) / 現状はワンショット**: ハッカソンスコープでは CSV 更新頻度が低いので OK、将来 CI に組み込む
+
+### Files Created/Modified
+
+- `/tmp/convert_munis.py` (一回限りの変換スクリプト、git ignore)
+- `apps/web/public/municipalities.json` (新規、207KB)
+- `apps/web/src/lib/municipalities.ts` (新規)
+- `apps/web/src/app/municipalities/page.tsx` (新規)
+- `apps/web/src/app/onboarding/page.tsx` — handleFinish 遷移先変更 + ボタンラベル「フィードへ」→「次へ」
+- `apps/web/src/app/feed/page.tsx` — empty/footer に自治体編集リンク追加
+- `apps/web/src/app/page.tsx` — トップに自治体編集リンク追加
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### Week 3 完了状態
+
+```
+✅ A-1 オンボーディング (Phase T)
+✅ A-2 マイ自治体登録 (Phase V)
+✅ A-8 For You フィード (Phase T)
+✅ A-9 議題詳細ビュー (Phase T)
+✅ BFF /v1/feed (Phase T)
+✅ Firebase App Hosting (Phase T)
+✅ 国会データ E2E パイプライン (Phase U)
+```
+
+### Next
+
+- Week 4: Veo/Imagen 統合 + RAG 統合 (A-9) + リアクション永続化
+- 1 ペルソナ → 複数ペルソナ fan-out (relevance worker 拡張)
+- (将来) 自治体マスタを Firestore 化 + リクエスト集積機能
+
+---
+
 ## 2026-05-22 (Thu) Session 32 — Phase U: 国会データ (kokkai_speeches) を E2E パイプラインに流す
 
 ### Completed

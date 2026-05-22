@@ -46,12 +46,20 @@ export default function Home() {
             >
               フィードを見る
             </Link>
-            <Link
-              href="/onboarding"
-              className="block text-sm text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
-            >
-              ペルソナを変更
-            </Link>
+            <div className="flex justify-center gap-4 text-sm text-zinc-500">
+              <Link
+                href="/municipalities"
+                className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
+              >
+                マイ自治体
+              </Link>
+              <Link
+                href="/onboarding"
+                className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
+              >
+                ペルソナを変更
+              </Link>
+            </div>
           </div>
         ) : (
           <Link

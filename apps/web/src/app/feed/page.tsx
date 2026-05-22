@@ -94,12 +94,20 @@ export default function FeedPage() {
             scrapers から publish → translator/relevance/bq_sink
             が処理すると、ここに表示されます。
           </p>
-          <Link
-            href="/"
-            className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
-            トップに戻る
-          </Link>
+          <div className="flex justify-center gap-3 pt-2">
+            <Link
+              href="/municipalities"
+              className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              マイ自治体を編集
+            </Link>
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              トップに戻る
+            </Link>
+          </div>
         </div>
       </main>
     );
@@ -118,12 +126,18 @@ export default function FeedPage() {
           ))}
           <footer className="snap-end px-6 py-12 text-center text-xs text-zinc-500">
             <p>これで全部 ({state.items.length} 件)</p>
-            <p className="mt-2">
+            <p className="mt-3 flex justify-center gap-4">
+              <Link
+                href="/municipalities"
+                className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
+              >
+                マイ自治体を編集
+              </Link>
               <Link
                 href="/onboarding"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
               >
-                ペルソナを変更
+                年代・関心軸を変更
               </Link>
             </p>
           </footer>

@@ -58,11 +58,12 @@ export default function OnboardingPage() {
       user_id: userId,
       age_group: ageGroup,
       interests: Array.from(interests),
-      // ハッカソンスコープ: 33000=岡山県, 00000=国会 を default
+      // ハッカソンスコープ: 33000=岡山県, 00000=国会 を default (後で /municipalities で変更可)
       municipality_codes: ["33000", "00000"],
     };
     savePersona(persona);
-    router.push("/feed");
+    // step 2 終了後に自治体登録画面へ (A-2)、スキップしてフィードへ直行も可能
+    router.push("/municipalities");
   }
 
   return (
@@ -172,7 +173,7 @@ export default function OnboardingPage() {
                 onClick={handleFinish}
                 className="h-12 flex-1 rounded-full bg-zinc-900 text-base font-medium text-zinc-50 transition-colors hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                フィードへ
+                次へ
               </button>
             </div>
           </section>

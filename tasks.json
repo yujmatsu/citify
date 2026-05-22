@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "Week 3 完了 + 国会データ E2E 動作確認済 (Phase U, 2026-05-22)。Phase T で MVP 完成 (BFF + Next.js + Firebase App Hosting + Cloud Run citify-api)、Phase U で国会データ (BQ kokkai_speeches) を Pub/Sub パイプラインに流す publish-from-bq CLI 追加、live で 15 件処理 → matched=住居/雇用/税/子育て で score 55-80 達成。デモ強化: 若者向け翻訳タイトル '住宅支援、持ち家だけでなく賃貸にも？' 等。残: A-2 自治体マスタ UI、Week 4 (Veo/Imagen)",
+  "active_week_note": "**Week 3 完全完了** (Phase T/U/V、2026-05-22)。Phase T MVP + Phase U 国会データ E2E + Phase V A-2 自治体マスタ UI。1,795 自治体 (国会 + 都道府県 + 23 区 + 政令市 + 市町村) を JSON 化して frontend static asset 配置、/municipalities ページで検索 + 5 件選択 + 国会強制付与 + localStorage 保存。Onboarding → 自治体登録 → フィードの遷移が完成。デモ強化: 若者向け翻訳 'ちゃんと上がってる？' + matched 3 軸ヒット。残: Week 4 (Veo/Imagen + RAG 統合 + リアクション永続化)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -438,7 +438,7 @@
       "type": "feature",
       "priority": "Must",
       "week": 3,
-      "status": "in_progress",
+      "status": "completed",
       "dependencies": [
         "INFRA-005",
         "INFRA-006"
@@ -451,8 +451,8 @@
       ],
       "drop_condition": null,
       "started_at": "2026-05-19T20:00:00+09:00",
-      "completed_at": null,
-      "notes": "Phase 1+2 で CSV 完了、UI/Firestore 連携は Week 3 で実装"
+      "completed_at": "2026-05-22",
+      "notes": "Phase 1+2 で CSV 完了、UI/Firestore 連携は Week 3 で実装 / Phase V で完了。1,795 自治体マスタを CSV → JSON (207KB) 化、frontend static asset として /public/municipalities.json 配置。 src/lib/municipalities.ts に検索 util (前方一致 + 都道府県 + Tier フィルタ)。 /municipalities ページで検索 + 5 件まで選択 + 国会 (00000) 強制付与 + localStorage 保存 + フィードへ遷移。 onboarding 完了後に自動遷移 (年代 → 関心軸 → 自治体)、フィードからも編集可能。next build PASSED (Route 6)。"
     },
     {
       "id": "A-3",
