@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W (RAG 統合) 完了**。Phase T MVP + Phase U 国会 E2E + Phase V A-2 自治体マスタ UI + Phase W A-9 詳細ビュー RAG 統合。BFF /v1/speeches/{id}/related (Vertex AI RAG retrieval_query 経由) + Frontend RAG UI (関連議題 3 件、類似度バー、引用 URI、loading/error/no_corpus 状態分岐)。Dockerfile に google-cloud-aiplatform + rag/ ディレクトリコピー追加。残: Cloud Run rebuild + RAG_CORPUS_NAME env 設定、Week 4 (Veo/Imagen + リアクション永続化)",
+  "updated": "2026-05-22T10:00:00+09:00",
+  "active_week_note": "**Week 3 完了 + Phase W (RAG 統合) live 動作確認完了**。Phase T MVP + Phase U 国会 E2E + Phase V A-2 自治体マスタ UI + Phase W A-9 詳細ビュー RAG 統合。BFF /v1/speeches/{id}/related (Vertex AI RAG retrieval_query 経由) + Frontend RAG UI (関連議題 3 件、類似度バー、引用 URI、loading/error/no_corpus 状態分岐)。corpus は asia-northeast1 で再構築 (us-central1 Spanner allowlist 制限回避、1428 speeches を 2:29 で import)。Cloud Run citify-api に RAG_LOCATION + RAG_CORPUS_NAME 設定済 (revision 00014-lzt 以降)。live 動作確認: 詳細画面で関連議題 3 件表示確認済。次: Week 4 (Veo/Imagen B-3/B-4 + リアクション永続化 + 複数ペルソナ fan-out + デモシナリオ準備)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
@@ -621,7 +621,7 @@
       "drop_condition": null,
       "started_at": "2026-05-22",
       "completed_at": "2026-05-22",
-      "notes": "Phase T で完了。Next.js 16.2 App Router + Tailwind 4 + zod + clsx/tailwind-merge。 /feed/[speech_id] で詳細表示、4 軸スコア breakdown、リアクション、原典リンク。 next build PASSED。"
+      "notes": "Phase T で骨格完了 + Phase W で RAG 統合まで完了。Next.js 16.2 App Router + Tailwind 4 + zod + clsx/tailwind-merge。/feed/[speech_id] で詳細表示、4 軸スコア breakdown、リアクション、原典リンク。Phase W 追加: BFF /v1/speeches/{id}/related (Vertex AI RAG retrieval_query 経由) + Frontend 関連議題 UI (3 件、類似度バー、引用 URI、loading/error/no_corpus 状態分岐)。corpus は asia-northeast1 で再構築 (us-central1 Spanner allowlist 制限回避、1428 speeches を 2:29 で import)。Cloud Run citify-api に RAG_LOCATION=asia-northeast1 + RAG_CORPUS_NAME 設定済 (revision 00014-lzt 以降)。live 動作確認: 関連議題セクションに 3 件表示確認済。"
     },
     {
       "id": "A-10",

@@ -1,5 +1,49 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 35 — Phase W live verification (RAG corpus 再構築 + Cloud Run 環境変数設定)
+
+### Completed
+
+- [x] **Cloud Run citify-api イメージ rebuild**: Dockerfile に `google-cloud-aiplatform` + `apps/api/rag/` 同梱の変更が反映、`/v1/speeches/{id}/related` endpoint が live で利用可能に
+- [x] **RAG corpus を asia-northeast1 で再構築** (1428 speeches、import 2:29 で完了):
+  - 旧 us-central1 corpus は Spanner mode allowlist 制限により書き込み不能 (2026 以降の新規 project は restricted)
+  - 当初 `create_corpus(use_serverless=True)` で回避を試行したが SDK が依然 Spanner backend を要求するため region 切替で対応
+  - GCS 経由で 1428 speech txt を upload → `import_files_from_gcs()` で chunking + embedding (text-multilingual-embedding-002, chunk 512/overlap 100)
+- [x] **`apps/api/rag/corpus.py` を Serverless mode 対応に修正** (`use_serverless: bool = True` 引数追加、True なら backend_config を省略):
+  - 結果的に asia-northeast1 + Spanner で導入したが、SDK が今後 Serverless サポートを拡張した際の備えとして残置
+- [x] **Cloud Run citify-api 環境変数更新** (revision 00014-lzt 以降):
+  - `RAG_LOCATION=asia-northeast1`
+  - `RAG_CORPUS_NAME=projects/46070204654/locations/asia-northeast1/ragCorpora/7991637538768945152`
+  - `^|^` delimiter で複数値を一発設定 (カンマ含むため)
+- [x] **live 動作確認**: 詳細画面 `/feed/[speech_id]` で関連議題セクションに 3 件表示確認済 (類似度バー + 引用 GCS URI 表示)
+- [x] **state files 更新** — tasks.json (A-9 notes / active_week_note)、Plans.md (Week 3 行を `cc:完了` 化 + A-9 RAG 統合追記)、log.md (Session 35 追加)
+
+### Decisions
+
+- ✅ **us-central1 → asia-northeast1 region 切替**: Serverless mode SDK 不整合と戦うより、Spanner 制限のない region を選ぶ方が直接的。レイテンシ的にも東京 corpus は日本ユーザー向きで合理的
+- ✅ **`use_serverless` 引数は残置**: 今後 SDK が安定化すれば us-central1 でも動かせるよう将来オプションを確保
+- ✅ **env `RAG_CORPUS_NAME` 直指定**: display_name lookup より高速 (cold start で list_corpora を呼ばずに済む)
+
+### Files Modified
+
+- `apps/api/rag/corpus.py` — `create_corpus(use_serverless=True)` 引数追加
+- `tasks.json` — A-9 notes / active_week_note 更新
+- `Plans.md` — Week 3 行 `cc:完了` 化 + A-9 行に Phase W 詳細追記
+- `log.md` — Session 35 追記
+
+### Verification
+
+- ✅ Cloud Run /v1/speeches/{id}/related が 3 件返却
+- ✅ Firebase App Hosting (apphosting.yaml) 経由で frontend が live で関連議題を描画
+- ✅ 類似度バー (1 - cosine distance) と引用 URI が正しく表示
+
+### Next
+
+- Week 4 候補: B-3/B-4 (Veo/Imagen) でサムネ/60 秒動画生成、リアクション永続化 (Firestore)、1 ペルソナ → 複数ペルソナ fan-out 強化、デモシナリオ + ピッチスライド準備
+- ユーザー判断待ち (休憩 / Week 4 移行 / デモ準備のどれを優先するか)
+
+---
+
 ## 2026-05-22 (Thu) Session 34 — Phase W: A-9 詳細ビューに RAG 統合
 
 ### Completed

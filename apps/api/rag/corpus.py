@@ -63,17 +63,35 @@ def create_corpus(
     display_name: str = KOKKAI_CORPUS_DISPLAY_NAME,
     description: str = "国会会議録 検索 API から取得した speech の RAG corpus",
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+    use_serverless: bool = True,
     rag_module: Any | None = None,
 ) -> Any:
     """新規 RAG corpus を作成。
 
-    SDK >= 1.85 の新 API: RagEmbeddingModelConfig + VertexPredictionEndpoint +
-    RagVectorDbConfig を入れ子で構築し、`backend_config` 経由で渡す。
+    Args:
+        use_serverless: True (default) で Serverless mode、False で Spanner mode (legacy)。
+            2026 以降の新規 project では Spanner mode が allowlist 必要のため、
+            Serverless mode 推奨。
     """
     if rag_module is None:
         _init_vertexai(project_id, location)
         rag_module = _rag_module()
 
+    if use_serverless:
+        # Serverless mode: backend_config を省略 (us-central1 で Serverless がデフォルト)
+        # https://cloud.google.com/vertex-ai/generative-ai/docs/rag-engine/switching-modes
+        corpus = rag_module.create_corpus(
+            display_name=display_name,
+            description=description,
+        )
+        logger.info(
+            "rag.corpus.created (serverless) name=%s display_name=%s",
+            corpus.name,
+            corpus.display_name,
+        )
+        return corpus
+
+    # Spanner mode (legacy)
     embedding_model_config = rag_module.RagEmbeddingModelConfig(
         vertex_prediction_endpoint=rag_module.VertexPredictionEndpoint(
             publisher_model=embedding_model,
@@ -88,7 +106,7 @@ def create_corpus(
         backend_config=backend_config,
     )
     logger.info(
-        "rag.corpus.created name=%s display_name=%s embedding=%s",
+        "rag.corpus.created (spanner) name=%s display_name=%s embedding=%s",
         corpus.name,
         corpus.display_name,
         embedding_model,

@@ -15,7 +15,7 @@
 | **Week 0** | 5/19-5/25 | 仕様確定・基盤準備 | **`cc:完了`** ✅ |
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
 | **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー + Pub/Sub + BQ 永続化 + Cloud Run | **`cc:完了`** ✅ A-4/5/6/7 + Pub/Sub 4 段パイプライン (Cloud Run live 動作確認済) + BQ scored_speeches 永続化 + Cloud Run Job × 4 + Scheduler × 4 (paused=月$0) + fan-out 修正 + B-7 前倒し。ADK は Cloud Run + Pub/Sub 代替で達成。Week 3 移行可 |
-| Week 3 | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | `cc:TODO` |
+| **Week 3** | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | **`cc:完了`** ✅ 5/22 で 18 日前倒し。A-8 フィード UI + A-9 詳細ビュー (RAG 関連議題 3 件統合 live 確認済) + A-2 自治体マスタ UI (1,795 件) + Phase U 国会 E2E パイプライン稼働。voices_asp 本格パースのみ保留 (robots.txt Disallow) |
 | Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
 | Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |
 | Week 6 | 6/30-7/6 | 仕上げ + ユーザーインタビュー + 動画撮影 | `cc:TODO` |
@@ -167,7 +167,7 @@
 - [x] [A-1] オンボーディング画面 — `/onboarding` で 2 step (年代 4 択 + 関心軸 10 軸複数選択)、localStorage に persona 保存 (user_id=`demo-{age_group}`)、絵文字付きボタン UI
 - [x] [A-2] マイ自治体登録 UI (Phase 1+2 マスタ連携) — `cc:完了` (Phase V) 1,795 自治体 (国会 + 都道府県 + 23 区 + 政令市 + 市町村) を JSON 化 (`/public/municipalities.json` 207KB)、`/municipalities` ページで検索 (前方一致 名前/読み仮名/コード) + 都道府県/Tier フィルタ + チップ式選択 (最大 5 件) + 国会 (00000) 強制付与 + localStorage 保存。Onboarding 完了後に自動遷移 (年代 → 関心軸 → 自治体)、フィードからも編集可能
 - [x] [A-8] For You フィード — `/feed` で TikTok 風 snap-scroll、BFF `/v1/feed/{user_id}` 経由 fetch、`FeedCard` (タイトル + 3 行サマリ + 自治体名 + relevance_score バッジ + matched_interests chip + 詳細リンク + 原典リンク + 倫理表記)
-- [x] [A-9] 議題詳細ビュー — `/feed/[speech_id]` で詳細表示、A-5 翻訳タイトル + 正式会議名併記、3 行サマリ、4 軸スコア横棒グラフ (topic/age/geographic/urgency)、matched_interests chip、reasoning 表示、リアクション 4 ボタン (UI のみ、永続化未実装)、原典リンク必須、RAG placeholder (Phase D 統合は Week 4)
+- [x] [A-9] 議題詳細ビュー — `/feed/[speech_id]` で詳細表示、A-5 翻訳タイトル + 正式会議名併記、3 行サマリ、4 軸スコア横棒グラフ (topic/age/geographic/urgency)、matched_interests chip、reasoning 表示、リアクション 4 ボタン (UI のみ、永続化未実装)、原典リンク必須。**Phase W で RAG 統合完了**: BFF `/v1/speeches/{id}/related` (Vertex AI RAG retrieval_query 経由) + 関連議題 3 件表示 (類似度バー + 引用 URI + loading/error/no_corpus 状態分岐)。corpus は asia-northeast1 で再構築 (us-central1 Spanner allowlist 制限回避、1428 speeches を 2:29 で import)。Cloud Run citify-api に RAG_LOCATION + RAG_CORPUS_NAME 設定済 (revision 00014-lzt 以降)、live 動作確認済
 - [x] FastAPI BFF 経由でデータ取得 — `apps/api/main.py` に `/v1/feed/{user_id}` + `/v1/speeches/{speech_id}` 追加 (BQ scored_speeches_latest 経由、parameterized query、Pydantic FeedItem / FeedResponse)。zod schema (`apps/web/src/lib/api.ts`) で型安全
 - [x] **国会データ E2E 投入** (Phase U) — `scrapers/kokkai/publish.py` で BQ kokkai_speeches を Pub/Sub に流す `publish-from-bq` CLI 追加。live 15 件で動作確認、score=80 (住居・税 / 子育て) や 3 軸ヒットを生成。デモコンテンツが大幅強化
 
