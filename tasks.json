@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "**Week 3 完全完了** (Phase T/U/V、2026-05-22)。Phase T MVP + Phase U 国会データ E2E + Phase V A-2 自治体マスタ UI。1,795 自治体 (国会 + 都道府県 + 23 区 + 政令市 + 市町村) を JSON 化して frontend static asset 配置、/municipalities ページで検索 + 5 件選択 + 国会強制付与 + localStorage 保存。Onboarding → 自治体登録 → フィードの遷移が完成。デモ強化: 若者向け翻訳 'ちゃんと上がってる？' + matched 3 軸ヒット。残: Week 4 (Veo/Imagen + RAG 統合 + リアクション永続化)",
+  "active_week_note": "**Week 3 完了 + Phase W (RAG 統合) 完了**。Phase T MVP + Phase U 国会 E2E + Phase V A-2 自治体マスタ UI + Phase W A-9 詳細ビュー RAG 統合。BFF /v1/speeches/{id}/related (Vertex AI RAG retrieval_query 経由) + Frontend RAG UI (関連議題 3 件、類似度バー、引用 URI、loading/error/no_corpus 状態分岐)。Dockerfile に google-cloud-aiplatform + rag/ ディレクトリコピー追加。残: Cloud Run rebuild + RAG_CORPUS_NAME env 設定、Week 4 (Veo/Imagen + リアクション永続化)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

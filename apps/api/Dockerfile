@@ -25,11 +25,14 @@ ENV PATH="/opt/venv/bin:$PATH"
 # 依存関係インストール
 # NOTE: BuildKit 専用の --mount=type=cache はレガシー builder (Cloud Build) で
 #       失敗するため不使用。Cloud Run のビルドは毎回フレッシュなので cache なくても OK
-# NOTE: google-cloud-bigquery は /v1/feed endpoint (BQ scored_speeches_latest 読み込み) で必須
+# NOTE:
+#   - google-cloud-bigquery は /v1/feed endpoint (BQ scored_speeches_latest 読み込み)
+#   - google-cloud-aiplatform は /v1/speeches/{id}/related endpoint (Vertex AI RAG Engine)
 COPY pyproject.toml ./
 RUN uv pip install --no-cache \
     fastapi uvicorn[standard] httpx pydantic pydantic-settings \
     google-cloud-logging google-cloud-secret-manager google-cloud-bigquery \
+    google-cloud-aiplatform \
     structlog
 
 # ============================================================================
@@ -50,6 +53,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # アプリコード
 COPY --chown=citify:citify main.py ./
+COPY --chown=citify:citify rag ./rag
 
 USER citify
 

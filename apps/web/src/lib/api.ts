@@ -109,3 +109,41 @@ export async function fetchSpeech(
   )}`;
   return fetchJson(url, FeedItemSchema);
 }
+
+// ============================================================================
+// Related (RAG) — A-9 詳細ビュー用
+// ============================================================================
+
+export const RelatedContextSchema = z.object({
+  text: z.string(),
+  source_uri: z.string().default(""),
+  distance: z.number().nullable(),
+});
+
+export type RelatedContext = z.infer<typeof RelatedContextSchema>;
+
+export const RelatedResponseSchema = z.object({
+  speech_id: z.string(),
+  query_text: z.string(),
+  items: z.array(RelatedContextSchema),
+  corpus_used: z.string().nullable(),
+});
+
+export type RelatedResponse = z.infer<typeof RelatedResponseSchema>;
+
+/**
+ * 1 speech から RAG で関連発言を取得 (Vertex AI RAG corpus、国会会議録)。
+ * @param speechId  - 元 speech_id
+ * @param userId    - ペルソナ ID (BQ から元 speech を引くため必要)
+ * @param limit     - 取得上限 (default 3, max 10)
+ */
+export async function fetchRelated(
+  speechId: string,
+  userId: string,
+  limit = 3,
+): Promise<RelatedResponse> {
+  const url = `${API_BASE}/v1/speeches/${encodeURIComponent(
+    speechId,
+  )}/related?user_id=${encodeURIComponent(userId)}&limit=${limit}`;
+  return fetchJson(url, RelatedResponseSchema);
+}

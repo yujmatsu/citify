@@ -1,5 +1,68 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 34 — Phase W: A-9 詳細ビューに RAG 統合
+
+### Completed
+
+- [x] **`apps/api/Dockerfile` 更新**:
+  - `google-cloud-aiplatform` を install 依存に追加 (vertexai.rag SDK 用)
+  - `apps/api/rag/` ディレクトリを runtime image にコピー (既存の `apps/api/rag/corpus.py` の `retrieval_query()` を再利用)
+- [x] **BFF `/v1/speeches/{speech_id}/related` endpoint 追加** (`apps/api/main.py`):
+  - 元 speech の `title + summary` を BQ scored_speeches_latest から取得し、RAG query 文字列に
+  - `rag.corpus.retrieval_query()` で Vertex AI RAG corpus (`citify-kokkai-speeches`) に semantic search
+  - 上位 N 件 (default 3, max 10) の chunk を `RelatedContext` (text + source_uri + distance) として返す
+  - corpus 解決ロジック: env `RAG_CORPUS_NAME` 優先 → なければ起動時 `get_corpus_by_display_name()` で lookup → 結果は module-level cache
+  - corpus 未構築 / lookup 失敗時は items=[] + corpus_used=null で graceful degradation
+- [x] **frontend `apps/web/src/lib/api.ts` 拡張**:
+  - `RelatedContextSchema` / `RelatedResponseSchema` (zod) 追加
+  - `fetchRelated(speechId, userId, limit)` 関数追加
+- [x] **A-9 詳細ビュー (`/feed/[speech_id]`) の RAG placeholder を実装に置き換え**:
+  - speech 詳細と並行で `fetchRelated()` を発火 (失敗しても主データ表示は継続)
+  - 4 状態分岐: loading / no_corpus / error / ok (空) / ok (件数あり)
+  - 件数あり時: 番号付きカード × 3、`類似度 0.XX` バッジ、引用 URI、200 字超で truncate
+  - 「⚠️ AI 検索結果、原典で確認」注意書き
+- [x] **next build PASSED** (Route 6、TypeScript pass)
+
+### Decisions
+
+- ✅ **既存 `apps/api/rag/corpus.py` を再利用**: Phase D で構築済の retrieval_query を使い回し、新規実装は最小限
+- ✅ **corpus name の env 優先 + 起動時 lookup フォールバック**: Cloud Run 再デプロイ不要で corpus 切替可能、初期は lookup でも OK
+- ✅ **RAG query は title + summary 連結**: 元 speech の content_text は BQ scored_speeches に保存していないため、翻訳結果から query を組み立てる (要約からなので意味は十分捉えられる)
+- ✅ **graceful degradation**: corpus 未構築なら no_corpus 表示、エラーは UI で明示してメイン詳細は変わらず表示
+- ✅ **類似度バー** (1 - distance): cosine distance を `類似度 0.XX` 表示に変換、UX 直感的
+
+### Files Modified
+
+- `apps/api/Dockerfile` — google-cloud-aiplatform 追加 + rag/ COPY
+- `apps/api/main.py` — RAG 環境変数 + `/v1/speeches/{id}/related` endpoint + `_resolve_rag_corpus_name()` cache
+- `apps/web/src/lib/api.ts` — RelatedContext + RelatedResponse + fetchRelated
+- `apps/web/src/app/feed/[speech_id]/page.tsx` — RAG fetch + 状態 4 分岐 UI
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### ユーザー側で必要な追加作業
+
+1. **commit + push** → Cloud Build trigger → citify-api 再デプロイ (google-cloud-aiplatform 含む)
+2. **(任意) RAG_CORPUS_NAME env を Cloud Run に設定** (起動時 lookup でも動くが、cold start で list_corpora が遅いため設定推奨):
+   ```bash
+   # corpus resource name を取得
+   gcloud ai rag-corpora list --region=us-central1 --project=citify-dev
+   # 例: projects/citify-dev/locations/us-central1/ragCorpora/123456789
+
+   gcloud run services update citify-api \\
+     --region=asia-northeast1 --project=citify-dev \\
+     --update-env-vars=RAG_CORPUS_NAME=projects/citify-dev/locations/us-central1/ragCorpora/XXX
+   ```
+3. Frontend で `/feed/[speech_id]` を開き、関連議題 3 件が表示されることを確認
+
+### Next
+
+- A-9 RAG live 動作確認
+- Week 4: Veo/Imagen 統合 (B-3/B-4)
+- リアクション永続化 (Firestore)
+- 1 ペルソナ → 複数ペルソナ fan-out
+
+---
+
 ## 2026-05-22 (Thu) Session 33 — Phase V: A-2 マイ自治体登録 UI
 
 ### Completed

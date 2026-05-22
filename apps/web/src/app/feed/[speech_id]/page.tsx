@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { fetchSpeech, type FeedItem } from "@/lib/api";
+import {
+  fetchRelated,
+  fetchSpeech,
+  type FeedItem,
+  type RelatedResponse,
+} from "@/lib/api";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +56,12 @@ export default function SpeechDetailPage() {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [reaction, setReaction] = useState<Reaction | null>(null);
+  const [related, setRelated] = useState<
+    | { kind: "loading" }
+    | { kind: "ok"; data: RelatedResponse }
+    | { kind: "error"; message: string }
+    | { kind: "no_corpus" }
+  >({ kind: "loading" });
 
   useEffect(() => {
     const persona = loadPersona();
@@ -60,6 +71,8 @@ export default function SpeechDetailPage() {
     }
     const sid = decodeURIComponent(params.speech_id);
     let cancelled = false;
+
+    // 主データ (speech 詳細) を先に取得
     fetchSpeech(sid, persona.user_id)
       .then((item) => {
         if (cancelled) return;
@@ -72,6 +85,25 @@ export default function SpeechDetailPage() {
           message: err instanceof Error ? err.message : String(err),
         });
       });
+
+    // RAG 関連議題は並行で取得 (失敗してもメインは表示)
+    fetchRelated(sid, persona.user_id, 3)
+      .then((data) => {
+        if (cancelled) return;
+        if (!data.corpus_used) {
+          setRelated({ kind: "no_corpus" });
+        } else {
+          setRelated({ kind: "ok", data });
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRelated({
+          kind: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+
     return () => {
       cancelled = true;
     };
@@ -199,14 +231,65 @@ export default function SpeechDetailPage() {
           )}
         </section>
 
-        {/* RAG 検索結果 (mock - 将来 Phase D RAG Engine と統合) */}
-        <section className="space-y-3 rounded-2xl border border-dashed border-zinc-300 p-6 dark:border-zinc-700">
-          <h2 className="text-sm font-semibold text-zinc-500">
-            関連議題 (RAG)
-          </h2>
-          <p className="text-xs text-zinc-400">
-            🚧 Phase D RAG Engine と統合予定 (Week 4)。今は placeholder です。
-          </p>
+        {/* RAG 検索結果 (Vertex AI RAG Engine、国会会議録 corpus に対する semantic search) */}
+        <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-zinc-500">関連議題 (国会 RAG)</h2>
+            <span className="text-[10px] text-zinc-400">Vertex AI</span>
+          </div>
+
+          {related.kind === "loading" && (
+            <p className="text-xs text-zinc-500">関連議題を検索中...</p>
+          )}
+
+          {related.kind === "no_corpus" && (
+            <p className="text-xs text-zinc-400">
+              関連議題は現在検索できません (corpus 未構築)
+            </p>
+          )}
+
+          {related.kind === "error" && (
+            <p className="text-xs text-rose-500">
+              関連議題の取得に失敗: {related.message}
+            </p>
+          )}
+
+          {related.kind === "ok" && related.data.items.length === 0 && (
+            <p className="text-xs text-zinc-500">関連議題は見つかりませんでした</p>
+          )}
+
+          {related.kind === "ok" && related.data.items.length > 0 && (
+            <>
+              <ol className="space-y-3">
+                {related.data.items.map((ctx, i) => (
+                  <li
+                    key={i}
+                    className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800"
+                  >
+                    <div className="mb-1 flex items-center justify-between text-[10px] text-zinc-400">
+                      <span>#{i + 1}</span>
+                      {ctx.distance != null && (
+                        <span title="cosine distance (0=完全一致)">
+                          類似度 {(1 - ctx.distance).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                      {ctx.text.length > 200 ? ctx.text.slice(0, 200) + "…" : ctx.text}
+                    </p>
+                    {ctx.source_uri && (
+                      <p className="mt-1 break-all text-[10px] text-zinc-400">
+                        📎 {ctx.source_uri}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              <p className="text-[10px] text-zinc-400">
+                ⚠️ AI による意味的検索結果です。正確性は原典でご確認ください。
+              </p>
+            </>
+          )}
         </section>
 
         {/* Reactions (UI のみ、永続化は将来) */}

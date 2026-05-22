@@ -34,6 +34,12 @@ BQ_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev")
 BQ_DATASET_CURATED = os.getenv("BQ_DATASET_CURATED", "citify_curated")
 BQ_VIEW_SCORED_LATEST = os.getenv("BQ_VIEW_SCORED_LATEST", "scored_speeches_latest")
 
+# RAG 設定 (Phase D で作成した Vertex AI corpus)
+# RAG_CORPUS_NAME を直接指定するか、起動時に display_name で lookup
+RAG_CORPUS_NAME = os.getenv("RAG_CORPUS_NAME") or None
+RAG_CORPUS_DISPLAY_NAME = os.getenv("RAG_CORPUS_DISPLAY_NAME", "citify-kokkai-speeches")
+RAG_LOCATION = os.getenv("RAG_LOCATION", "us-central1")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -241,3 +247,170 @@ async def get_speech(
         )
 
     return _row_to_feed_item(rows[0])
+
+
+# ============================================================================
+# v1 RAG (関連議題、A-9 詳細ビュー用)
+# ============================================================================
+
+
+class RelatedContext(BaseModel):
+    """RAG 検索で hit した関連発言 1 件 (chunk + 引用)。"""
+
+    text: str = Field(description="検索で hit した chunk のテキスト本文 (一部抜粋)")
+    source_uri: str = Field(default="", description="原典 URI (gs:// または https://)")
+    distance: float | None = Field(
+        default=None, description="cosine distance (0=完全一致, 1=無関連)"
+    )
+
+
+class RelatedResponse(BaseModel):
+    """/v1/speeches/{speech_id}/related のレスポンス。"""
+
+    speech_id: str
+    query_text: str = Field(description="RAG にかけた query 文字列 (title + summary)")
+    items: list[RelatedContext]
+    corpus_used: str | None = Field(default=None, description="使用した RAG corpus 名 (debug)")
+
+
+# Module-level cache: 起動毎に corpus resource name を引くと遅いので 1 度だけ lookup
+_rag_corpus_cache: str | None = None
+
+
+def _resolve_rag_corpus_name() -> str | None:
+    """env RAG_CORPUS_NAME を優先、なければ display_name で lookup (1 回キャッシュ)。
+
+    Returns:
+        corpus resource name (例: projects/citify-dev/locations/us-central1/ragCorpora/123)
+        または None (corpus 未構築時)
+    """
+    global _rag_corpus_cache
+    if _rag_corpus_cache:
+        return _rag_corpus_cache
+
+    if RAG_CORPUS_NAME:
+        _rag_corpus_cache = RAG_CORPUS_NAME
+        return _rag_corpus_cache
+
+    # 起動毎に lookup (遅延 import)
+    try:
+        from rag.corpus import get_corpus_by_display_name
+
+        corpus = get_corpus_by_display_name(
+            project_id=BQ_PROJECT,
+            display_name=RAG_CORPUS_DISPLAY_NAME,
+            location=RAG_LOCATION,
+        )
+        if corpus is None:
+            logger.warning(
+                "rag.corpus_not_found display_name=%s location=%s",
+                RAG_CORPUS_DISPLAY_NAME,
+                RAG_LOCATION,
+            )
+            return None
+        _rag_corpus_cache = corpus.name
+        logger.info("rag.corpus_resolved name=%s", _rag_corpus_cache)
+        return _rag_corpus_cache
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("rag.corpus_lookup_failed err=%s", exc)
+        return None
+
+
+@app.get("/v1/speeches/{speech_id}/related", response_model=RelatedResponse)
+async def get_related_speeches(
+    speech_id: str,
+    user_id: str = Query(..., description="ペルソナ ID (元 speech 取得コンテキスト)"),
+    limit: int = Query(default=3, ge=1, le=10),
+) -> RelatedResponse:
+    """1 speech から RAG で関連発言を取得 (国会会議録 corpus を semantic search)。
+
+    Flow:
+        1. BQ scored_speeches_latest から元 speech の title + summary を取得
+        2. それらを連結して RAG query 文字列に
+        3. Vertex AI RAG corpus に retrieval_query
+        4. top-K chunk を返す
+    """
+    # 1. 元 speech の title + summary 取得
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
+    sql = f"""
+        SELECT title, summary
+        FROM `{table_fqn}`
+        WHERE speech_id = @speech_id AND user_id = @user_id
+        LIMIT 1
+    """  # noqa: S608
+
+    from google.cloud import bigquery
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("speech_id", "STRING", speech_id),
+            bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        ]
+    )
+    try:
+        rows = list(client.query(sql, job_config=job_config).result(timeout=10))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("related.bq_query_failed speech_id=%s err=%s", speech_id, exc)
+        raise HTTPException(status_code=500, detail=f"BQ query failed: {exc!s}") from exc
+
+    if not rows:
+        raise HTTPException(
+            status_code=404, detail=f"speech_id={speech_id} not found for user_id={user_id}"
+        )
+
+    row = rows[0]
+    title = (row.get("title") or "").strip()
+    summary_lines = list(row.get("summary") or [])
+    query_text = " ".join([title, *summary_lines]).strip()
+
+    if not query_text:
+        return RelatedResponse(speech_id=speech_id, query_text="", items=[], corpus_used=None)
+
+    # 2. RAG corpus を解決
+    corpus_name = _resolve_rag_corpus_name()
+    if not corpus_name:
+        # corpus 未構築時は空配列 (frontend は placeholder 表示)
+        logger.warning(
+            "related.no_corpus speech_id=%s (RAG_CORPUS_NAME env or display_name lookup failed)",
+            speech_id,
+        )
+        return RelatedResponse(
+            speech_id=speech_id, query_text=query_text, items=[], corpus_used=None
+        )
+
+    # 3. retrieval_query
+    try:
+        from rag.corpus import retrieval_query
+
+        contexts = retrieval_query(
+            corpus_name=corpus_name,
+            text=query_text,
+            top_k=limit,
+            project_id=BQ_PROJECT,
+            location=RAG_LOCATION,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("related.rag_query_failed speech_id=%s err=%s", speech_id, exc)
+        raise HTTPException(status_code=500, detail=f"RAG query failed: {exc!s}") from exc
+
+    items = [
+        RelatedContext(
+            text=ctx.text,
+            source_uri=ctx.source_uri,
+            distance=ctx.distance,
+        )
+        for ctx in contexts
+    ]
+    logger.info(
+        "related.served speech_id=%s n=%d query_chars=%d",
+        speech_id,
+        len(items),
+        len(query_text),
+    )
+    return RelatedResponse(
+        speech_id=speech_id,
+        query_text=query_text,
+        items=items,
+        corpus_used=corpus_name,
+    )
