@@ -4,16 +4,18 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  clearReaction,
+  fetchReaction,
   fetchRelated,
   fetchSpeech,
+  REACTION_VALUES,
+  setReaction as putReaction,
   type FeedItem,
+  type Reaction,
   type RelatedResponse,
 } from "@/lib/api";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
-
-const REACTIONS = ["👍", "🤔", "😢", "🔥"] as const;
-type Reaction = (typeof REACTIONS)[number];
 
 type State =
   | { kind: "loading" }
@@ -55,7 +57,9 @@ export default function SpeechDetailPage() {
   const params = useParams<{ speech_id: string }>();
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "loading" });
-  const [reaction, setReaction] = useState<Reaction | null>(null);
+  const [reaction, setReactionState] = useState<Reaction | null>(null);
+  const [reactionPending, setReactionPending] = useState(false);
+  const [reactionError, setReactionError] = useState<string | null>(null);
   const [related, setRelated] = useState<
     | { kind: "loading" }
     | { kind: "ok"; data: RelatedResponse }
@@ -104,10 +108,46 @@ export default function SpeechDetailPage() {
         });
       });
 
+    // 既存のリアクション状態を取得 (失敗時は静かに無視 = 未設定扱い)
+    fetchReaction(sid, persona.user_id)
+      .then((res) => {
+        if (cancelled) return;
+        setReactionState(res.reaction);
+      })
+      .catch(() => {
+        // Firestore 未構築や認証エラー時は単に「未設定」として扱う
+      });
+
     return () => {
       cancelled = true;
     };
   }, [params.speech_id, router]);
+
+  async function handleReactionClick(target: Reaction): Promise<void> {
+    if (state.kind !== "ok" || reactionPending) return;
+    const persona = state.persona;
+    const sid = decodeURIComponent(params.speech_id);
+    const previous = reaction;
+    const next: Reaction | null = previous === target ? null : target;
+
+    // 楽観更新
+    setReactionState(next);
+    setReactionPending(true);
+    setReactionError(null);
+    try {
+      if (next === null) {
+        await clearReaction(sid, persona.user_id);
+      } else {
+        await putReaction(sid, persona.user_id, next);
+      }
+    } catch (err) {
+      // 失敗時はロールバック
+      setReactionState(previous);
+      setReactionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReactionPending(false);
+    }
+  }
 
   if (state.kind === "loading") {
     return (
@@ -292,20 +332,27 @@ export default function SpeechDetailPage() {
           )}
         </section>
 
-        {/* Reactions (UI のみ、永続化は将来) */}
+        {/* Reactions (Phase X: Firestore 永続化) */}
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="text-sm font-semibold text-zinc-500">あなたの反応</h2>
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-zinc-500">あなたの反応</h2>
+            {reactionPending && (
+              <span className="text-[10px] text-zinc-400">保存中...</span>
+            )}
+          </div>
           <div className="flex gap-3">
-            {REACTIONS.map((r) => (
+            {REACTION_VALUES.map((r) => (
               <button
                 key={r}
                 type="button"
-                onClick={() => setReaction(reaction === r ? null : r)}
+                disabled={reactionPending}
+                onClick={() => handleReactionClick(r)}
                 className={cn(
                   "flex h-12 flex-1 items-center justify-center rounded-full border text-2xl transition-colors",
                   reaction === r
                     ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
                     : "border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500",
+                  reactionPending && "cursor-not-allowed opacity-60",
                 )}
                 aria-pressed={reaction === r}
               >
@@ -313,9 +360,14 @@ export default function SpeechDetailPage() {
               </button>
             ))}
           </div>
-          {reaction && (
+          {reaction && !reactionError && (
             <p className="text-xs text-zinc-500">
-              {reaction} を選択しました (デモ用、サーバには保存していません)
+              {reaction} を保存しました (もう一度押すと解除)
+            </p>
+          )}
+          {reactionError && (
+            <p className="text-xs text-rose-500">
+              保存に失敗しました: {reactionError}
             </p>
           )}
         </section>

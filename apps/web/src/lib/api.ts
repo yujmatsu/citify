@@ -147,3 +147,56 @@ export async function fetchRelated(
   )}/related?user_id=${encodeURIComponent(userId)}&limit=${limit}`;
   return fetchJson(url, RelatedResponseSchema);
 }
+
+// ============================================================================
+// Reactions (Phase X) — Firestore 永続化
+// ============================================================================
+
+export const REACTION_VALUES = ["👍", "🤔", "😢", "🔥"] as const;
+export type Reaction = (typeof REACTION_VALUES)[number];
+
+export const ReactionResponseSchema = z.object({
+  speech_id: z.string(),
+  user_id: z.string(),
+  reaction: z.enum(REACTION_VALUES).nullable(),
+  updated_at: z.string().nullable(),
+});
+
+export type ReactionResponse = z.infer<typeof ReactionResponseSchema>;
+
+function reactionUrl(speechId: string, userId: string): string {
+  return `${API_BASE}/v1/speeches/${encodeURIComponent(
+    speechId,
+  )}/reaction?user_id=${encodeURIComponent(userId)}`;
+}
+
+/** 現在のリアクションを取得 (未設定なら reaction=null)。 */
+export async function fetchReaction(
+  speechId: string,
+  userId: string,
+): Promise<ReactionResponse> {
+  return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema);
+}
+
+/** リアクションを設定 or 上書き。 */
+export async function setReaction(
+  speechId: string,
+  userId: string,
+  reaction: Reaction,
+): Promise<ReactionResponse> {
+  return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reaction }),
+  });
+}
+
+/** リアクションを解除 (冪等)。 */
+export async function clearReaction(
+  speechId: string,
+  userId: string,
+): Promise<ReactionResponse> {
+  return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema, {
+    method: "DELETE",
+  });
+}

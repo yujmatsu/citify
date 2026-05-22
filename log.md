@@ -1,5 +1,70 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 36 — Phase X: リアクション永続化 (Firestore)
+
+### Completed
+
+- [x] **Terraform** `infra/env/dev/main.tf`: citify-api-runtime SA の `runtime_roles` に `roles/datastore.user` を追加 (terraform fmt 済)
+- [x] **`apps/api/Dockerfile`**: `google-cloud-firestore` を uv pip install 依存に追加
+- [x] **`apps/api/pyproject.toml`**: `google-cloud-firestore>=2.18` を deps に追加
+- [x] **`apps/api/main.py`** リアクション永続化 endpoint 3 つ追加:
+  - `GET  /v1/speeches/{speech_id}/reaction?user_id=X` → 現状取得 (未設定なら null)
+  - `PUT  /v1/speeches/{speech_id}/reaction?user_id=X` body `{reaction}` → 設定/上書き (絵文字 4 種チェック → 400)
+  - `DELETE /v1/speeches/{speech_id}/reaction?user_id=X` → 解除 (冪等)
+  - Firestore client は `_get_firestore_client()` で module-level cache
+  - doc_id は `{user_id}__{speech_id}` (collection: `reactions`)
+  - 新規時のみ `created_at` セット (SERVER_TIMESTAMP)、毎回 `updated_at` を上書き
+  - CORS allow_methods に `PUT, DELETE` 追加
+- [x] **pytest** `apps/api/tests/test_reactions.py` 7 ケース PASS:
+  - GET 未設定 → null / GET 設定済 → 値取得
+  - PUT 新規 → created_at セット / PUT 上書き → created_at なし
+  - PUT 不正絵文字 → 400 / DELETE → delete 呼ばれる / DELETE 不在でも 200
+  - sandbox 環境では SDK install 不可だが `sys.modules` に stub 注入で対応
+- [x] **`apps/web/src/lib/api.ts`** 拡張:
+  - `REACTION_VALUES`, `Reaction`, `ReactionResponseSchema` (zod) 追加
+  - `fetchReaction` / `setReaction` (PUT) / `clearReaction` (DELETE) 関数追加
+- [x] **`apps/web/src/app/feed/[speech_id]/page.tsx`** リアクションを永続化対応:
+  - mount 時 `fetchReaction()` で既存値を取得 (失敗時は静かに「未設定」扱い)
+  - ボタンクリック時、楽観更新 → PUT/DELETE、失敗時ロールバック + エラー表示
+  - 保存中 (`reactionPending`) は disabled + 「保存中...」表示
+  - 同じ絵文字を再クリックで解除 (toggle)
+- [x] **`next build` PASS** (Route 6 維持、TypeScript pass)
+
+### Decisions
+
+- ✅ **Firestore native mode + asia-northeast1**: RAG corpus と同じ region で latency 低減、料金は free tier 圏内 (50K reads/day, 20K writes/day)
+- ✅ **doc_id = `{user_id}__{speech_id}`**: composite key にすることで GET が単純な document read で完結 (query 不要)、上書きも `set(merge=True)` で 1 操作
+- ✅ **楽観更新 + 失敗時ロールバック**: ボタンの反応が即時、ネット遅延を体感させない (デモ価値高)
+- ✅ **不正絵文字は 400**: 4 種 (`👍🤔😢🔥`) 以外は弾く (frontend は enum 強制だが BFF も二重チェック)
+- ✅ **mount 時の fetchReaction 失敗は静かに扱う**: Firestore 未構築時でもメイン詳細は壊れない (graceful degradation)
+- ✅ **集計 (reaction_counts) は Phase X+1 へ後送り**: per-user の永続化を先に動かして UX 検証、集計は需要次第
+
+### Files Modified / Added
+
+- `infra/env/dev/main.tf` — runtime_roles に datastore.user 追加
+- `apps/api/Dockerfile` — google-cloud-firestore 追加
+- `apps/api/pyproject.toml` — firestore dep 追加
+- `apps/api/main.py` — Reaction* model + Firestore client + 3 endpoint
+- `apps/api/tests/__init__.py` (新規)
+- `apps/api/tests/test_reactions.py` (新規、7 ケース PASS)
+- `apps/web/src/lib/api.ts` — REACTION_VALUES + 3 関数
+- `apps/web/src/app/feed/[speech_id]/page.tsx` — リアクション同期化
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### Pending (ユーザー手動操作)
+
+- [ ] `gcloud firestore databases create --location=asia-northeast1 --project=citify-dev --type=firestore-native`
+- [ ] `terraform apply` (datastore.user IAM 反映)
+- [ ] Cloud Run citify-api rebuild (Cloud Build trigger or `gcloud builds submit`) → google-cloud-firestore + 新 endpoint 反映
+- [ ] live 動作確認: 詳細画面でリアクションボタン押下 → リロード後も保持されること
+
+### Next
+
+- Cloud Run live 確認後、Firestore に書込 + 読出を実機確認
+- 次の major work 候補: Week 4 (Veo/Imagen)、複数ペルソナ fan-out、デモシナリオ準備
+
+---
+
 ## 2026-05-22 (Thu) Session 35 — Phase W live verification (RAG corpus 再構築 + Cloud Run 環境変数設定)
 
 ### Completed

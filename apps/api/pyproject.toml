@@ -33,6 +33,7 @@ dependencies = [
     "google-cloud-storage>=2.18",
     "google-cloud-aiplatform>=1.71",
     "google-cloud-pubsub>=2.27",
+    "google-cloud-firestore>=2.18",
 
     # 構造化ログ
     "structlog>=24.4",

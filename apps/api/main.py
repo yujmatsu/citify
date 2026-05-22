@@ -5,6 +5,8 @@ Cloud Run / ローカル開発 両対応:
     - GET /version            : ビルド情報 (Git SHA, 環境名)
     - GET /v1/feed/{user_id}  : ユーザー別フィード (BQ scored_speeches_latest 経由)
     - GET /v1/speeches/{speech_id} : 1 件詳細 (BQ scored_speeches_latest 経由)
+    - GET /v1/speeches/{speech_id}/related : RAG 関連議題 (Vertex AI corpus)
+    - GET|PUT|DELETE /v1/speeches/{speech_id}/reaction : リアクション永続化 (Firestore)
 
 ローカル起動:
     uv run uvicorn main:app --reload --port 8080
@@ -40,6 +42,10 @@ RAG_CORPUS_NAME = os.getenv("RAG_CORPUS_NAME") or None
 RAG_CORPUS_DISPLAY_NAME = os.getenv("RAG_CORPUS_DISPLAY_NAME", "citify-kokkai-speeches")
 RAG_LOCATION = os.getenv("RAG_LOCATION", "us-central1")
 
+# Firestore 設定 (Phase X リアクション永続化)
+FIRESTORE_COLLECTION_REACTIONS = os.getenv("FIRESTORE_COLLECTION_REACTIONS", "reactions")
+ALLOWED_REACTIONS = ("👍", "🤔", "😢", "🔥")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -61,7 +67,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -414,3 +420,137 @@ async def get_related_speeches(
         items=items,
         corpus_used=corpus_name,
     )
+
+
+# ============================================================================
+# v1 Reactions (Phase X — Firestore 永続化)
+# ============================================================================
+
+
+class ReactionResponse(BaseModel):
+    """ユーザー × speech のリアクション状態。未設定時 reaction=None。"""
+
+    speech_id: str
+    user_id: str
+    reaction: str | None = Field(default=None, description="👍 | 🤔 | 😢 | 🔥 | None")
+    updated_at: str | None = Field(default=None, description="ISO 8601 timestamp")
+
+
+class ReactionPutRequest(BaseModel):
+    """PUT body: 設定したいリアクション。"""
+
+    reaction: str = Field(description="👍 | 🤔 | 😢 | 🔥 のいずれか")
+
+
+_firestore_client_cache: Any = None
+
+
+def _get_firestore_client() -> Any:
+    """Firestore client (遅延 import + プロセス内 cache)。テストで差替可能。"""
+    global _firestore_client_cache
+    if _firestore_client_cache is not None:
+        return _firestore_client_cache
+    from google.cloud import firestore
+
+    _firestore_client_cache = firestore.Client(project=BQ_PROJECT)
+    return _firestore_client_cache
+
+
+def _reaction_doc_id(user_id: str, speech_id: str) -> str:
+    """Firestore document ID: {user_id}__{speech_id} (区切り文字に __ を採用)。"""
+    return f"{user_id}__{speech_id}"
+
+
+@app.get("/v1/speeches/{speech_id}/reaction", response_model=ReactionResponse)
+async def get_reaction(
+    speech_id: str,
+    user_id: str = Query(..., description="ペルソナ ID"),
+) -> ReactionResponse:
+    """ユーザー × speech の現在のリアクションを取得 (未設定なら reaction=None)。"""
+    client = _get_firestore_client()
+    doc_id = _reaction_doc_id(user_id, speech_id)
+    try:
+        snap = client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id).get()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("reaction.get_failed doc_id=%s err=%s", doc_id, exc)
+        raise HTTPException(status_code=500, detail=f"Firestore get failed: {exc!s}") from exc
+
+    if not snap.exists:
+        return ReactionResponse(speech_id=speech_id, user_id=user_id, reaction=None)
+
+    data = snap.to_dict() or {}
+    updated_at = data.get("updated_at")
+    return ReactionResponse(
+        speech_id=speech_id,
+        user_id=user_id,
+        reaction=data.get("reaction"),
+        updated_at=updated_at.isoformat() if hasattr(updated_at, "isoformat") else None,
+    )
+
+
+@app.put("/v1/speeches/{speech_id}/reaction", response_model=ReactionResponse)
+async def put_reaction(
+    speech_id: str,
+    body: ReactionPutRequest,
+    user_id: str = Query(..., description="ペルソナ ID"),
+) -> ReactionResponse:
+    """リアクションを設定 or 上書き。同一 user_id × speech_id は 1 つだけ保持。"""
+    if body.reaction not in ALLOWED_REACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"reaction must be one of {ALLOWED_REACTIONS}, got {body.reaction!r}",
+        )
+
+    from google.cloud import firestore as fs
+
+    client = _get_firestore_client()
+    doc_id = _reaction_doc_id(user_id, speech_id)
+    doc_ref = client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id)
+
+    now_sentinel = fs.SERVER_TIMESTAMP
+    payload = {
+        "user_id": user_id,
+        "speech_id": speech_id,
+        "reaction": body.reaction,
+        "updated_at": now_sentinel,
+    }
+    try:
+        # set(merge=True) で新規時のみ created_at をセット
+        existing = doc_ref.get()
+        if not existing.exists:
+            payload["created_at"] = now_sentinel
+        doc_ref.set(payload, merge=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("reaction.put_failed doc_id=%s err=%s", doc_id, exc)
+        raise HTTPException(status_code=500, detail=f"Firestore set failed: {exc!s}") from exc
+
+    logger.info(
+        "reaction.set user_id=%s speech_id=%s reaction=%s",
+        user_id,
+        speech_id,
+        body.reaction,
+    )
+    return ReactionResponse(
+        speech_id=speech_id,
+        user_id=user_id,
+        reaction=body.reaction,
+        updated_at=None,  # server timestamp は読み戻さないと取れない、cosmetic なので省略
+    )
+
+
+@app.delete("/v1/speeches/{speech_id}/reaction", response_model=ReactionResponse)
+async def delete_reaction(
+    speech_id: str,
+    user_id: str = Query(..., description="ペルソナ ID"),
+) -> ReactionResponse:
+    """リアクションを解除 (document 削除)。存在しなくても 200 を返す (idempotent)。"""
+    client = _get_firestore_client()
+    doc_id = _reaction_doc_id(user_id, speech_id)
+    try:
+        client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id).delete()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("reaction.delete_failed doc_id=%s err=%s", doc_id, exc)
+        raise HTTPException(status_code=500, detail=f"Firestore delete failed: {exc!s}") from exc
+
+    logger.info("reaction.cleared user_id=%s speech_id=%s", user_id, speech_id)
+    return ReactionResponse(speech_id=speech_id, user_id=user_id, reaction=None)

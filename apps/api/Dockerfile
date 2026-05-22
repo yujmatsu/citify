@@ -28,11 +28,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # NOTE:
 #   - google-cloud-bigquery は /v1/feed endpoint (BQ scored_speeches_latest 読み込み)
 #   - google-cloud-aiplatform は /v1/speeches/{id}/related endpoint (Vertex AI RAG Engine)
+#   - google-cloud-firestore は /v1/speeches/{id}/reaction endpoint (Phase X リアクション永続化)
 COPY pyproject.toml ./
 RUN uv pip install --no-cache \
     fastapi uvicorn[standard] httpx pydantic pydantic-settings \
     google-cloud-logging google-cloud-secret-manager google-cloud-bigquery \
-    google-cloud-aiplatform \
+    google-cloud-aiplatform google-cloud-firestore \
     structlog
 
 # ============================================================================

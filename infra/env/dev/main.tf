@@ -67,6 +67,7 @@ locals {
     "roles/logging.logWriter",            # 構造化ログ書き込み
     "roles/cloudtrace.agent",             # Cloud Trace export
     "roles/run.invoker",                  # Cloud Scheduler → Cloud Run Job 起動 (Phase R)
+    "roles/datastore.user",               # Firestore native mode read/write (Phase X リアクション永続化)
   ]
 
   # Cloud Run Job として deploy する worker 一覧 (Phase R)
