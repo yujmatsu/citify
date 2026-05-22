@@ -2,7 +2,7 @@
   "project": "citify",
   "version": "0.1.0",
   "updated": "2026-05-21T17:45:00+09:00",
-  "active_week_note": "Week 2 完了 + Week 3 主要 3 タスク (A-1/A-8/A-9) 完了。Phase T (frontend MVP): apps/api に BFF /v1/feed エンドポイント追加 (BQ scored_speeches_latest 経由)、apps/web を Next.js 16 + App Router + Tailwind 4 + zod で scaffold、A-1 オンボーディング (年代/関心軸 2 step) + A-8 For You フィード (TikTok 風 snap-scroll) + A-9 議題詳細 (スコア breakdown + リアクション + 原典リンク) 実装、next build PASS。Firebase App Hosting 設定済 (apphosting.yaml + firebase.json + .firebaserc, 初回 backend 作成は手動)。残: A-2 自治体マスタ UI + Firebase backend create + デプロイ動作確認",
+  "active_week_note": "Week 3 主要 3 タスク完了 + **live end-to-end 動作確認済** (2026-05-22)。Phase T: BFF /v1/feed + Next.js 16 frontend (A-1/A-8/A-9) + Firebase App Hosting (citify-web, asia-east1) + Cloud Run citify-api に google-cloud-bigquery 追加 + CORS_ORIGINS 設定 + apphosting.yaml に Cloud Run URL 反映。Live URL: https://citify-web--citify-dev.asia-east1.hosted.app/ で /onboarding → /feed → BQ 実データ表示まで完全動作確認。Citify MVP (取得 → 翻訳 → 採点 → 配信 → 永続化 → BFF → UI) end-to-end 完成。残: A-2 自治体マスタ UI + Week 4 (Veo/Imagen)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

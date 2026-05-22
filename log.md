@@ -1,5 +1,75 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 31 — Phase T 完成: Live E2E 動作確認 (Citify MVP 完成)
+
+### Completed
+
+- [x] **Firebase project 化** (`firebase projects:addfirebase citify-dev`)
+- [x] **Firebase Web App 作成**: `App ID 1:46070204654:web:77d8697253ed1cfcf20bff`
+- [x] **App Hosting backend 作成**: `citify-web` (asia-east1)
+  - GitHub repo `yujmatsu/citify` 連携、live branch=main、root=apps/web
+  - Developer Connect Service Agent に Secret Manager Admin 権限付与 (OAuth token 保管用)
+- [x] **CORS_ORIGINS 設定** (Cloud Run citify-api):
+  - `gcloud --update-env-vars` で `^|^` 区切り構文を使用 (値内カンマ対応)
+  - 値: `https://citify-web--citify-dev.asia-east1.hosted.app,http://localhost:3000`
+  - リビジョン `citify-api-00009-799` 稼働
+- [x] **Cloud Run citify-api に google-cloud-bigquery 依存追加** (`apps/api/Dockerfile`):
+  - 既存 Dockerfile が古い依存リストのままで /v1/feed の BQ import が失敗していた
+  - `ImportError: cannot import name 'bigquery' from 'google.cloud'` 解消
+  - Cloud Build trigger 自動再デプロイで反映
+- [x] **apphosting.yaml に Cloud Run BFF URL 反映**:
+  - 値: `https://citify-api-hnraqfjt4a-an.a.run.app` (BFF 実 URL)
+  - クロスリージョン構成 (frontend asia-east1 / BFF asia-northeast1) で latency +30-50ms
+- [x] **Live URL で end-to-end 動作確認** ✅:
+  - `https://citify-web--citify-dev.asia-east1.hosted.app/`
+  - トップ → /onboarding → /feed で BQ scored_speeches_latest からの実データ表示確認
+  - Citify MVP (取得 → 翻訳 → 採点 → 配信 → 永続化 → BFF → UI) end-to-end 完成
+
+### Decisions
+
+- ✅ **`^|^` 区切り構文 (gcloud env vars)**: `CORS_ORIGINS` 値内のカンマを安全に扱うため
+- ✅ **クロスリージョン許容**: Firebase App Hosting は asia-northeast1 (Tokyo) 未サポート、asia-east1 (台湾) を採用、latency 増は許容範囲
+- ✅ **Dockerfile 依存追加方針**: 当面 Dockerfile に手動列挙 (pyproject.toml に依存して uv sync する方が clean だが、現状は最速優先)
+
+### Files Modified
+
+- `apps/api/Dockerfile` — google-cloud-bigquery 追加
+- `apps/web/apphosting.yaml` — NEXT_PUBLIC_API_BASE に実 URL
+- `tasks.json` / `Plans.md` / `log.md` 更新
+- (GCP 側) Firebase project, Web App, App Hosting backend, Cloud Run CORS env
+
+### 完成構成 (Citify MVP)
+
+```
+[Scraper kaigiroku_net]
+  ↓ Pub/Sub
+[A-5 translator (Cloud Run Job)]
+  ↓ TranslatedSpeech
+[A-6 relevance (Cloud Run Job)]
+  ↓ ScoredSpeech (fan-out)
+  ├─→ [A-7 distributor]      → FeedSnapshot (citify-feed-snapshot)
+  └─→ [BQ sink (Cloud Run Job)] → BQ scored_speeches
+                                    ↓ dedup view
+                                  citify_curated.scored_speeches_latest
+                                    ↓
+                          [FastAPI BFF /v1/feed (Cloud Run citify-api)]
+                                    ↓ HTTPS + CORS
+                          [Next.js (Firebase App Hosting citify-web)]
+                                    ↓
+                          🖥️ ユーザーのブラウザ
+                          (onboarding → For You feed → 議題詳細)
+```
+
+### Next
+
+- A-2 自治体マスタ UI (Plans.md Week 3 残課題)
+- Week 4: Veo/Imagen + 比較ビュー
+- リアクション永続化 (Firestore)
+- RAG 統合 (Phase D RAG Engine と A-9 詳細ビュー連携)
+- pyproject.toml + uv sync ベースの Dockerfile 移行 (技術的負債解消)
+
+---
+
 ## 2026-05-22 (Thu) Session 30 — Phase T: Week 3 着手 — Frontend MVP (Next.js + 3 画面)
 
 ### Completed
