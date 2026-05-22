@@ -1,5 +1,65 @@
 # Citify 作業ログ
 
+## 2026-05-22 (Thu) Session 32 — Phase U: 国会データ (kokkai_speeches) を E2E パイプラインに流す
+
+### Completed
+
+- [x] **`scrapers/kokkai/publish.py` 新規** (~190 LOC):
+  - `kokkai_row_to_speech_payload()`: BQ kokkai_speeches row → Speech-style dict 変換
+  - `fetch_kokkai_rows_from_bq()`: parameterized query で BQ から取得 (days/keyword/house/meeting/order フィルタ)
+  - `publish_kokkai_speeches()`: Speech envelope (source="kokkai_api") として publish
+  - `fetch_and_publish_kokkai_speeches_from_bq()`: 一体化エントリ
+- [x] **`scrapers/kokkai/__main__.py` 改修**: subcommand 構造化 (`fetch` + `publish-from-bq`)、後方互換も保持
+- [x] **テスト 8 件追加** (`scrapers/kokkai/tests/test_publish.py`):
+  - 衆議院/参議院/None tenant_id mapping、kokkai meta 保持、None フィールド、attributes
+- [x] **live E2E 動作確認** ✅:
+  - `toggle-schedulers.sh run-once` で 4 worker 起動
+  - `publish-from-bq --keyword 子育て --limit 10` → 10 件 publish
+  - `publish-from-bq --keyword 住居 --limit 5` → 5 件 publish (農林水産大臣の発言含む)
+  - 数分後、BQ scored_speeches_latest に 10 件確認:
+    - 「住宅支援、持ち家だけでなく賃貸にも？」 score=80 matched=[住居,税]
+    - 「離婚後の子育て、共同親権でどう変わる？」 score=80 matched=[子育て]
+    - 「若者が住みやすい地域づくりを進めるよ！」 score=70 matched=[住居,雇用,子育て] (3 軸ヒット)
+    - 「高額療養費制度の見直し、患者の負担は？」 score=65 matched=[医療]
+    - 「公立幼稚園の先生の給料、改善が必要？」 score=60 matched=[子育て,雇用]
+    - etc., 全 10 件が score≥55 でフィード対象
+
+### Decisions
+
+- ✅ **source="kokkai_api" 固定**: `pkg.municipality_map.resolve_municipality_code()` で municipality_code=00000 に解決される
+- ✅ **payload_type="Speech" (kaigiroku 互換)**: translator worker は同じ Speech 形式で受け取れる、フィールドマッピングだけ調整
+- ✅ **`name_of_house` を tenant_id に流用**: 「衆議院」「参議院」をそのまま tenant_id とする (kaigiroku の "prefokayama" 等の代わり)
+- ✅ **kokkai meta は extra として payload に同梱**: kokkai_speech_id / speaker_yomi / speaker_group は Speech.model_config = extra="allow" で残せる、downstream で参照可能
+
+### Files Created/Modified
+
+- `scrapers/kokkai/publish.py` (新規)
+- `scrapers/kokkai/__main__.py` — subcommand 化 (`fetch` + `publish-from-bq`)
+- `scrapers/kokkai/tests/test_publish.py` (新規、8 tests)
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### Citify デモ強化観察
+
+国会データを流したことで、Citify の差別化価値が顕在化:
+
+| 観点 | 観察 |
+|---|---|
+| **若者向け翻訳の説得力** | 「持ち家だけでなく賃貸にも？」「ちゃんと上がってる？」など SNS 風で違和感ゼロ |
+| **倫理ガードレール** | 政治家名は出ず、役職 (`農林水産大臣` 等) のみ — 倫理制約準拠 |
+| **多軸ペルソナマッチ** | 「若者が住みやすい地域づくり」が 住居+雇用+子育て の 3 軸同時ヒット |
+| **score 分散** | 55-80 で適切に分布、score=50 cutoff で表示制御が機能 |
+| **データスケール** | 衆議院/参議院/号番号/speech_order が正確に保持され、原典 URL もそのまま |
+
+### Next
+
+- A-2 自治体マスタ登録 UI (Week 3 残り、Plans.md)
+- Week 4: Veo/Imagen + 比較ビュー
+- リアクション永続化 (Firestore)
+- RAG 統合 (Phase D RAG Engine と A-9 詳細ビュー連携)
+- 1 ペルソナ → 複数ペルソナ fan-out (relevance worker 拡張)
+
+---
+
 ## 2026-05-22 (Thu) Session 31 — Phase T 完成: Live E2E 動作確認 (Citify MVP 完成)
 
 ### Completed

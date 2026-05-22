@@ -169,6 +169,7 @@
 - [x] [A-8] For You フィード — `/feed` で TikTok 風 snap-scroll、BFF `/v1/feed/{user_id}` 経由 fetch、`FeedCard` (タイトル + 3 行サマリ + 自治体名 + relevance_score バッジ + matched_interests chip + 詳細リンク + 原典リンク + 倫理表記)
 - [x] [A-9] 議題詳細ビュー — `/feed/[speech_id]` で詳細表示、A-5 翻訳タイトル + 正式会議名併記、3 行サマリ、4 軸スコア横棒グラフ (topic/age/geographic/urgency)、matched_interests chip、reasoning 表示、リアクション 4 ボタン (UI のみ、永続化未実装)、原典リンク必須、RAG placeholder (Phase D 統合は Week 4)
 - [x] FastAPI BFF 経由でデータ取得 — `apps/api/main.py` に `/v1/feed/{user_id}` + `/v1/speeches/{speech_id}` 追加 (BQ scored_speeches_latest 経由、parameterized query、Pydantic FeedItem / FeedResponse)。zod schema (`apps/web/src/lib/api.ts`) で型安全
+- [x] **国会データ E2E 投入** (Phase U) — `scrapers/kokkai/publish.py` で BQ kokkai_speeches を Pub/Sub に流す `publish-from-bq` CLI 追加。live 15 件で動作確認、score=80 (住居・税 / 子育て) や 3 軸ヒットを生成。デモコンテンツが大幅強化
 
 ### `cc:TODO` 議事録パーサー第 2 系統
 
