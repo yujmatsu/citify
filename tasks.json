@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-23T19:00:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W/X/Y live 動作確認完了**。Phase Y (複数ペルソナ fan-out) live 確認: 1 envelope (参議院:221:第5号:51) → 1 Gemini multi 呼び出し → 5 ペルソナ scored → BQ 5 行 INSERT。BQ で demo-18-24/25-29/30-39/40-49/50+ 全部が確認済。Workers build 7f42c061 + Terraform apply 4 jobs updated + relevance worker args=--personas-file 反映済。次: Week 4 (Veo/Imagen B-3/B-4 + デモシナリオ準備) or リアクション集計 (Phase X+1)",
+  "updated": "2026-05-23T22:00:00+09:00",
+  "active_week_note": "**Week 3 完了 + Phase W/X/Y live + Phase X+1 (リアクション集計) 実装完**。Phase X+1 内容: BFF PUT/DELETE を WriteBatch 化 (reaction doc + reaction_counts doc を原子的更新)、新規 GET /v1/speeches/{id}/reactions/summary endpoint (全 user の 4 種絵文字集計)、frontend に 4 ボタン下に件数バッジ + 楽観更新 (counts.{prev}-=1 / counts.{new}+=1 / total 差分)。Firestore Increment フィールド変換で competitor-safe。pytest 10/10 + next build PASS + ruff PASS。残: Cloud Run rebuild + live 動作確認 (複数ブラウザで押下 → 件数積上がり)。次: Week 4 (Veo/Imagen B-3/B-4 + デモシナリオ準備)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

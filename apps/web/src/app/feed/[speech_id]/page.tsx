@@ -6,12 +6,14 @@ import { useEffect, useState } from "react";
 import {
   clearReaction,
   fetchReaction,
+  fetchReactionSummary,
   fetchRelated,
   fetchSpeech,
   REACTION_VALUES,
   setReaction as putReaction,
   type FeedItem,
   type Reaction,
+  type ReactionSummary,
   type RelatedResponse,
 } from "@/lib/api";
 import { loadPersona, type Persona } from "@/lib/persona";
@@ -60,6 +62,7 @@ export default function SpeechDetailPage() {
   const [reaction, setReactionState] = useState<Reaction | null>(null);
   const [reactionPending, setReactionPending] = useState(false);
   const [reactionError, setReactionError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<ReactionSummary | null>(null);
   const [related, setRelated] = useState<
     | { kind: "loading" }
     | { kind: "ok"; data: RelatedResponse }
@@ -118,10 +121,40 @@ export default function SpeechDetailPage() {
         // Firestore 未構築や認証エラー時は単に「未設定」として扱う
       });
 
+    // リアクション集計 (Phase X+1) を並行で取得
+    fetchReactionSummary(sid)
+      .then((s) => {
+        if (cancelled) return;
+        setSummary(s);
+      })
+      .catch(() => {
+        // 集計取得失敗時は badge 非表示 (致命的でない)
+      });
+
     return () => {
       cancelled = true;
     };
   }, [params.speech_id, router]);
+
+  function applySummaryDelta(
+    prev: ReactionSummary | null,
+    previous: Reaction | null,
+    next: Reaction | null,
+  ): ReactionSummary | null {
+    if (!prev) return prev;
+    const counts = { ...prev.counts };
+    let total = prev.total;
+    if (previous && counts[previous] != null) {
+      counts[previous] = Math.max(0, counts[previous] - 1);
+    }
+    if (next && counts[next] != null) {
+      counts[next] = counts[next] + 1;
+    }
+    // total: 新規追加 (previous=null, next≠null) で +1、解除 (previous≠null, next=null) で -1、上書きは 0
+    if (!previous && next) total = total + 1;
+    if (previous && !next) total = Math.max(0, total - 1);
+    return { ...prev, counts, total };
+  }
 
   async function handleReactionClick(target: Reaction): Promise<void> {
     if (state.kind !== "ok" || reactionPending) return;
@@ -130,8 +163,10 @@ export default function SpeechDetailPage() {
     const previous = reaction;
     const next: Reaction | null = previous === target ? null : target;
 
-    // 楽観更新
+    // 楽観更新 (reaction + summary 両方)
+    const summarySnapshot = summary;
     setReactionState(next);
+    setSummary((s) => applySummaryDelta(s, previous, next));
     setReactionPending(true);
     setReactionError(null);
     try {
@@ -141,8 +176,9 @@ export default function SpeechDetailPage() {
         await putReaction(sid, persona.user_id, next);
       }
     } catch (err) {
-      // 失敗時はロールバック
+      // 失敗時は両方ロールバック
       setReactionState(previous);
+      setSummary(summarySnapshot);
       setReactionError(err instanceof Error ? err.message : String(err));
     } finally {
       setReactionPending(false);
@@ -341,24 +377,38 @@ export default function SpeechDetailPage() {
             )}
           </div>
           <div className="flex gap-3">
-            {REACTION_VALUES.map((r) => (
-              <button
-                key={r}
-                type="button"
-                disabled={reactionPending}
-                onClick={() => handleReactionClick(r)}
-                className={cn(
-                  "flex h-12 flex-1 items-center justify-center rounded-full border text-2xl transition-colors",
-                  reaction === r
-                    ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
-                    : "border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500",
-                  reactionPending && "cursor-not-allowed opacity-60",
-                )}
-                aria-pressed={reaction === r}
-              >
-                {r}
-              </button>
-            ))}
+            {REACTION_VALUES.map((r) => {
+              const count = summary?.counts[r] ?? 0;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  disabled={reactionPending}
+                  onClick={() => handleReactionClick(r)}
+                  className={cn(
+                    "flex h-14 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl border text-2xl leading-none transition-colors",
+                    reaction === r
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
+                      : "border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500",
+                    reactionPending && "cursor-not-allowed opacity-60",
+                  )}
+                  aria-pressed={reaction === r}
+                  aria-label={`${r} 件数 ${count}`}
+                >
+                  <span>{r}</span>
+                  <span
+                    className={cn(
+                      "text-[10px] font-medium tabular-nums",
+                      count > 0
+                        ? "text-zinc-600 dark:text-zinc-300"
+                        : "text-zinc-400 dark:text-zinc-600",
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           {reaction && !reactionError && (
             <p className="text-xs text-zinc-500">

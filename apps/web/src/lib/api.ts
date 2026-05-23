@@ -200,3 +200,25 @@ export async function clearReaction(
     method: "DELETE",
   });
 }
+
+// ============================================================================
+// Reactions Summary (Phase X+1) — 全 user の集計件数
+// ============================================================================
+
+export const ReactionSummarySchema = z.object({
+  speech_id: z.string(),
+  counts: z.record(z.enum(REACTION_VALUES), z.number().int().nonnegative()),
+  total: z.number().int().nonnegative(),
+});
+
+export type ReactionSummary = z.infer<typeof ReactionSummarySchema>;
+
+/** speech 1 件のリアクション集計を取得 (全 user 合算、4 種絵文字を必ず key として含む)。 */
+export async function fetchReactionSummary(
+  speechId: string,
+): Promise<ReactionSummary> {
+  const url = `${API_BASE}/v1/speeches/${encodeURIComponent(
+    speechId,
+  )}/reactions/summary`;
+  return fetchJson(url, ReactionSummarySchema);
+}

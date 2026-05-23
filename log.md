@@ -1,5 +1,65 @@
 # Citify 作業ログ
 
+## 2026-05-23 (Sat) Session 40 — Phase X+1: リアクション集計 (社会的バリデーション)
+
+### Completed
+
+- [x] **Firestore 設計追加**: `reaction_counts/{speech_id}` collection に `{counts: {👍:N, 🤔:N, 😢:N, 🔥:N}, total: N}` を保持
+- [x] **`apps/api/main.py` BFF 変更**:
+  - PUT を WriteBatch 化: reactions doc + reaction_counts doc を原子的更新
+    - 新規: `counts.{new}+=1`, `total+=1`
+    - 上書き (異なる絵文字): `counts.{prev}-=1`, `counts.{new}+=1`, total 変わらず
+    - 同じ絵文字を再 PUT: no-op (counts 触らない)
+  - DELETE も WriteBatch 化: reaction delete + `counts.{prev}-=1`, `total-=1`
+  - 新規 endpoint `GET /v1/speeches/{id}/reactions/summary`: 4 種絵文字を必ず key として含む集計返却 (未集計なら全 0)
+  - Firestore `Increment(±1)` を使い競合 safe な原子更新
+  - 環境変数 `FIRESTORE_COLLECTION_REACTION_COUNTS` (default: `reaction_counts`) 追加
+- [x] **`apps/api/tests/test_reactions.py`** 全面書き直し (10 ケース PASS):
+  - GET reaction 2 件 (null / 値あり)
+  - PUT reaction 4 件 (新規 / 上書き異なる / 同じ no-op / 不正 400)
+  - DELETE reaction 2 件 (存在時 counts 減算 / 不在 idempotent)
+  - GET summary 2 件 (document なし → 0 埋め / あり → 欠落 emoji 0 埋め)
+  - `_FakeFirestore` mock を実装 (collection / document / get / set / delete / batch.set / batch.delete / batch.commit を再現、Increment は数値変換)
+- [x] **`apps/web/src/lib/api.ts`** 拡張:
+  - `ReactionSummarySchema` (zod, counts は 4 種 record + total nonneg int)
+  - `fetchReactionSummary(speechId)` 関数追加
+- [x] **`apps/web/src/app/feed/[speech_id]/page.tsx`** UI 更新:
+  - mount 時に reaction と並行で `fetchReactionSummary()` 取得 (失敗時静かに無視)
+  - 4 ボタンを縦 2 段レイアウト (絵文字 + 件数バッジ、count=0 は薄色、count>0 は強調)
+  - `applySummaryDelta()` で楽観更新 (PUT/DELETE 即時バッジ反映、失敗時はロールバック)
+  - `aria-label="{絵文字} 件数 N"` でアクセシビリティ
+- [x] **`next build` PASS** (Route 6 維持)
+- [x] **`ruff format` + `ruff check`** all PASS
+- [x] **state files 更新** (tasks.json / Plans.md / log.md)
+
+### Decisions
+
+- ✅ **Increment フィールド変換 + WriteBatch**: 集計値の競合は Firestore SDK が原子的にカバー、複数プロセス・複数ユーザー同時押下にも対応
+- ✅ **4 種を常に並べる**: count=0 でもバッジを表示し UX 一貫性を確保 (UI が押下後ガタつかない)
+- ✅ **既存データのバックフィルは諦め (0 件スタート)**: デモなので新規押下から積み上がるのを live で見せれば十分
+- ✅ **summary fetch は open 時 + PUT/DELETE 時楽観更新**: Firestore 読込節約 (再 fetch しない)
+- ✅ **counts に負値ガード**: 万一の不整合でも `max(0, v)` で UI に負数を出さない (バックフィル無しなので理論上発生しないが防御的)
+
+### Files Modified
+
+- `apps/api/main.py` — ReactionSummary model + WriteBatch PUT/DELETE + GET summary endpoint
+- `apps/api/tests/test_reactions.py` — 全面書き直し (mock 強化 + 集計テスト追加、10 ケース PASS)
+- `apps/web/src/lib/api.ts` — ReactionSummary + fetchReactionSummary
+- `apps/web/src/app/feed/[speech_id]/page.tsx` — summary fetch + バッジ表示 + 楽観更新
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### Pending (ユーザー手動)
+
+- [ ] Cloud Run citify-api rebuild: `gcloud builds submit --config=cloudbuild.yaml --region=asia-northeast1 --project=citify-dev`
+- [ ] Firebase App Hosting は GitHub push で自動 rollout
+- [ ] live 動作確認: 詳細画面で押下 → バッジ +1、別ブラウザで同じ speech を開いて summary が +1 反映、別絵文字に切替で前の -1 + 新の +1
+
+### Next
+
+- Cloud Run live 確認後、Week 4 着手 (Veo/Imagen B-3/B-4 + デモシナリオ準備)
+
+---
+
 ## 2026-05-23 (Sat) Session 39 — Phase Y live verification (5 ペルソナ fan-out が BQ で確認済)
 
 ### Completed

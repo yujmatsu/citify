@@ -7,6 +7,7 @@ Cloud Run / ローカル開発 両対応:
     - GET /v1/speeches/{speech_id} : 1 件詳細 (BQ scored_speeches_latest 経由)
     - GET /v1/speeches/{speech_id}/related : RAG 関連議題 (Vertex AI corpus)
     - GET|PUT|DELETE /v1/speeches/{speech_id}/reaction : リアクション永続化 (Firestore)
+    - GET /v1/speeches/{speech_id}/reactions/summary : リアクション集計 (Phase X+1)
 
 ローカル起動:
     uv run uvicorn main:app --reload --port 8080
@@ -42,8 +43,11 @@ RAG_CORPUS_NAME = os.getenv("RAG_CORPUS_NAME") or None
 RAG_CORPUS_DISPLAY_NAME = os.getenv("RAG_CORPUS_DISPLAY_NAME", "citify-kokkai-speeches")
 RAG_LOCATION = os.getenv("RAG_LOCATION", "us-central1")
 
-# Firestore 設定 (Phase X リアクション永続化)
+# Firestore 設定 (Phase X リアクション永続化 + Phase X+1 集計)
 FIRESTORE_COLLECTION_REACTIONS = os.getenv("FIRESTORE_COLLECTION_REACTIONS", "reactions")
+FIRESTORE_COLLECTION_REACTION_COUNTS = os.getenv(
+    "FIRESTORE_COLLECTION_REACTION_COUNTS", "reaction_counts"
+)
 ALLOWED_REACTIONS = ("👍", "🤔", "😢", "🔥")
 
 
@@ -442,6 +446,17 @@ class ReactionPutRequest(BaseModel):
     reaction: str = Field(description="👍 | 🤔 | 😢 | 🔥 のいずれか")
 
 
+class ReactionSummary(BaseModel):
+    """speech 1 件の集計 (Phase X+1)。全 4 種絵文字の件数 + 合計。"""
+
+    speech_id: str
+    counts: dict[str, int] = Field(
+        default_factory=lambda: {r: 0 for r in ALLOWED_REACTIONS},
+        description="絵文字 → 件数 (全 4 種が必ず key として存在)",
+    )
+    total: int = Field(default=0, description="counts の合計 (sort 用)")
+
+
 _firestore_client_cache: Any = None
 
 
@@ -459,6 +474,11 @@ def _get_firestore_client() -> Any:
 def _reaction_doc_id(user_id: str, speech_id: str) -> str:
     """Firestore document ID: {user_id}__{speech_id} (区切り文字に __ を採用)。"""
     return f"{user_id}__{speech_id}"
+
+
+def _empty_counts() -> dict[str, int]:
+    """全 4 種絵文字を key=0 で持つ初期値 (UI は常に 4 種並べる)。"""
+    return {r: 0 for r in ALLOWED_REACTIONS}
 
 
 @app.get("/v1/speeches/{speech_id}/reaction", response_model=ReactionResponse)
@@ -494,7 +514,12 @@ async def put_reaction(
     body: ReactionPutRequest,
     user_id: str = Query(..., description="ペルソナ ID"),
 ) -> ReactionResponse:
-    """リアクションを設定 or 上書き。同一 user_id × speech_id は 1 つだけ保持。"""
+    """リアクションを設定 or 上書き。同一 user_id × speech_id は 1 つだけ保持。
+
+    Phase X+1: 集計 (`reaction_counts/{speech_id}`) も batch で原子的に更新。
+    - 新規: counts.{new} += 1, total += 1
+    - 上書き: counts.{prev} -= 1, counts.{new} += 1 (total は変わらず)
+    """
     if body.reaction not in ALLOWED_REACTIONS:
         raise HTTPException(
             status_code=400,
@@ -505,36 +530,65 @@ async def put_reaction(
 
     client = _get_firestore_client()
     doc_id = _reaction_doc_id(user_id, speech_id)
-    doc_ref = client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id)
+    reaction_ref = client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id)
+    counts_ref = client.collection(FIRESTORE_COLLECTION_REACTION_COUNTS).document(speech_id)
 
     now_sentinel = fs.SERVER_TIMESTAMP
-    payload = {
-        "user_id": user_id,
-        "speech_id": speech_id,
-        "reaction": body.reaction,
-        "updated_at": now_sentinel,
-    }
+
     try:
-        # set(merge=True) で新規時のみ created_at をセット
-        existing = doc_ref.get()
-        if not existing.exists:
+        # 既存 reaction を取得 (上書き判定 + 集計差分計算用)
+        existing_snap = reaction_ref.get()
+        existing_reaction: str | None = None
+        if existing_snap.exists:
+            existing_data = existing_snap.to_dict() or {}
+            existing_reaction = existing_data.get("reaction")
+
+        # 同じ絵文字を再 PUT した場合は no-op (counts 変更不要)
+        is_same_as_existing = existing_reaction == body.reaction
+
+        payload: dict[str, Any] = {
+            "user_id": user_id,
+            "speech_id": speech_id,
+            "reaction": body.reaction,
+            "updated_at": now_sentinel,
+        }
+        if not existing_snap.exists:
             payload["created_at"] = now_sentinel
-        doc_ref.set(payload, merge=True)
+
+        batch = client.batch()
+        batch.set(reaction_ref, payload, merge=True)
+
+        if not is_same_as_existing:
+            counts_update: dict[str, Any] = {
+                "speech_id": speech_id,
+                "updated_at": now_sentinel,
+                f"counts.{body.reaction}": fs.Increment(1),
+            }
+            if existing_reaction in ALLOWED_REACTIONS:
+                # 上書き: 旧 reaction を -1
+                counts_update[f"counts.{existing_reaction}"] = fs.Increment(-1)
+            else:
+                # 新規: total を +1
+                counts_update["total"] = fs.Increment(1)
+            batch.set(counts_ref, counts_update, merge=True)
+
+        batch.commit()
     except Exception as exc:  # noqa: BLE001
         logger.exception("reaction.put_failed doc_id=%s err=%s", doc_id, exc)
         raise HTTPException(status_code=500, detail=f"Firestore set failed: {exc!s}") from exc
 
     logger.info(
-        "reaction.set user_id=%s speech_id=%s reaction=%s",
+        "reaction.set user_id=%s speech_id=%s reaction=%s prev=%s",
         user_id,
         speech_id,
         body.reaction,
+        existing_reaction,
     )
     return ReactionResponse(
         speech_id=speech_id,
         user_id=user_id,
         reaction=body.reaction,
-        updated_at=None,  # server timestamp は読み戻さないと取れない、cosmetic なので省略
+        updated_at=None,
     )
 
 
@@ -543,14 +597,74 @@ async def delete_reaction(
     speech_id: str,
     user_id: str = Query(..., description="ペルソナ ID"),
 ) -> ReactionResponse:
-    """リアクションを解除 (document 削除)。存在しなくても 200 を返す (idempotent)。"""
+    """リアクションを解除 (document 削除)。存在しなくても 200 を返す (idempotent)。
+
+    Phase X+1: 集計 (`reaction_counts/{speech_id}`) も batch で減算。
+    既存 reaction がなければ counts は触らない。
+    """
+    from google.cloud import firestore as fs
+
     client = _get_firestore_client()
     doc_id = _reaction_doc_id(user_id, speech_id)
+    reaction_ref = client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id)
+    counts_ref = client.collection(FIRESTORE_COLLECTION_REACTION_COUNTS).document(speech_id)
+
     try:
-        client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id).delete()
+        existing_snap = reaction_ref.get()
+        existing_reaction: str | None = None
+        if existing_snap.exists:
+            existing_data = existing_snap.to_dict() or {}
+            existing_reaction = existing_data.get("reaction")
+
+        batch = client.batch()
+        batch.delete(reaction_ref)
+        if existing_reaction in ALLOWED_REACTIONS:
+            batch.set(
+                counts_ref,
+                {
+                    "speech_id": speech_id,
+                    "updated_at": fs.SERVER_TIMESTAMP,
+                    f"counts.{existing_reaction}": fs.Increment(-1),
+                    "total": fs.Increment(-1),
+                },
+                merge=True,
+            )
+        batch.commit()
     except Exception as exc:  # noqa: BLE001
         logger.exception("reaction.delete_failed doc_id=%s err=%s", doc_id, exc)
         raise HTTPException(status_code=500, detail=f"Firestore delete failed: {exc!s}") from exc
 
-    logger.info("reaction.cleared user_id=%s speech_id=%s", user_id, speech_id)
+    logger.info(
+        "reaction.cleared user_id=%s speech_id=%s prev=%s",
+        user_id,
+        speech_id,
+        existing_reaction,
+    )
     return ReactionResponse(speech_id=speech_id, user_id=user_id, reaction=None)
+
+
+@app.get("/v1/speeches/{speech_id}/reactions/summary", response_model=ReactionSummary)
+async def get_reaction_summary(speech_id: str) -> ReactionSummary:
+    """speech に対する全リアクションの集計を取得 (Phase X+1)。
+
+    未集計 (document なし) なら全絵文字 0 件を返す (UX 一貫性のため常に 4 種返却)。
+    """
+    client = _get_firestore_client()
+    try:
+        snap = client.collection(FIRESTORE_COLLECTION_REACTION_COUNTS).document(speech_id).get()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("reaction.summary_failed speech_id=%s err=%s", speech_id, exc)
+        raise HTTPException(status_code=500, detail=f"Firestore get failed: {exc!s}") from exc
+
+    counts = _empty_counts()
+    total = 0
+    if snap.exists:
+        data = snap.to_dict() or {}
+        raw_counts = data.get("counts") or {}
+        for emoji in ALLOWED_REACTIONS:
+            v = int(raw_counts.get(emoji, 0) or 0)
+            counts[emoji] = max(0, v)  # 負値ガード (バックフィル無しなので理論上 0 以上)
+        total = int(data.get("total", 0) or 0)
+        total = max(0, total)
+
+    return ReactionSummary(speech_id=speech_id, counts=counts, total=total)
