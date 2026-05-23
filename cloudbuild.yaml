@@ -39,7 +39,7 @@ options:
   dynamic_substitutions: true
 
 images:
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}"
   - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest"
 
 steps:
@@ -50,10 +50,10 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - build
-      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}
       - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
       - --cache-from=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
-      - --build-arg=GIT_SHA=${COMMIT_SHA}
+      - --build-arg=GIT_SHA=${BUILD_ID}
       - --file=apps/api/Dockerfile
       - apps/api
 
@@ -79,12 +79,12 @@ steps:
       - run
       - deploy
       - ${_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated                    # 公開 API (Week 5 で認証検討)
       - --service-account=${_RUNTIME_SA}
-      - --set-env-vars=ENV=dev,GIT_SHA=${COMMIT_SHA},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION}
+      - --set-env-vars=ENV=dev,GIT_SHA=${BUILD_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION}
       # Week 1 で Secret Manager 連携時にコメントアウト解除:
       # - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
       - --memory=512Mi
