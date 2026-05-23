@@ -122,14 +122,7 @@ class _FakeBatch:
         if not merge:
             self.store.docs[ref.collection][ref.doc_id] = {}
         existing = self.store.docs[ref.collection].setdefault(ref.doc_id, {})
-        for key, value in payload.items():
-            if "." in key:
-                # nested field path: e.g. "counts.👍"
-                top, _, leaf = key.partition(".")
-                bucket = existing.setdefault(top, {})
-                bucket[leaf] = _value_or_increment(value, bucket.get(leaf, 0))
-            else:
-                existing[key] = _value_or_increment(value, existing.get(key, 0))
+        _deep_apply(existing, payload)
 
     def delete(self, ref: _FakeDocRef) -> None:
         self.ops.append(("delete", ref, None))
@@ -148,6 +141,24 @@ def _value_or_increment(value: Any, current: int) -> Any:
     if isinstance(value, Increment):
         return current + value.value if isinstance(current, int) else value.value
     return value
+
+
+def _deep_apply(existing: dict[str, Any], payload: dict[str, Any]) -> None:
+    """nested dict を再帰的にマージ (Firestore の merge=True 挙動を模倣)。
+
+    - 値が dict なら再帰
+    - 値が Increment なら既存値に加算
+    - それ以外は上書き
+    """
+    for key, value in payload.items():
+        if isinstance(value, dict):
+            sub = existing.setdefault(key, {})
+            if not isinstance(sub, dict):
+                sub = {}
+                existing[key] = sub
+            _deep_apply(sub, value)
+        else:
+            existing[key] = _value_or_increment(value, existing.get(key, 0))
 
 
 @pytest.fixture()

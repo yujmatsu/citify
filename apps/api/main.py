@@ -559,16 +559,20 @@ async def put_reaction(
         batch.set(reaction_ref, payload, merge=True)
 
         if not is_same_as_existing:
+            # NOTE: batch.set() は dot-path を literal field name にする (update() のみ解釈)
+            # → nested map で渡し、merge=True による deep merge で他 emoji の値を保持する
+            counts_field_updates: dict[str, Any] = {body.reaction: fs.Increment(1)}
+            if existing_reaction in ALLOWED_REACTIONS:
+                # 上書き: 旧 reaction を -1
+                counts_field_updates[existing_reaction] = fs.Increment(-1)
+
             counts_update: dict[str, Any] = {
                 "speech_id": speech_id,
                 "updated_at": now_sentinel,
-                f"counts.{body.reaction}": fs.Increment(1),
+                "counts": counts_field_updates,
             }
-            if existing_reaction in ALLOWED_REACTIONS:
-                # 上書き: 旧 reaction を -1
-                counts_update[f"counts.{existing_reaction}"] = fs.Increment(-1)
-            else:
-                # 新規: total を +1
+            if existing_reaction not in ALLOWED_REACTIONS:
+                # 新規: total を +1 (上書きは total 不変)
                 counts_update["total"] = fs.Increment(1)
             batch.set(counts_ref, counts_update, merge=True)
 
@@ -619,12 +623,13 @@ async def delete_reaction(
         batch = client.batch()
         batch.delete(reaction_ref)
         if existing_reaction in ALLOWED_REACTIONS:
+            # nested map で deep merge (dot-path は batch.set() で解釈されない)
             batch.set(
                 counts_ref,
                 {
                     "speech_id": speech_id,
                     "updated_at": fs.SERVER_TIMESTAMP,
-                    f"counts.{existing_reaction}": fs.Increment(-1),
+                    "counts": {existing_reaction: fs.Increment(-1)},
                     "total": fs.Increment(-1),
                 },
                 merge=True,
