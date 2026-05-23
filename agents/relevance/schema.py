@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-AgeGroup = Literal["18-24", "25-29", "30-34", "35+"]
+AgeGroup = Literal["18-24", "25-29", "30-39", "40-49", "50+"]
 
 # 10 関心軸 (FEATURES.md A-1 準拠)
 Interest = Literal[
@@ -111,6 +111,44 @@ class RelevanceOutput(BaseModel):
             reasoning=reason or "評価できなかったため非表示",
             contains_political_judgment=False,
         )
+
+
+class PersonaRelevanceOutput(BaseModel):
+    """1 ペルソナ分の relevance 評価結果 (Phase Y: multi-persona fan-out 用)。
+
+    RelevanceOutput と同じ 4 軸 + user_id を持つ (Gemini 出力の list 要素)。
+    """
+
+    user_id: str = Field(description="評価対象ペルソナの user_id (入力の user_id をそのまま返す)")
+    relevance_score: int = Field(ge=0, le=100)
+    score_topic: int = Field(ge=0, le=25)
+    score_age: int = Field(ge=0, le=25)
+    score_geographic: int = Field(ge=0, le=25)
+    score_urgency: int = Field(ge=0, le=25)
+    matched_interests: list[Interest] = Field(default_factory=list)
+    reasoning: str = Field(max_length=200)
+    contains_political_judgment: bool
+
+    def to_relevance_output(self) -> RelevanceOutput:
+        """既存の RelevanceOutput に変換 (user_id を捨てる)。"""
+        return RelevanceOutput(
+            relevance_score=self.relevance_score,
+            score_topic=self.score_topic,
+            score_age=self.score_age,
+            score_geographic=self.score_geographic,
+            score_urgency=self.score_urgency,
+            matched_interests=list(self.matched_interests),
+            reasoning=self.reasoning,
+            contains_political_judgment=self.contains_political_judgment,
+        )
+
+
+class MultiPersonaRelevanceOutput(BaseModel):
+    """Gemini 1 リクエストで N ペルソナを採点した結果 (Phase Y)。"""
+
+    results: list[PersonaRelevanceOutput] = Field(
+        description="各ペルソナの評価結果 (入力順に並ぶ)",
+    )
 
 
 class ScoredSpeech(BaseModel):

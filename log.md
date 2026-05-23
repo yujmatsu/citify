@@ -1,5 +1,143 @@
 # Citify 作業ログ
 
+## 2026-05-23 (Fri) Session 38 — Phase Y: 複数ペルソナ fan-out (1 speech × 5 persona 一括採点)
+
+### Completed
+
+- [x] **AgeGroup スキーマを 5 区分に拡張** (4 → 5):
+  - Before: `"18-24", "25-29", "30-34", "35+"`
+  - After: `"18-24", "25-29", "30-39", "40-49", "50+"`
+  - 影響: `agents/relevance/schema.py`, `agents/translator/schema.py`, `__main__.py` × 2, `worker.py`, `prompts/system.py` × 2, `apps/web/src/lib/persona.ts`, `apps/web/src/app/onboarding/page.tsx`
+- [x] **`agents/relevance/personas.json` 作成 (5 ペルソナ)**:
+  - `demo-18-24` (大学生・若手社会人): 雇用, 教育, 住居, 起業, 結婚
+  - `demo-25-29` (若手社会人・新婚): 住居, 雇用, 税, 子育て
+  - `demo-30-39` (子育て世代): 子育て, 教育, 税, 医療, 住居
+  - `demo-40-49` (働き盛り・親介護期): 教育, 医療, 税, 住居, 移住
+  - `demo-50+` (シニア・退職前後): 医療, 防災, 税, 移住, 起業
+- [x] **`agents/relevance/personas.py` (loader)** 新規: JSON → `UserPersona[]`
+- [x] **`agents/relevance/schema.py`** に `PersonaRelevanceOutput` + `MultiPersonaRelevanceOutput` 追加 (Gemini response_schema)
+- [x] **`agents/relevance/main.py`** に `score_multi(input, personas)` メソッド追加:
+  - 1 Gemini 呼び出しで N persona を一括採点
+  - 入力順 ≠ 出力順に備えて user_id で map
+  - 個別 persona の倫理違反は当該 persona のみ below_threshold (他は通常公開)
+  - graceful: Gemini API 失敗 / 空入力 → 全 persona below_threshold
+- [x] **`agents/relevance/prompts/system.py`** に `build_multi_user_prompt(...)` 追加 + score_age の 5 区分ガイダンス更新
+- [x] **`agents/relevance/worker.py`** を multi-persona 対応:
+  - `make_handler(agent, pub, topic, personas: list[UserPersona])`
+  - 1 envelope → score_multi → N ScoredSpeech publish
+  - CLI: `--personas-file` 推奨、legacy single-persona CLI も互換維持
+  - default は同梱の `personas.json`
+- [x] **`apps/web/src/lib/persona.ts`**: `AGE_GROUPS` を 5 区分に
+- [x] **`apps/web/src/app/onboarding/page.tsx`**: `AGE_LABEL` を 5 区分に
+- [x] **Terraform** `infra/env/dev/main.tf`: relevance worker job args を `--personas-file agents/relevance/personas.json` に刷新 (旧 CLI 引数を削除)
+- [x] **conftest.py (root)** 新規: dev sandbox で `google.genai._interactions.types.signing_secret` が読めず ImportError になる問題に対し、`sys.modules` にスタブ注入 (production の SDK は触らない)
+- [x] **pytest 68/68 PASS** (`agents/distributor` 27 + `agents/relevance` 23 + `agents/translator` 18):
+  - 新規 multi-persona テスト 7 件 (3 persona 並列採点 / user_id 欠落 / 空 persona / 空入力 / 個別倫理違反 / personas.json load / N 件 publish)
+- [x] **`next build` PASS** (Route 6 維持、TypeScript pass)
+- [x] **`ruff format` + `ruff check`** all PASS
+
+### Decisions
+
+- ✅ **AgeGroup 5 区分採用**: 30-34 と 35+ の代わりに 30-39/40-49/50+ にすることで「子育て世代/親介護期/シニア」の説明が明快、デモ価値向上
+- ✅ **1 prompt N persona scoring**: Gemini API 呼び出し回数を N → 1 にし、コスト・レイテンシ共に最小化。token は ペルソナ数に応じて増えるが許容範囲
+- ✅ **personas.json で静的定義**: Firestore に動的格納する案も検討したが、ハッカソンスコープでは過剰、コードレビュー可能性が高いので static で十分
+- ✅ **legacy CLI 引数を残置**: `--user-id` 等は backwards-compat のため残す (テスト・ローカル単発確認用)
+- ✅ **conftest.py で global stub**: production code は触らず、dev sandbox の都合のみ吸収。Phase X の Firestore stub と同じ方針
+
+### Files Modified / Added
+
+#### Agents
+
+- `agents/relevance/personas.json` (新規、5 ペルソナ)
+- `agents/relevance/personas.py` (新規、JSON loader)
+- `agents/relevance/schema.py` — AgeGroup 5 区分 + PersonaRelevanceOutput / MultiPersonaRelevanceOutput
+- `agents/relevance/main.py` — score_multi + _call_gemini_multi + _below_threshold_persona
+- `agents/relevance/prompts/system.py` — build_multi_user_prompt + score_age 5 区分ガイダンス
+- `agents/relevance/worker.py` — multi-persona make_handler + run_worker + --personas-file CLI
+- `agents/relevance/__main__.py` — choices 5 区分
+- `agents/relevance/__init__.py` — exports 追加
+- `agents/relevance/tests/test_relevance.py` — multi-persona テスト 6 件追加
+- `agents/relevance/tests/test_worker.py` — multi-persona ハンドラ向けに書き換え
+- `agents/translator/schema.py` — AgeGroup 5 区分
+- `agents/translator/prompts/system.py` — TONE_GUIDANCE 5 区分
+- `agents/translator/__main__.py` — choices 5 区分
+- `agents/translator/tests/test_translator.py` — `35+` → `50+` 修正
+
+#### Infra / Frontend
+
+- `infra/env/dev/main.tf` — relevance worker job args 刷新 (--personas-file)
+- `apps/web/src/lib/persona.ts` — AGE_GROUPS 5 区分
+- `apps/web/src/app/onboarding/page.tsx` — AGE_LABEL 5 区分
+
+#### Test infra
+
+- `conftest.py` (root, 新規) — google.genai stub for dev sandbox
+
+#### State files
+
+- `tasks.json`, `log.md` 更新
+
+### Pending (ユーザー手動操作)
+
+- [ ] Cloud Build で workers イメージ rebuild (`gcloud builds submit --config=cloudbuild-workers.yaml --region=asia-northeast1 --project=citify-dev`)
+- [ ] `terraform apply` で relevance worker job の args 反映
+- [ ] live 動作確認: 1 speech publish → BQ scored_speeches に 5 行 (5 user_id) 増えること、5 ペルソナそれぞれのフィードに表示されること
+
+### Next
+
+- Cloud Run Worker live 確認後、Week 4 着手 (Veo/Imagen B-3/B-4 + デモシナリオ準備) or リアクション集計 (Phase X+1)
+
+---
+
+## 2026-05-23 (Fri) Session 37 — Phase X live verification (Firestore CRUD + ブラウザ動作確認)
+
+### Completed
+
+- [x] **Firestore database 作成** (asia-northeast1, native mode、free tier)
+  - 手動: `gcloud firestore databases create --location=asia-northeast1 --project=citify-dev --type=firestore-native`
+  - 結果: `projects/citify-dev/databases/(default)` 作成、uid=3bfdc6c4-24e6-40b6-be5a-5b46e474ff54
+- [x] **Terraform apply**: citify-api-runtime SA に `roles/datastore.user` 付与 (1 リソース added)
+- [x] **`cloudbuild.yaml` を BUILD_ID 化**: 手動 `gcloud builds submit` 時に `$COMMIT_SHA` が空で image tag `:` 不正となる問題、5 箇所 `$COMMIT_SHA → $BUILD_ID` 置換
+- [x] **Cloud Run citify-api rebuild**: `gcloud builds submit` で 1m18s, build `1934160f-5dcc-47dd-8e49-35ab38cedafa` SUCCESS、smoke /health 200
+- [x] **BFF live smoke (CRUD ライフサイクル)** — speech_id=`衆議院:221:第4号:60` で実施:
+  - `GET (before)` → `reaction: null` ✅
+  - `PUT 👍` → `reaction: 👍` ✅
+  - `GET (after PUT)` → `reaction: 👍, updated_at: 2026-05-22T08:50:58Z` ✅
+  - `DELETE` → `reaction: null` ✅
+  - `GET (after DELETE)` → `reaction: null` ✅
+- [x] **Firebase App Hosting (frontend) 自動 rollout** (main push 検知 → build → deploy)
+- [x] **ブラウザ live 動作確認**: 詳細画面でリアクション押下 → リロード後も保持 → 解除も保持
+
+### Decisions
+
+- ✅ **`$COMMIT_SHA → $BUILD_ID` 永続化**: cloudbuild-workers.yaml で先に対応した方針を統一、手動 submit と GitHub trigger の双方で動く
+- ✅ **Firestore default DB を 1 つだけ作成**: ハッカソンスコープでは複数 DB 不要、free tier (50K reads + 20K writes/day) 圏内
+
+### Files Modified
+
+- `cloudbuild.yaml` — COMMIT_SHA → BUILD_ID 全置換
+- `tasks.json` — Phase X live 確認済に更新
+- `Plans.md` — A-9 行に Phase X live 動作確認の記述追加
+- `log.md` — Session 37 追記
+
+### Verification
+
+- ✅ Cloud Build: `1934160f-5dcc-47dd-8e49-35ab38cedafa` SUCCESS (1m18s)
+- ✅ Cloud Run health: `{"status":"ok","version":"0.1.0-dev"}`
+- ✅ Firestore: `reactions/{user_id}__{speech_id}` 形式で読書き OK
+- ✅ Frontend: 楽観更新 + 永続化 + 解除すべて動作
+
+### Next
+
+- Phase X クロージング完了。次の major work 候補:
+  - Week 4: B-3/B-4 (Veo/Imagen) でサムネ + 60 秒動画生成
+  - 1 ペルソナ → 複数ペルソナ fan-out (relevance worker 強化)
+  - リアクション集計 (`reaction_counts/{speech_id}` で社会的バリデーション、Phase X+1)
+  - デモシナリオ + ピッチスライド準備
+- ユーザー判断待ち
+
+---
+
 ## 2026-05-22 (Thu) Session 36 — Phase X: リアクション永続化 (Firestore)
 
 ### Completed

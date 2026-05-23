@@ -6,7 +6,13 @@
 
 import { z } from "zod";
 
-export const AGE_GROUPS = ["18-24", "25-29", "30-34", "35+"] as const;
+export const AGE_GROUPS = [
+  "18-24",
+  "25-29",
+  "30-39",
+  "40-49",
+  "50+",
+] as const;
 export type AgeGroup = (typeof AGE_GROUPS)[number];
 
 export const INTERESTS = [

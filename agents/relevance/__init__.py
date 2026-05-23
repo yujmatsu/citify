@@ -13,9 +13,12 @@
 """
 
 from .main import RelevanceAgent
+from .personas import load_personas
 from .schema import (
     AgeGroup,
     Interest,
+    MultiPersonaRelevanceOutput,
+    PersonaRelevanceOutput,
     RelevanceInput,
     RelevanceOutput,
     UserPersona,
@@ -24,8 +27,11 @@ from .schema import (
 __all__ = [
     "AgeGroup",
     "Interest",
+    "MultiPersonaRelevanceOutput",
+    "PersonaRelevanceOutput",
     "RelevanceAgent",
     "RelevanceInput",
     "RelevanceOutput",
     "UserPersona",
+    "load_personas",
 ]

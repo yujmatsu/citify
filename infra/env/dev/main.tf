@@ -85,15 +85,13 @@ locals {
       cpu    = "1"
     }
     relevance = {
+      # Phase Y: multi-persona fan-out (personas.json で 5 ペルソナ定義)
       command = ["python", "-m", "agents.relevance.worker"]
       args = [
         "--project-id", "citify-dev",
         "--input-subscription", "citify-speech-translated-sub",
         "--output-topic", "citify-speech-scored",
-        "--user-id", "demo-25-29",
-        "--user-age-group", "25-29",
-        "--user-interests", "住居", "雇用", "税", "子育て",
-        "--user-municipality-codes", "33000", "00000",
+        "--personas-file", "agents/relevance/personas.json",
       ]
       memory = "1Gi"
       cpu    = "1"

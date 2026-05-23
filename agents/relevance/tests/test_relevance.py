@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from agents.relevance.main import RelevanceAgent
-from agents.relevance.schema import RelevanceInput, RelevanceOutput, UserPersona
+from agents.relevance.schema import (
+    MultiPersonaRelevanceOutput,
+    PersonaRelevanceOutput,
+    RelevanceInput,
+    RelevanceOutput,
+    UserPersona,
+)
 
 
 class _MockGenAIModels:
@@ -280,3 +286,169 @@ def test_relevance_score_max_100():
             reasoning="...",
             contains_political_judgment=False,
         )
+
+
+# ============================================================================
+# Phase Y: multi-persona fan-out
+# ============================================================================
+
+
+def _make_persona_output(user_id: str, score: int = 70) -> PersonaRelevanceOutput:
+    per_dim = score // 4
+    return PersonaRelevanceOutput(
+        user_id=user_id,
+        relevance_score=score,
+        score_topic=per_dim + (score - per_dim * 4),
+        score_age=per_dim,
+        score_geographic=per_dim,
+        score_urgency=per_dim,
+        matched_interests=["子育て"],
+        reasoning=f"{user_id} には関心軸が部分的にヒット。",
+        contains_political_judgment=False,
+    )
+
+
+class _MockGenAIMultiModels:
+    """multi-persona 用 mock。generate_content が MultiPersonaRelevanceOutput を返す。"""
+
+    def __init__(self, response: MultiPersonaRelevanceOutput) -> None:
+        self.response = response
+        self.call_count = 0
+        self.last_call_args: dict = {}
+
+    def generate_content(self, *, model: str, contents: str, config: object) -> object:
+        self.last_call_args = {"model": model, "contents": contents, "config": config}
+        self.call_count += 1
+
+        class _MockResponse:
+            def __init__(self, parsed: MultiPersonaRelevanceOutput) -> None:
+                self.parsed = parsed
+                self.text = parsed.model_dump_json()
+
+        return _MockResponse(self.response)
+
+
+class _MockGenAIMultiClient:
+    def __init__(self, response: MultiPersonaRelevanceOutput) -> None:
+        self.models = _MockGenAIMultiModels(response)
+
+
+def test_score_multi_returns_one_output_per_persona():
+    """3 ペルソナを 1 API 呼び出しで採点 → 3 件の結果が user_id 順に返る。"""
+    multi = MultiPersonaRelevanceOutput(
+        results=[
+            _make_persona_output("demo-18-24", score=60),
+            _make_persona_output("demo-25-29", score=80),
+            _make_persona_output("demo-30-39", score=70),
+        ]
+    )
+    client = _MockGenAIMultiClient(multi)
+    agent = RelevanceAgent(project_id="test", client=client)
+
+    personas = [
+        UserPersona(user_id="demo-18-24", age_group="18-24", interests=["雇用"]),
+        UserPersona(user_id="demo-25-29", age_group="25-29", interests=["住居"]),
+        UserPersona(user_id="demo-30-39", age_group="30-39", interests=["子育て"]),
+    ]
+    results = agent.score_multi(_make_input(), personas)
+
+    assert client.models.call_count == 1  # 1 API 呼び出しで N persona
+    assert [r.user_id for r in results] == ["demo-18-24", "demo-25-29", "demo-30-39"]
+    assert [r.relevance_score for r in results] == [60, 80, 70]
+
+
+def test_score_multi_handles_missing_user_id_in_response():
+    """Gemini 出力に欠落 user_id がある場合、その persona は below_threshold。"""
+    multi = MultiPersonaRelevanceOutput(
+        results=[
+            _make_persona_output("demo-25-29", score=80),
+            # demo-30-39 が欠落
+        ]
+    )
+    client = _MockGenAIMultiClient(multi)
+    agent = RelevanceAgent(project_id="test", client=client)
+
+    personas = [
+        UserPersona(user_id="demo-25-29", age_group="25-29", interests=["住居"]),
+        UserPersona(user_id="demo-30-39", age_group="30-39", interests=["子育て"]),
+    ]
+    results = agent.score_multi(_make_input(), personas)
+
+    assert results[0].user_id == "demo-25-29"
+    assert results[0].relevance_score == 80
+    assert results[1].user_id == "demo-30-39"
+    assert results[1].relevance_score == 0  # below_threshold
+
+
+def test_score_multi_returns_empty_for_no_personas():
+    client = _MockGenAIMultiClient(MultiPersonaRelevanceOutput(results=[]))
+    agent = RelevanceAgent(project_id="test", client=client)
+
+    assert agent.score_multi(_make_input(), []) == []
+    assert client.models.call_count == 0
+
+
+def test_score_multi_empty_input_returns_below_threshold_for_all():
+    client = _MockGenAIMultiClient(MultiPersonaRelevanceOutput(results=[]))
+    agent = RelevanceAgent(project_id="test", client=client)
+
+    personas = [
+        UserPersona(user_id="demo-25-29", age_group="25-29"),
+        UserPersona(user_id="demo-30-39", age_group="30-39"),
+    ]
+    inp = _make_input().model_copy(update={"content_text": "  "})
+    results = agent.score_multi(inp, personas)
+
+    assert client.models.call_count == 0
+    assert all(r.relevance_score == 0 for r in results)
+    assert [r.user_id for r in results] == ["demo-25-29", "demo-30-39"]
+
+
+def test_score_multi_individual_ethics_violation_only_affects_that_persona():
+    """1 ペルソナだけ倫理違反 → そのペルソナのみ below_threshold、他は通常公開。"""
+    multi = MultiPersonaRelevanceOutput(
+        results=[
+            _make_persona_output("demo-25-29", score=80),
+            PersonaRelevanceOutput(
+                user_id="demo-30-39",
+                relevance_score=70,
+                score_topic=20,
+                score_age=20,
+                score_geographic=15,
+                score_urgency=15,
+                matched_interests=["子育て"],
+                reasoning="この施策に投票推奨します。",  # 禁止語
+                contains_political_judgment=False,
+            ),
+        ]
+    )
+    client = _MockGenAIMultiClient(multi)
+    agent = RelevanceAgent(project_id="test", client=client)
+
+    personas = [
+        UserPersona(user_id="demo-25-29", age_group="25-29"),
+        UserPersona(user_id="demo-30-39", age_group="30-39"),
+    ]
+    results = agent.score_multi(_make_input(), personas)
+
+    assert results[0].relevance_score == 80
+    assert results[1].relevance_score == 0  # 倫理違反 persona のみ below
+
+
+def test_load_personas_from_default_json():
+    """personas.json (5 ペルソナ) が正しく読める。"""
+    from agents.relevance.personas import load_personas
+
+    personas = load_personas()
+    assert len(personas) == 5
+    assert [p.user_id for p in personas] == [
+        "demo-18-24",
+        "demo-25-29",
+        "demo-30-39",
+        "demo-40-49",
+        "demo-50+",
+    ]
+    # 各 persona が schema validation を通る
+    for p in personas:
+        assert p.age_group in ("18-24", "25-29", "30-39", "40-49", "50+")
+        assert len(p.interests) >= 1

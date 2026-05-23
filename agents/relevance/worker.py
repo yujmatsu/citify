@@ -1,22 +1,30 @@
-"""RelevanceAgent の Pub/Sub worker (A-6)。
+"""RelevanceAgent の Pub/Sub worker (A-6 + Phase Y multi-persona fan-out)。
 
 `citify-speech-translated` subscription から TranslatedSpeech envelope を pull し、
-RelevanceAgent.score() を呼んで ScoredSpeech を `citify-speech-scored` topic に publish する。
+RelevanceAgent.score_multi() で N ペルソナを 1 API 呼び出しで一括採点、
+各ペルソナ分の ScoredSpeech を `citify-speech-scored` topic に publish する。
 
 設計:
-    - 1 envelope (TranslatedSpeech) → 1 ScoredSpeech (今のところ user は env/CLI 渡しの 1 件)
-    - 将来 user DB ができたら 1 envelope → N ScoredSpeech に fan-out 拡張
+    - 1 envelope (TranslatedSpeech) → N ScoredSpeech (N = personas.json の件数)
+    - 1 Gemini 呼び出し / 1 envelope (token は ペルソナ数に応じて増えるが API 呼び出しは 1 回)
     - 倫理: 関連性スコアは 0-100、reasoning は 200 字以内、政党推奨検出時は below_threshold
+    - 個別 persona の倫理違反は当該 persona のみ below_threshold (他は通常公開)
 
 ローカル動作確認:
     python -m agents.relevance.worker \\
         --project-id citify-dev \\
         --input-subscription citify-speech-translated-sub \\
         --output-topic citify-speech-scored \\
-        --user-age-group 25-29 \\
-        --user-interests 住居 雇用 税 \\
-        --user-municipality-codes 33000 00000 \\
+        --personas-file agents/relevance/personas.json \\
         --timeout-sec 60
+
+旧 (single-persona、CLI 互換性のため残置):
+    python -m agents.relevance.worker \\
+        --project-id citify-dev \\
+        --input-subscription citify-speech-translated-sub \\
+        --output-topic citify-speech-scored \\
+        --user-age-group 25-29 \\
+        --user-interests 住居 雇用 税
 """
 
 from __future__ import annotations
@@ -28,9 +36,11 @@ import sys
 from pkg.pubsub import MessageEnvelope, PubSubPublisher, PubSubSubscriber
 
 from .main import DEFAULT_LOCATION, DEFAULT_MODEL, RelevanceAgent
+from .personas import DEFAULT_PERSONAS_PATH, load_personas
 from .schema import (
     ALL_INTERESTS,
     Interest,
+    PersonaRelevanceOutput,
     RelevanceInput,
     RelevanceOutput,
     ScoredSpeech,
@@ -105,9 +115,9 @@ def make_handler(
     agent: RelevanceAgent,
     publisher: PubSubPublisher,
     output_topic: str,
-    user: UserPersona,
+    personas: list[UserPersona],
 ):
-    """1 envelope を採点 → ScoredSpeech publish する handler を生成。"""
+    """1 envelope を N ペルソナ分採点 → N 件 ScoredSpeech publish する handler を生成。"""
 
     def handler(envelope: MessageEnvelope) -> None:
         if envelope.payload_type != "TranslatedSpeech":
@@ -118,25 +128,31 @@ def make_handler(
             )
             return
 
-        rel_input = _envelope_to_relevance_input(envelope, user)
-        score: RelevanceOutput = agent.score(rel_input)
-        scored = _build_scored_speech(envelope, rel_input, score)
+        # 入力 envelope はペルソナ独立、user_id 情報は不要なので personas[0] を仮にセット
+        rel_input = _envelope_to_relevance_input(envelope, personas[0])
+        persona_outputs: list[PersonaRelevanceOutput] = agent.score_multi(rel_input, personas)
 
-        out_env = MessageEnvelope.wrap(SOURCE, scored)
-        attrs = {
-            "speech_id": rel_input.speech_id,
-            "user_id": user.user_id,
-            "municipality_code": rel_input.municipality_code,
-            "score": str(score.relevance_score),
-        }
-        publisher.publish_envelope(output_topic, out_env, attributes=attrs)
-        logger.info(
-            "worker.scored_published speech_id=%s user=%s score=%d matched=%s",
-            rel_input.speech_id,
-            user.user_id,
-            score.relevance_score,
-            ",".join(score.matched_interests) or "(none)",
-        )
+        for persona, p_out in zip(personas, persona_outputs, strict=True):
+            score: RelevanceOutput = p_out.to_relevance_output()
+            # ScoredSpeech は per-user の input を必要とするため再構築
+            per_user_input = rel_input.model_copy(update={"user": persona})
+            scored = _build_scored_speech(envelope, per_user_input, score)
+
+            out_env = MessageEnvelope.wrap(SOURCE, scored)
+            attrs = {
+                "speech_id": rel_input.speech_id,
+                "user_id": persona.user_id,
+                "municipality_code": rel_input.municipality_code,
+                "score": str(score.relevance_score),
+            }
+            publisher.publish_envelope(output_topic, out_env, attributes=attrs)
+            logger.info(
+                "worker.scored_published speech_id=%s user=%s score=%d matched=%s",
+                rel_input.speech_id,
+                persona.user_id,
+                score.relevance_score,
+                ",".join(score.matched_interests) or "(none)",
+            )
 
     return handler
 
@@ -145,23 +161,23 @@ def run_worker(
     project_id: str,
     input_subscription: str,
     output_topic: str,
-    user: UserPersona,
+    personas: list[UserPersona],
     location: str = DEFAULT_LOCATION,
     model: str = DEFAULT_MODEL,
     timeout_sec: float | None = None,
 ) -> None:
-    """worker 起動。"""
+    """worker 起動 (N ペルソナ multi fan-out)。"""
     agent = RelevanceAgent(project_id=project_id, location=location, model=model)
     publisher = PubSubPublisher(project_id=project_id)
     subscriber = PubSubSubscriber(project_id=project_id)
 
-    handler = make_handler(agent, publisher, output_topic, user)
+    handler = make_handler(agent, publisher, output_topic, personas)
     logger.info(
-        "worker.start project=%s in_sub=%s out_topic=%s user=%s timeout=%s",
+        "worker.start project=%s in_sub=%s out_topic=%s personas=%s timeout=%s",
         project_id,
         input_subscription,
         output_topic,
-        user.user_id,
+        [p.user_id for p in personas],
         timeout_sec,
     )
     subscriber.run(subscription=input_subscription, handler=handler, timeout_sec=timeout_sec)
@@ -186,11 +202,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--location", default=DEFAULT_LOCATION)
     parser.add_argument("--model", default=DEFAULT_MODEL)
 
-    # User persona (将来 user DB / Firestore に切り替え)
-    parser.add_argument("--user-id", default="anonymous", help="ペルソナ ID")
+    # Multi-persona (Phase Y): personas.json を読む方式を推奨
+    parser.add_argument(
+        "--personas-file",
+        type=str,
+        default=None,
+        help=f"ペルソナ JSON ファイル (default: {DEFAULT_PERSONAS_PATH})",
+    )
+
+    # Legacy: 単一 persona CLI 指定 (--personas-file が未指定の場合のみ有効)
+    parser.add_argument("--user-id", default="anonymous", help="(legacy) 単一ペルソナ ID")
     parser.add_argument(
         "--user-age-group",
-        choices=["18-24", "25-29", "30-34", "35+"],
+        choices=["18-24", "25-29", "30-39", "40-49", "50+"],
         default="25-29",
     )
     parser.add_argument(
@@ -198,13 +222,13 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="*",
         default=[],
         choices=list(ALL_INTERESTS),
-        help="関心軸 (10 軸から選択、複数可)",
+        help="(legacy) 単一ペルソナの関心軸",
     )
     parser.add_argument(
         "--user-municipality-codes",
         nargs="*",
         default=[],
-        help="登録自治体コード (5 桁、複数可)",
+        help="(legacy) 単一ペルソナの登録自治体コード",
     )
 
     parser.add_argument(
@@ -225,19 +249,32 @@ def main() -> int:
         stream=sys.stderr,
     )
 
-    interests: list[Interest] = list(args.user_interests)
-    user = UserPersona(
-        user_id=args.user_id,
-        age_group=args.user_age_group,
-        interests=interests,
-        municipality_codes=list(args.user_municipality_codes),
-    )
+    # Personas 決定: --personas-file 指定なら JSON、なければ legacy CLI single-persona
+    if args.personas_file is not None:
+        personas = load_personas(args.personas_file)
+    elif args.user_id != "anonymous" or args.user_interests:
+        # legacy single-persona path (テスト・ローカル向け)
+        interests: list[Interest] = list(args.user_interests)
+        personas = [
+            UserPersona(
+                user_id=args.user_id,
+                age_group=args.user_age_group,
+                interests=interests,
+                municipality_codes=list(args.user_municipality_codes),
+            )
+        ]
+    else:
+        # default: パッケージ同梱の personas.json
+        personas = load_personas()
+
+    if not personas:
+        raise SystemExit("no personas configured (check --personas-file or CLI flags)")
 
     run_worker(
         project_id=args.project_id,
         input_subscription=args.input_subscription,
         output_topic=args.output_topic,
-        user=user,
+        personas=personas,
         location=args.location,
         model=args.model,
         timeout_sec=args.timeout_sec,

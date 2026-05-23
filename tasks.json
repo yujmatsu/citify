@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-22T13:00:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W (RAG 統合) + Phase X (リアクション永続化 実装完)**。Phase T MVP + Phase U 国会 E2E + Phase V A-2 自治体マスタ UI + Phase W A-9 RAG 統合 + Phase X リアクション永続化 (Firestore)。Phase X 内容: BFF GET/PUT/DELETE /v1/speeches/{id}/reaction + Firestore native (asia-northeast1) + frontend 楽観更新 + pytest 7/7 PASS + next build PASS。citify-api-runtime SA に roles/datastore.user 付与 (terraform fmt 済)、Dockerfile に google-cloud-firestore 追加。残: Cloud Run rebuild + Firestore database 手動作成 + live 動作確認。次: Week 4 (Veo/Imagen B-3/B-4 + 複数ペルソナ fan-out + デモシナリオ準備)",
+  "updated": "2026-05-23T10:00:00+09:00",
+  "active_week_note": "**Week 3 完了 + Phase W/X live 動作確認 + Phase Y (複数ペルソナ fan-out) 実装完**。Phase Y 内容: AgeGroup を 4→5 区分 (18-24/25-29/30-39/40-49/50+) に拡張、agents/relevance/personas.json で 5 ペルソナ定義、agent.score_multi() で 1 API 呼び出し N persona 採点、worker は 1 envelope → 5 ScoredSpeech publish。Gemini コスト最小化 (1 envelope 1 prompt)。frontend onboarding も 5 択 UI に。pytest 68/68 PASS + next build PASS。Terraform: relevance worker job args を --personas-file に。残: Cloud Run Worker rebuild + live 動作確認 (1 speech → BQ 5 行 scored)。次: Week 4 (Veo/Imagen B-3/B-4 + デモシナリオ準備)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

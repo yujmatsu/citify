@@ -113,10 +113,10 @@ def test_translate_uses_age_group_in_prompt():
     client = _MockGenAIClient([_make_good_output()])
     agent = TranslatorAgent(project_id="test", client=client)
 
-    inp = _make_input().model_copy(update={"age_group": "35+"})
+    inp = _make_input().model_copy(update={"age_group": "50+"})
     agent.translate(inp)
 
-    assert "35+" in client.models.last_call_args["contents"]
+    assert "50+" in client.models.last_call_args["contents"]
 
 
 # ============================================================================

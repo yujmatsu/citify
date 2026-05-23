@@ -48,7 +48,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # persona
     parser.add_argument(
         "--age-group",
-        choices=["18-24", "25-29", "30-34", "35+"],
+        choices=["18-24", "25-29", "30-39", "40-49", "50+"],
         default="25-29",
     )
     parser.add_argument(

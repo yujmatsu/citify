@@ -1,0 +1,41 @@
+{
+  "_description": "Citify デモ用ペルソナ定義 (5 世代)。relevance worker が起動時に読み込み、1 speech × N persona で fan-out スコアリング。",
+  "_schema_version": "1.0",
+  "personas": [
+    {
+      "user_id": "demo-18-24",
+      "age_group": "18-24",
+      "interests": ["雇用", "教育", "住居", "起業", "結婚"],
+      "municipality_codes": ["00000"],
+      "label": "大学生・若手社会人"
+    },
+    {
+      "user_id": "demo-25-29",
+      "age_group": "25-29",
+      "interests": ["住居", "雇用", "税", "子育て"],
+      "municipality_codes": ["00000"],
+      "label": "若手社会人・新婚"
+    },
+    {
+      "user_id": "demo-30-39",
+      "age_group": "30-39",
+      "interests": ["子育て", "教育", "税", "医療", "住居"],
+      "municipality_codes": ["00000"],
+      "label": "子育て世代"
+    },
+    {
+      "user_id": "demo-40-49",
+      "age_group": "40-49",
+      "interests": ["教育", "医療", "税", "住居", "移住"],
+      "municipality_codes": ["00000"],
+      "label": "働き盛り・親介護期"
+    },
+    {
+      "user_id": "demo-50+",
+      "age_group": "50+",
+      "interests": ["医療", "防災", "税", "移住", "起業"],
+      "municipality_codes": ["00000"],
+      "label": "シニア・退職前後"
+    }
+  ]
+}

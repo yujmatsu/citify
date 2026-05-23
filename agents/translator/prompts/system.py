@@ -7,12 +7,13 @@ from __future__ import annotations
 
 PROMPT_VERSION = "v1.0"
 
-# ペルソナ年代別のトーン指示 (build_user_prompt で動的に埋める)
+# ペルソナ年代別のトーン指示 (build_user_prompt で動的に埋める、Phase Y で 5 区分に拡張)
 TONE_GUIDANCE = {
     "18-24": "casual: SNS 投稿風、フレンドリーで親しみやすく。ただし顔文字や絵文字は使わない",
     "25-29": "casual: 友達に説明する口調、固すぎず軽すぎず",
-    "30-34": "neutral: 一般読者向けニュース風、丁寧だが堅苦しくない",
-    "35+": "formal: 落ち着いた解説調、専門用語があれば必ず補足",
+    "30-39": "neutral: 一般読者向けニュース風、丁寧だが堅苦しくない",
+    "40-49": "neutral: ビジネス読者向け、要点を簡潔に",
+    "50+": "formal: 落ち着いた解説調、専門用語があれば必ず補足",
 }
 
 SYSTEM_PROMPT = """あなたは Citify の翻訳エージェントです。

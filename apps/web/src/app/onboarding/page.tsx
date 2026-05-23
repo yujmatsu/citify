@@ -15,8 +15,9 @@ import { cn } from "@/lib/utils";
 const AGE_LABEL: Record<AgeGroup, string> = {
   "18-24": "18-24 歳",
   "25-29": "25-29 歳",
-  "30-34": "30-34 歳",
-  "35+": "35 歳以上",
+  "30-39": "30-39 歳",
+  "40-49": "40-49 歳",
+  "50+": "50 歳以上",
 };
 
 const INTEREST_EMOJI: Record<Interest, string> = {

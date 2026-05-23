@@ -14,8 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# ペルソナ年代区分 (FEATURES.md A-1 準拠)
-AgeGroup = Literal["18-24", "25-29", "30-34", "35+"]
+# ペルソナ年代区分 (FEATURES.md A-1 準拠、Phase Y で 5 区分に拡張)
+AgeGroup = Literal["18-24", "25-29", "30-39", "40-49", "50+"]
 
 # トーン分類 (年代に応じて出し分け)
 Tone = Literal["casual", "neutral", "formal"]
