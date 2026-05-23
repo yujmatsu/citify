@@ -1,5 +1,63 @@
 # Citify 作業ログ
 
+## 2026-05-23 (Sat) Session 41 — Phase X+1 live verification (集計 CRUD 全 PASS + dot-path bug 修正)
+
+### Completed
+
+- [x] **Cloud Build × 2 で citify-api rebuild**:
+  - build `0bec2219-9cd9-4f04-b551-b3d5dacf57aa` (Phase X+1 初版、SUCCESS 1m19s)
+  - build `72d73da5-86b0-48cd-a14f-0ceadb89111f` (dot-path bug 修正版、SUCCESS 1m26s)
+- [x] **dot-path bug 発見・修正**:
+  - 初版 PUT/DELETE は `batch.set(counts_ref, {"counts.👍": Increment(1)}, merge=True)` で渡していたが、Firestore SDK の `batch.set()` は dot-path を nested field path として **解釈しない** (dot-path 解釈は `update()` のみ)
+  - 結果: `counts.👍` が literal トップレベルフィールド名で保存され、`counts` map とは別物に → summary の `data.get("counts")` で参照不可、Increment は機能しているが見えない値を更新
+  - 修正: nested map `{"counts": {body.reaction: Increment(1)}}` で渡し、Firestore の `set(merge=True)` deep merge 挙動に乗せる
+  - test mock (`_FakeFirestore`) も `_deep_apply()` 再帰で本物 Firestore 挙動を模倣
+- [x] **Firestore Console でゴミデータ手動削除**:
+  - `reaction_counts/衆議院:221:第4号:60` (dot-path bug 版で書かれた literal field + 修正版の差分計算で負値混在状態) を delete
+  - `reaction_counts/参議院:221:第2...` も同様に delete
+- [x] **live CRUD smoke 全 PASS** (clean state から、`衆議院:221:第4号:60` × demo-25-29 で):
+  - 削除直後: `{counts: {全 0}, total: 0}` ✅
+  - **PUT 🔥 (新規)** → `{counts.🔥: 1, total: 1}` ✅
+  - **PUT 👍 (上書き)** → `{counts.👍: 1, counts.🔥: 0, total: 1}` (total 不変) ✅
+  - **DELETE** → `{counts: {全 0}, total: 0}` ✅
+- [x] state files 最終更新
+
+### Decisions
+
+- ✅ **dot-path 解釈は `update()` 専用、`set()` 系では nested map**: Firestore Python SDK の挙動を後で誤解しないよう、main.py のコメントに明記
+- ✅ **既存壊れたドキュメントは Console 手動削除**: バックフィルスクリプトを書くより、デモなので clean リセットが簡単
+- ✅ **summary の `max(0, v)` ガードは残す**: 万一の不整合 (deploy 過渡期等) でも UI に負数を出さない、防御的
+
+### Files Modified
+
+- `apps/api/main.py` — PUT/DELETE の nested map 化 + コメント追加
+- `apps/api/tests/test_reactions.py` — `_FakeFirestore._deep_apply()` で deep merge mock 強化
+- `tasks.json`, `Plans.md`, `log.md` 更新
+
+### Verification
+
+- ✅ Cloud Build: `72d73da5` SUCCESS (修正版)
+- ✅ Cloud Run: 新 revision deploy 完了 + smoke /health PASS
+- ✅ Firestore: clean state からの全 CRUD ライフサイクル PASS
+- ✅ Frontend: バッジ表示 + 楽観更新ロジックは Phase X+1 セッション 40 で実装済、build PASS
+
+### Lessons Learned
+
+- **Firestore SDK の dot-path 規約**:
+  - `update(field_path={...})` のみが dot-path を nested field path として解釈
+  - `set()` / `batch.set()` は dot-path をリテラルなフィールド名にする
+  - 解決策: nested map + `merge=True` で deep merge に任せる
+- **Production Firestore は test mock では再現困難**: テストは PASS していたが live で挙動が異なった (mock の `_FakeBatch.set` も最初は dot-path 解釈する実装で誤って PASS していた)。今回は test 側も Firestore 挙動に合わせて再実装。
+
+### Next
+
+- Phase X+1 完全クロージング。次の major work 候補:
+  - Week 4: B-3/B-4 (Veo/Imagen) でサムネ + 60 秒動画生成 — ハッカソンデモの華
+  - デモシナリオ + ピッチスライド準備 (7/10 提出向け)
+  - Cloud Run Job の Scheduler 起動を `--paused=false` に切替えて 4 段パイプラインを定常運用化
+
+---
+
 ## 2026-05-23 (Sat) Session 40 — Phase X+1: リアクション集計 (社会的バリデーション)
 
 ### Completed
