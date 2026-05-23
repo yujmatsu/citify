@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-23T10:00:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W/X live 動作確認 + Phase Y (複数ペルソナ fan-out) 実装完**。Phase Y 内容: AgeGroup を 4→5 区分 (18-24/25-29/30-39/40-49/50+) に拡張、agents/relevance/personas.json で 5 ペルソナ定義、agent.score_multi() で 1 API 呼び出し N persona 採点、worker は 1 envelope → 5 ScoredSpeech publish。Gemini コスト最小化 (1 envelope 1 prompt)。frontend onboarding も 5 択 UI に。pytest 68/68 PASS + next build PASS。Terraform: relevance worker job args を --personas-file に。残: Cloud Run Worker rebuild + live 動作確認 (1 speech → BQ 5 行 scored)。次: Week 4 (Veo/Imagen B-3/B-4 + デモシナリオ準備)",
+  "updated": "2026-05-23T19:00:00+09:00",
+  "active_week_note": "**Week 3 完了 + Phase W/X/Y live 動作確認完了**。Phase Y (複数ペルソナ fan-out) live 確認: 1 envelope (参議院:221:第5号:51) → 1 Gemini multi 呼び出し → 5 ペルソナ scored → BQ 5 行 INSERT。BQ で demo-18-24/25-29/30-39/40-49/50+ 全部が確認済。Workers build 7f42c061 + Terraform apply 4 jobs updated + relevance worker args=--personas-file 反映済。次: Week 4 (Veo/Imagen B-3/B-4 + デモシナリオ準備) or リアクション集計 (Phase X+1)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

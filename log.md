@@ -1,5 +1,55 @@
 # Citify 作業ログ
 
+## 2026-05-23 (Sat) Session 39 — Phase Y live verification (5 ペルソナ fan-out が BQ で確認済)
+
+### Completed
+
+- [x] **Workers Cloud Build rebuild**: `gcloud builds submit --config=cloudbuild-workers.yaml` → build `7f42c061-5f20-4f4c-8596-03bd586fb1d8` SUCCESS (1m18s)、google-genai + Phase Y worker コード反映
+- [x] **`terraform apply`**: 4 Cloud Run Jobs updated (translator / relevance / distributor / bq-sink-scored)、relevance worker args が `--personas-file agents/relevance/personas.json` に切替
+- [x] **国会データ 1 件 publish**: `python -m scrapers.kokkai publish-from-bq --project-id citify-dev --limit 1` で speech_id=参議院:221:第5号:51 (外国人材農業) を citify-speech-translate に投入
+- [x] **translator worker**: speech 1 件を Gemini で翻訳 → speech_translated に publish (Cloud Run job ログで確認)
+- [x] **relevance worker live (Phase Y 本番)**: 1 envelope を 5 ペルソナで一括採点 → 5 件 publish (実行 `citify-worker-relevance-2qqcr`)
+- [x] **bq-sink-scored worker**: 5 件 pull → BQ scored_speeches に 5 行 INSERT (実行 `citify-worker-bq-sink-scored-z799r`)
+- [x] **BQ 集計確認** (Phase Y live PASS):
+  ```
+  user_id              n
+  demo-18-24           1   ← Phase Y で新規追加
+  demo-25-29          21   ← 既存 20 + 新規 1 (累積)
+  demo-30-39           1   ← Phase Y で新規追加
+  demo-40-49           1   ← Phase Y で新規追加
+  demo-50+             1   ← Phase Y で新規追加
+  test-25-29-okayama   5   (Phase X 以前のテストデータ)
+  ```
+- [x] **state files** 更新 (tasks.json / Plans.md / log.md)
+
+### Trouble Shooting
+
+- ⚠️ 初回 publish が `--project-id` 欠落 → `--project-id citify-dev` を付けて再実行 (CLI が required arg として持っていたため)
+- ⚠️ `dbt-env` venv で `from google.cloud import bigquery` ImportError → `apps/api/.venv/bin/python` を直接使う方針に
+- ⚠️ WSL の DNS が一時的に死んで Cloud Run jobs execute が `Failed to resolve` で失敗 → WSL 再起動 (`wsl --shutdown`) で復旧
+- ⚠️ `--wait` だと translator subscriber が 60 分間空 pull で task timeout → 以降は `--async` execute + `executions describe` で運用
+
+### Decisions
+
+- ✅ **`--async` で fire-and-forget**: subscription が空でも 60 分張り付かない、job 完了は別途確認
+- ✅ **Phase Y の Gemini コスト効率**: 1 envelope × 5 persona = 1 API call で完了。5 persona 直列で呼ぶより token は約 1.5x にしかならず、レイテンシは 1/5 近く
+
+### Verification
+
+- ✅ Cloud Build: `7f42c061-5f20-4f4c-8596-03bd586fb1d8` SUCCESS
+- ✅ Terraform: 4 Cloud Run jobs args updated (relevance: 11 行 CLI 引数を `--personas-file` 1 行に置換)
+- ✅ Pipeline: kokkai publish → translator → relevance (5 persona) → bq-sink-scored 全段 PASS
+- ✅ BQ: 5 ペルソナ × 1 speech が全部入っている
+
+### Next
+
+- Phase Y クロージング。次の major work 候補:
+  - Week 4: B-3/B-4 (Veo/Imagen) でサムネ + 60 秒動画生成 — ハッカソンデモの華
+  - リアクション集計 (Phase X+1): `reaction_counts/{speech_id}` で社会的バリデーション
+  - デモシナリオ + ピッチスライド準備 (7/10 提出向け)
+
+---
+
 ## 2026-05-23 (Fri) Session 38 — Phase Y: 複数ペルソナ fan-out (1 speech × 5 persona 一括採点)
 
 ### Completed
