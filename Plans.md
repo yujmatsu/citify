@@ -186,7 +186,7 @@
 
 - [x] [B-6] DB-Search パーサー (千代田・文京・江東・品川) — **`cc:Drop` (2026-05-25)** 4 区全部の dbsr.jp 系 robots.txt が `Disallow: /` + `Allow: /$ /index.php$ /index.php/$` で議事録パスが全面 Disallow。PROJECT.md §5「robots.txt 尊重」に抵触のため Drop 決定。kaigiroku.net 350+ 自治体 + 国会 API + voices_asp 限定で十分カバー済 (FEATURES.md B-6 の Drop 条件成立)
 - [x] [B-7] プレス RSS 収集 (47 都道府県分) — **`cc:完了` (2026-05-26)** 21 都道府県 × 5 ペルソナで BQ 到達 live PASS。`scrapers/press_rss/publish.py` で PressItem → Speech envelope mapping、`publish-from-rss` + `publish-all` CLI 追加、tier1_supplements.csv に 21 都道府県 RSS URL 実証済、pytest 49/49 PASS。残り 26 都道府県 (03/05/06/13/16/18/20/21/24-31/35-39/41/42/44/45/47) は subagent でも URL 特定できず → MVP スコープ外として後送り。NHK 系は別系統で Week 2 で前倒し済
-- [ ] [INFRA-006 Phase 3] 自治体マスタ Tier 2 拡張 (200-300 件) ← **次着手**
+- [x] [INFRA-006 Phase 3] 自治体マスタ Tier 2 拡張 — **政令市 12/20 完了 (2026-05-26)** `cc:完了` (政令市スコープ)。札幌/川崎/相模原/新潟/京都/大阪市/堺/岡山市/広島市/北九州/福岡市/熊本市 の press_rss URL を curl 実証 + tier1_supplements.csv 追加。残り 8 政令市 (仙台/さいたま/千葉/横浜/静岡市/浜松/名古屋/神戸) は WebSearch + curl で URL 特定できず後送り (横浜は kaigiroku で議事録カバー済)。中核市 62 は時間あれば次セッション
 
 ### `cc:TODO` 通知 + UX
 

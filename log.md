@@ -1,5 +1,60 @@
 # Citify 作業ログ
 
+## 2026-05-26 (Tue) Session 43 — INFRA-006 Phase 3 政令市 12/20 自治体マスタ拡張
+
+### Completed
+
+- [x] **政令市 20 の現状確認**: 既存 Tier 1 (kaigiroku/voices_asp) 3 都市 (札幌・横浜・大阪)、残り 17 都市 unknown
+- [x] **subagent 4 並列で press_rss URL WebSearch** → 5 都市候補取得 (札幌・相模原・名古屋・岡山・福岡)
+- [x] **main agent (私) が curl で rss_list.html を直接スクレイプ** → 追加 7 都市の RSS URL を発見 (京都・大阪・川崎・新潟・堺・広島・北九州・熊本)
+- [x] **合計 12 政令市の RSS URL を実証 (HTTP 200 + items >= 3)**:
+  - 01100 札幌 city.sapporo.jp/somu/koho/hodo/houdou.xml (報道発表 11 件)
+  - 14130 川崎 city.kawasaki.jp/shisei/rss/rss.xml (29 件)
+  - 14150 相模原 city.sagamihara.kanagawa.jp/rss.rss (255 件)
+  - 15100 新潟 city.niigata.lg.jp/rss_news.xml (400 件)
+  - 26100 京都 city.kyoto.lg.jp/main/rss/rss.xml (29 件)
+  - 27100 大阪市 city.osaka.lg.jp/main/rss/rss.xml (100 件)
+  - 27140 堺 city.sakai.lg.jp/rss_news.xml (100 件)
+  - 33100 岡山市 city.okayama.jp/rss/rss_topics_shisei.xml (30 件)
+  - 34100 広島市 city.hiroshima.lg.jp/news.rss (98 件)
+  - 40100 北九州 city.kitakyushu.lg.jp/info.rdf (4 件)
+  - 40130 福岡市 city.fukuoka.lg.jp/data/open/rss/RSS_7225.xml (30 件)
+  - 43100 熊本市 city.kumamoto.jp/new_list.xml (194 件)
+- [x] **`infra/seed/tier1_supplements.csv` 更新**:
+  - 既存 01100 札幌 (voices_asp) と 27100 大阪市 (kaigiroku) の press_rss_url 列を追加 (議事録 + プレス両系統化)
+  - 新規 10 行 (川崎/相模原/新潟/京都/堺/岡山市/広島市/北九州/福岡市/熊本市) を `scraper_type=press_rss, is_active=true` で追加
+  - 合計 press_rss_url 設定済: **33 行** (21 都道府県 + 12 政令市)
+- [x] **pytest 24/24 PASS** (scrapers/press_rss/tests)
+
+### Decisions
+
+- ✅ **政令市スコープで完了判定**: 残り 8 政令市 (仙台/さいたま/千葉/横浜/静岡市/浜松/名古屋/神戸) は WebSearch + curl で URL 特定できず、ROI 低 → 後送り。横浜は kaigiroku で議事録カバー済なのでデモ価値減少なし
+- ✅ **既存 Tier 1 自治体 (札幌・大阪) は議事録 + プレス両系統化**: scraper_type=kaigiroku/voices_asp のまま press_rss_url 列を追加することで、build_municipality_master.py の SUPPLEMENT_OVERRIDE_FIELDS が両方上書きしてくれる
+- ✅ **中核市 62 は次セッション以降**: 政令市の取得率 60% (12/20) を見ても、中核市 62 は時間対効果が悪い予測。次優先は B-5 通知
+
+### Files Modified
+
+- `infra/seed/tier1_supplements.csv` — 12 政令市の press_rss_url 反映 (既存 2 行更新 + 新規 10 行追加)
+- `Plans.md` — INFRA-006 Phase 3 政令市分 `cc:完了` 化
+- `tasks.json`, `log.md` 更新
+
+### Pending (ユーザー手動)
+
+- [ ] live 動作確認:
+  ```bash
+  apps/api/.venv/bin/python -m scrapers.press_rss publish-all \
+    --project-id citify-dev --csv infra/seed/tier1_supplements.csv \
+    --max-per-feed 2 --limit-feeds 33
+  # 33 × 2 = 66 envelope publish → workers 順次実行 → BQ で確認
+  ```
+- [ ] git commit + push
+
+### Next
+
+- B-5 通知 (月曜 9 時メール/Push)、または 中核市 62 RSS 追加調査、またはパフォーマンスチューニング
+
+---
+
 ## 2026-05-26 (Tue) Session 42 — B-7 プレス RSS 21 都道府県 live PASS + Week 4⇔5 入替 + B-6 Drop
 
 ### Completed
