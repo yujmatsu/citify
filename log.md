@@ -1,5 +1,63 @@
 # Citify 作業ログ
 
+## 2026-05-26 (Tue) Session 44 — INFRA-006 Phase 3 中核市 12 追加 (合計 45 RSS feed)
+
+### Completed
+
+- [x] **中核市 53 都市の候補リストと municipality_code 特定** (福島 prefix 07 で訂正)
+- [x] **共通パターン curl probe (全 53 都市)** → ほぼ全滅 (`/main/rss_list.html` 0/53、トップ link rel=alternate 1/53)
+- [x] **subagent G1-G6 を 6 並列起動** で WebSearch ベース URL 候補収集
+  - G1 北海道〜栃木: 2 候補 (苫小牧、福島市)
+  - G2 茨城〜千葉: 3 候補 (高崎、船橋、柏)
+  - G3 神奈川〜長野: 2 候補 (松本、沼津)
+  - G4 愛知〜兵庫: 1 候補 (四日市)
+  - G5 奈良〜高知: 5 候補 (奈良、下関、松山、和歌山、高知)
+  - G6 福岡〜沖縄: 2 候補 (大分、佐世保)
+- [x] **私が curl で 15 候補を一括実証**:
+  - OK: 苫小牧/船橋/柏/松本/沼津/豊橋/四日市/奈良/松山/佐世保/大分/鹿児島 (緊急情報のみ) = 12 件
+  - FAIL: 高崎 404 / 福島市 404 / 下関 404 / 高松 RSS 未提供 / 松江 同 / 鳥取 同
+- [x] **トップ link rel=alternate 抽出による 18 都市の追加探索** → 全滅 (中核市はトップに RSS link を置かない傾向)
+- [x] **tier1_supplements.csv に 12 中核市追加** (tier=2, scraper_type=press_rss)
+- [x] **pytest 24/24 PASS** (scrapers/press_rss/tests)
+
+### Decisions
+
+- ✅ **中核市 12/53 で完了判定**: 残り 41 都市は WebSearch + 4 種類の curl パターン (rss_list.html / link rel=alternate / 共通パス / WebSearch 候補) でも URL 特定できず、ROI 低い → 後送り
+- ✅ **鹿児島市は緊急情報のみ採用**: 報道発表 RSS が存在せず、`/kinkyu/kinkyu_saigai.xml` (緊急災害情報、1 件のみ) を採用。デモには十分
+- ✅ **45 件で MVP 十分**: 21 都道府県 (全国分布) + 12 政令市 + 12 中核市 = 大都市圏ほぼカバー、デモ価値十分大
+
+### 合計実装状況 (Phase 3 累積)
+
+```
+press_rss URL 設定済自治体: 45
+内訳:
+  都道府県: 21 / 47 (45%)
+  政令市:    12 / 20 (60%)
+  中核市:    12 / 53 (23%)
+```
+
+### Files Modified
+
+- `infra/seed/tier1_supplements.csv` — 12 中核市行追加
+- `Plans.md` — INFRA-006 Phase 3 中核市分追記
+- `tasks.json`, `log.md` 更新
+
+### Pending (ユーザー手動)
+
+- [ ] live 動作確認 (45 都市分):
+  ```bash
+  apps/api/.venv/bin/python -m scrapers.press_rss publish-all \
+    --project-id citify-dev --csv infra/seed/tier1_supplements.csv \
+    --max-per-feed 2 --limit-feeds 45
+  # 45 × 2 = 90 envelope → workers 順次実行 → BQ 確認
+  ```
+
+### Next
+
+- B-5 通知 (月曜 9 時メール/Push) または パフォーマンスチューニング (キャッシュ/CDN/Cold Start)
+
+---
+
 ## 2026-05-26 (Tue) Session 43 — INFRA-006 Phase 3 政令市 12/20 自治体マスタ拡張
 
 ### Completed

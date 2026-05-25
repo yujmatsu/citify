@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-26T01:30:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W/X/Y/X+1 live + Week 4 (データ拡張)**。B-6 Drop / B-7 21 都道府県 live PASS / **INFRA-006 Phase 3 政令市 12/20 完了 (2026-05-26)**: 札幌/川崎/相模原/新潟/京都/大阪市/堺/岡山市/広島市/北九州/福岡市/熊本市 の press_rss URL を curl 実証で tier1_supplements.csv に追加 (合計 33 RSS feed: 21 都道府県 + 12 政令市)。残り 8 政令市 (仙台/さいたま/千葉/横浜/静岡市/浜松/名古屋/神戸) は subagent でも URL 特定できず後送り。pytest 24/24 PASS。次着手: **B-5 通知 (月曜 9 時メール/Push)** or **中核市 62 RSS 追加調査** or **パフォーマンスチューニング**",
+  "updated": "2026-05-26T02:30:00+09:00",
+  "active_week_note": "**Week 3 完了 + Phase W/X/Y/X+1 live + Week 4 (データ拡張)**。B-6 Drop / B-7 21 都道府県 / **INFRA-006 Phase 3 政令市 12 + 中核市 12 完了 (2026-05-26)**: 合計 press_rss URL **45 件** (21 都道府県 + 12 政令市 + 12 中核市)。中核市 12 都市: 苫小牧/船橋/柏/松本/沼津/豊橋/四日市/奈良/松山/佐世保/大分/鹿児島。残り 41 中核市は subagent + curl でも URL 特定できず後送り。pytest 24/24 PASS。次着手: **B-5 通知 (月曜 9 時メール/Push)** or **パフォーマンスチューニング**",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
