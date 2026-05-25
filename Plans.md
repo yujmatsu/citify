@@ -16,8 +16,8 @@
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
 | **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー + Pub/Sub + BQ 永続化 + Cloud Run | **`cc:完了`** ✅ A-4/5/6/7 + Pub/Sub 4 段パイプライン (Cloud Run live 動作確認済) + BQ scored_speeches 永続化 + Cloud Run Job × 4 + Scheduler × 4 (paused=月$0) + fan-out 修正 + B-7 前倒し。ADK は Cloud Run + Pub/Sub 代替で達成。Week 3 移行可 |
 | **Week 3** | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | **`cc:完了`** ✅ 5/22 で 18 日前倒し。A-8 フィード UI + A-9 詳細ビュー (RAG 関連議題 3 件統合 live 確認済) + A-2 自治体マスタ UI (1,795 件) + Phase U 国会 E2E パイプライン稼働。voices_asp 本格パースのみ保留 (robots.txt Disallow) |
-| Week 4 | 6/16-6/22 | Veo/Imagen + 比較ビュー + リアクション | `cc:TODO` |
-| Week 5 | 6/23-6/29 | DB-Search + プレス RSS + 通知 | `cc:TODO` |
+| Week 4 | 6/16-6/22 | **データソース拡張 + 通知** (Week 5 と入替) | `cc:TODO` — 5/25 入替決定。B-1/B-8 はすでに先取り完了 |
+| Week 5 | 6/23-6/29 | **Veo/Imagen + 比較ビュー** (Week 4 と入替) | `cc:TODO` — Veo 品質リスクを後ろに置く方針 |
 | Week 6 | 6/30-7/6 | 仕上げ + ユーザーインタビュー + 動画撮影 | `cc:TODO` |
 | Week 7 | 7/7-7/10 | Zenn + Proto Pedia + Google Form 提出 | `cc:TODO` |
 
@@ -178,7 +178,35 @@
 
 ---
 
-## Week 4 (6/16-6/22): Veo/Imagen + 比較ビュー + リアクション `cc:TODO`
+## Week 4 (6/16-6/22): データソース拡張 + 通知 `cc:TODO` (Week 5 と入替済 2026-05-25)
+
+> **着手順** (上から): B-6 → B-7 → INFRA-006 Phase 3 → B-5 → パフォーマンス
+
+### `cc:TODO` データソース拡張
+
+- [x] [B-6] DB-Search パーサー (千代田・文京・江東・品川) — **`cc:Drop` (2026-05-25)** 4 区全部の dbsr.jp 系 robots.txt が `Disallow: /` + `Allow: /$ /index.php$ /index.php/$` で議事録パスが全面 Disallow。PROJECT.md §5「robots.txt 尊重」に抵触のため Drop 決定。kaigiroku.net 350+ 自治体 + 国会 API + voices_asp 限定で十分カバー済 (FEATURES.md B-6 の Drop 条件成立)
+- [x] [B-7] プレス RSS 収集 (47 都道府県分) — **`cc:完了` (2026-05-26)** 21 都道府県 × 5 ペルソナで BQ 到達 live PASS。`scrapers/press_rss/publish.py` で PressItem → Speech envelope mapping、`publish-from-rss` + `publish-all` CLI 追加、tier1_supplements.csv に 21 都道府県 RSS URL 実証済、pytest 49/49 PASS。残り 26 都道府県 (03/05/06/13/16/18/20/21/24-31/35-39/41/42/44/45/47) は subagent でも URL 特定できず → MVP スコープ外として後送り。NHK 系は別系統で Week 2 で前倒し済
+- [ ] [INFRA-006 Phase 3] 自治体マスタ Tier 2 拡張 (200-300 件) ← **次着手**
+
+### `cc:TODO` 通知 + UX
+
+- [ ] [B-5] メール / Push 通知 (月曜 9 時固定)
+- [ ] パフォーマンスチューニング(キャッシュ、CDN、Cold Start)
+
+### 先取り完了 (Phase X/X+1/Y で完了済)
+
+- [x] [B-1] リアクション機能 + 「みんなの反応」集計 — Phase X / X+1 完了済 (Firestore WriteBatch + Increment、live PASS)
+- [x] [B-8] ペルソナ別プリセット — Phase Y で 5 ペルソナ (demo-18-24 / 25-29 / 30-39 / 40-49 / 50+) live 動作確認済
+
+### Week 4 終了時判定基準
+
+- [ ] 300+ 自治体で議事録 or プレス取得
+- [ ] ユーザー選択自治体に週 1 件新着あり
+- [ ] 通知メール送信動作
+
+---
+
+## Week 5 (6/23-6/29): Veo/Imagen + 比較ビュー `cc:TODO` (Week 4 と入替済 2026-05-25)
 
 ### `cc:TODO` メディア生成
 
@@ -190,34 +218,11 @@
 ### `cc:TODO` 差別化機能
 
 - [ ] [B-2] 比較ビュー(マイ自治体 2 つ)— **Citify のキラー体験**
-- [ ] [B-1] リアクション機能 + 「みんなの反応」集計
 
 ### **Drop Point 判定**
 
 - Veo 品質不安定 → 静止画 + テキスト代替
-- 比較ビューが想定以上に難しい → Week 5 にずらす(諦めない)
-
----
-
-## Week 5 (6/23-6/29): データソース拡張 + 通知 `cc:TODO`
-
-### `cc:TODO` データソース拡張
-
-- [ ] [B-6] DB-Search パーサー (千代田・文京・江東・品川)
-- [ ] [B-7] プレス RSS 収集 (47 都道府県分)
-- [ ] [INFRA-006 Phase 3] 自治体マスタ Tier 2 拡張 (200-300 件)
-
-### `cc:TODO` 通知 + UX
-
-- [ ] [B-5] メール / Push 通知 (月曜 9 時固定)
-- [ ] [B-8] ペルソナ別プリセット
-- [ ] パフォーマンスチューニング(キャッシュ、CDN、Cold Start)
-
-### Week 5 終了時判定基準
-
-- [ ] 300+ 自治体で議事録 or プレス取得
-- [ ] ユーザー選択自治体に週 1 件新着あり
-- [ ] 通知メール送信動作
+- 比較ビューが想定以上に難しい → Week 6 にずらす(諦めない)
 
 ---
 

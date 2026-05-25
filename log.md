@@ -1,5 +1,62 @@
 # Citify 作業ログ
 
+## 2026-05-26 (Tue) Session 42 — B-7 プレス RSS 21 都道府県 live PASS + Week 4⇔5 入替 + B-6 Drop
+
+### Completed
+
+- [x] **Week 4 ⇔ Week 5 入替** (Plans.md): Veo/Imagen を Week 5 へ、データソース拡張を Week 4 へ
+- [x] **B-6 Drop 決定** (FEATURES.md / Plans.md): 4 区 (千代田/文京/江東/品川) の `*.dbsr.jp` 系 robots.txt が全て `Disallow: / + Allow: /$ /index.php$` で議事録パス全面 Disallow → PROJECT.md §5 抵触のため。memory `dbsr_robots_disallow.md` に保存
+- [x] **B-7 プレス RSS 47 都道府県化 (21 都道府県 live PASS)**:
+  - `pkg/municipality_map.py` に `source=press_rss` 用 resolve ロジック追加 (tenant_id に 5 桁コード直接 → そのまま return)
+  - `scrapers/press_rss/publish.py` 新規 (PressItem → Speech envelope mapping + Publisher、kokkai と同じパターン)
+    - 1 envelope = 1 PressItem を `speech_id="press:{muni}:{press_id}"`, `tenant_id="{5桁コード}"`, `council_id="press"`, `schedule_id=pub_date`, content_text=title+description で Pub/Sub に送信
+  - `scrapers/press_rss/__main__.py` に `publish-from-rss` + `publish-all` サブコマンド追加 (CSV 一括読込)
+  - `infra/seed/tier1_supplements.csv` に **21 都道府県の press_rss URL を実証済追加** (curl HTTP 200 + XML item/entry 検証済)
+  - 該当 21 都道府県: 01 北海道 / 02 青森 / 04 宮城 / 07 福島 / 08 茨城 / 09 栃木 / 10 群馬 / 11 埼玉 / 12 千葉 / 14 神奈川 / 15 新潟 / 17 石川 / 19 山梨 / 22 静岡 / 23 愛知 / 32 島根 / 33 岡山 / 34 広島 / 40 福岡 / 43 熊本 / 46 鹿児島
+  - 残り 26 都道府県は subagent でも RSS URL 特定できず、MVP スコープ外として後送り
+  - pytest 49/49 PASS (press_rss 24 件 + pkg 25 件)
+- [x] **Workers Cloud Build rebuild**: `5e1dd670-00c9-42ce-b007-b91cb375a39c` SUCCESS (1m26s、google-genai + 新 publish コード反映)
+- [x] **live 動作確認** (21 都道府県 × 3 件 = 63 envelope publish):
+  - publish-all で 21 都道府県 OK / 0 fail
+  - translator → relevance (5 ペルソナ) → bq-sink を順次 execute
+  - BQ scored_speeches で `speech_id LIKE '%:press:%'` の集計: **21 都道府県 × 5 ペルソナで存在確認**
+  - サンプル翻訳タイトル: 「地域課題を解決する起業家を応援！」「放課後児童支援員の研修、来年度も実施！」(若者向けに自然)
+- [x] **memory** に `dbsr_robots_disallow.md` 追加
+
+### Trouble Shooting / Lessons
+
+- ⚠️ **publish 時 speech_id が translator/relevance worker で書き換えられる**: 私は `press:{muni}:{press_id}` を渡したが、BQ には `{tenant_id}:{council_id}:{schedule_id}:{order}` 形式 (例: `46000:press:2026-05-25:0`) で入っていた。worker 内のどこかで kaigiroku 互換 speech_id を再生成している。現状 1 都道府県 1 日付 max 3 件は speech_order で分離されるので動作問題なし、将来複数 RSS 統合時は要対応
+- ⚠️ **初回 BQ 確認で 0 行**: 当初 `STARTS_WITH(speech_id, "press:")` でフィルタしていたため、上記書き換えで全部除外されていた。`LIKE '%:press:%'` に変更で正しく検出
+- ⚠️ **Pub/Sub `enableExactlyOnceDelivery: true`**: 設定上有効だが今回は問題なく流れた。複数 worker 並列実行時は要注意 (将来の Cloud Scheduler 起動時)
+- ⚠️ **`--auto-ack=false` は古い構文**: 新 gcloud では `--auto-ack` 自体を省略すると ack なしで pull
+- ✅ **subagent (general-purpose) は WebFetch/Bash denied 環境** (今回判明): WebSearch のみで URL 候補リスト → main agent (私) で curl 検証する流れに変更
+
+### Decisions
+
+- ✅ **Week 4 ⇔ Week 5 入替**: Veo/Imagen の不確定リスクを後ろに、確実なデータ拡張を先に固める方針
+- ✅ **B-6 Drop**: kaigiroku.net (350+ 自治体) + 国会 + voices_asp 限定で MVP スコープ十分
+- ✅ **21 都道府県で B-7 完了判定**: 残り 26 都道府県は ROI 低い (subagent も URL 特定できず → 個別調査コスト高、デモ的には 21 都道府県でも全国カバー感は十分)
+- ✅ **press_rss speech_id 書き換え issue は別 issue 化**: MVP 動作優先、将来複数 RSS 統合時に修正
+
+### Files Modified / Added
+
+- `pkg/municipality_map.py` — press_rss 用 resolve 分岐追加
+- `scrapers/press_rss/publish.py` (新規)
+- `scrapers/press_rss/__main__.py` — `publish-from-rss` / `publish-all` サブコマンド
+- `scrapers/press_rss/tests/test_publish.py` (新規、10 ケース)
+- `infra/seed/tier1_supplements.csv` — 21 都道府県 press_rss 行追加
+- `docs/FEATURES.md` — B-6 Drop 記録
+- `Plans.md` — Week 4 ⇔ Week 5 入替 + B-6 Drop + B-7 完了
+- `tasks.json`, `log.md` 更新
+- memory: `dbsr_robots_disallow.md` 新規
+
+### Next
+
+- **INFRA-006 Phase 3 自治体マスタ Tier 2 拡張 (200-300 件)** 着手
+- 後続: B-5 通知、パフォーマンスチューニング、Week 5 (Veo/Imagen + 比較ビュー)
+
+---
+
 ## 2026-05-23 (Sat) Session 41 — Phase X+1 live verification (集計 CRUD 全 PASS + dot-path bug 修正)
 
 ### Completed

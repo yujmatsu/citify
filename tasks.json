@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-23T23:00:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W/X/Y/X+1 全 live 動作確認完了**。Phase X+1 (リアクション集計) live: クリーン state から PUT 🔥 → counts.🔥=1, total=1 / PUT 👍 上書き → counts.👍=1, counts.🔥=0, total=1 不変 / DELETE → 全 0 が全 CRUD ライフサイクルで期待通り動作。Firestore WriteBatch + Increment で原子的更新。途中で batch.set() が dot-path を literal field name にする SDK 仕様に気付き nested map に修正 (build 2 回)。次: Week 4 (Veo/Imagen B-3/B-4 + デモシナリオ準備)",
+  "updated": "2026-05-26T00:55:00+09:00",
+  "active_week_note": "**Week 3 完了 + Phase W/X/Y/X+1 live + Week 4 着手 (Week 5 と入替済)**。B-6 Drop (dbsr.jp robots.txt)、**B-7 プレス RSS 21 都道府県 live PASS** (2026-05-26): 21 都道府県 × 5 ペルソナで BQ scored_speeches に到達、翻訳品質も「地域課題を解決する起業家を応援！」など若者向けに自然。残り 26 都道府県の RSS URL は subagent では特定できず後送り。派生 issue: translator/relevance worker が publish 時 speech_id (`press:{muni}:{id}`) を `{tenant_id}:{council_id}:{schedule_id}:{order}` 形式に書き換えている (現状 1 都道府県 1 日付 max 3 件は speech_order で分離されるので問題なし、将来複数 RSS 統合時は要対応)。次着手: **INFRA-006 Phase 3 自治体マスタ Tier 2 拡張 (200-300 件)**",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

@@ -304,18 +304,28 @@
 
 ---
 
-### B-6. 議事録パーサー 2: DB-Search
+### B-6. 議事録パーサー 2: DB-Search — **DROPPED (2026-05-25)**
 
 **説明**:大和速記情報センターの DB-Search を採用している 150+自治体に対応するパーサー。
 
-**受け入れ条件**:
+**Drop 理由 (2026-05-25 recon)**:対象 4 区 (千代田・文京・江東・品川) すべての `*.dbsr.jp` 系 robots.txt が以下の通り、議事録パスを全面 Disallow:
+```
+User-agent: *
+Disallow: /
+Allow: /$
+Allow: /index.php$
+Allow: /index.php/$
+```
+許可されているのはルートと `/index.php` (末尾 `$` アンカー) のみ。議事録本文ページ (`/searchByYear/...`, `/minute/...` 等) は全て Disallow 対象。PROJECT.md §5「スクレイピング先の robots.txt と利用規約を必ず尊重」に抵触するため Drop。
+
+**代替カバレッジ**:kaigiroku.net (DiscussNet) で 350+ 自治体カバー済 + 国会 API + voices_asp (限定) で MVP スコープには十分。
+
+**受け入れ条件** (Drop 前):
 - DB-Search の URL パターンを解析できる
 - 議事録を構造化して BigQuery に保存
 - 既存の DiscussNetPremium パーサーと同じスキーマで保存
 
 **依存**:議事録 RAG、自治体マスタ
-
-**Drop 判断**:Week 5 終わりまでに着手できなければ降格(DiscussNetPremium だけで数百自治体カバーできるので妥協可能)
 
 ---
 

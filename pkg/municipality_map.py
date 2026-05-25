@@ -31,7 +31,9 @@ def resolve_municipality_code(source: str, tenant_id: str | None) -> str:
 
     Args:
         source: メッセージ source (例: 'kaigiroku_net', 'kokkai_api', 'press_rss')
-        tenant_id: kaigiroku 系の場合のテナント ID (それ以外は None で可)
+        tenant_id: source 依存。
+            - kaigiroku_net: テナント文字列 (例: 'yokohama')
+            - press_rss: 5 桁自治体コードを直接渡す (例: '13000' = 東京都)
 
     Returns:
         5 桁自治体コード。マップに無い場合は '00000' (国会扱い fallback)
@@ -40,4 +42,9 @@ def resolve_municipality_code(source: str, tenant_id: str | None) -> str:
         return NATIONAL_DIET_CODE
     if source == "kaigiroku_net" and tenant_id:
         return KAIGIROKU_TENANT_TO_MUNI_CODE.get(tenant_id, NATIONAL_DIET_CODE)
+    if source == "press_rss" and tenant_id:
+        # press_rss は publish 時に tenant_id へ 5 桁コードを直接設定する規約 (B-7)
+        if tenant_id.isdigit() and len(tenant_id) == 5:
+            return tenant_id
+        return NATIONAL_DIET_CODE
     return NATIONAL_DIET_CODE
