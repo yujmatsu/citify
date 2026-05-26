@@ -220,7 +220,15 @@
 
 ### `cc:TODO` 差別化機能
 
-- [x] [B-2] 比較ビュー(マイ自治体 2-3 つ)— **Citify のキラー体験** `cc:完了` (実装完、2026-05-26)。`/v1/compare` BFF endpoint (BQ scored_speeches_latest × munis × interest 横断クエリ + Gemini 2.5 Flash 中立観察、倫理ガードレール付き) + `/compare` frontend ページ (テーマ 10 軸 + 自治体 2-3 選択 + 横並びカラム表示 + AI 中立観察) + メニュー導線 (top page / feed フッタ)。BFF in-memory cache 10 分 + Cache-Control max-age=600。pytest 10/10 + next build PASS (Route 7)。Cloud Run rebuild + live 確認は人間手動
+- [x] [B-2] 比較ビュー(マイ自治体 2-3 つ)— **Citify のキラー体験** `cc:完了` (実装完、2026-05-26)。`/v1/compare` BFF endpoint (BQ scored_speeches_latest × munis × interest 横断クエリ + Gemini 2.5 Flash 中立観察、倫理ガードレール付き) + `/compare` frontend ページ (テーマ 10 軸 + 自治体 2-3 選択 + 横並びカラム表示 + AI 中立観察) + メニュー導線 (top page / feed フッタ)。BFF in-memory cache 10 分 + Cache-Control max-age=600。pytest 10/10 + next build PASS (Route 7)。Cloud Run rebuild + live 確認 (4 パターン + 自治体名 lookup 修正版) 全 PASS
+
+### `cc:完了` Plan A: 「あなたの街フォーカス」強化 (2026-05-26 着手、戦略的方針転換)
+
+- [x] **A-1 マイ街フィードタブ** `cc:完了` — `/feed` 上部に sticky タブ (`あなたの街` / `その他`)、`localStorage.municipality_codes` でクライアント側フィルタ、カウントバッジ、空タブ時の hint
+- [x] **A-3 街ダッシュボード `/cities/[code]`** `cc:完了` — BFF `/v1/cities/{code}` endpoint (BQ 集計: total_speeches + matched_interests 別 + 上位 N 件 FeedItem、5 分 TTL キャッシュ + Cache-Control max-age=300) + frontend ページ (関心軸別カウント grid 表示 + 注目議題カード列挙 + 「マイ自治体に追加」CTA + 比較ビューへの動線)、feed-card の自治体名タップで遷移。next build PASS (Route 8)
+- [ ] **A-2 データ厚み 3 倍** — `publish-all --max-per-feed 10` で再投入 (ユーザー手動、進行中)
+- [ ] **A-4 B-4 Imagen サムネ** — フィードカードに画像追加
+- [ ] **A-5 デモビデオ 60 秒** — ピッチ動画
 
 ### `cc:TODO` 通知 (Week 4 から繰越)
 

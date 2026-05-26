@@ -1,5 +1,89 @@
 # Citify 作業ログ
 
+## 2026-05-26 (Tue) Session 48 — 戦略的方針転換 + Plan A 「あなたの街フォーカス」着手 (A-1 + A-3 実装完)
+
+### Strategic Discussion (率直な評価)
+
+ユーザーから「現状で入賞は狙えるか」「データが少なく実感がない」「自分の街がどうなっているかをもっと見たい」と質問。私の率直な評価:
+- 技術面 8/10 (マルチエージェント + Google Cloud フルスタック十分強い)
+- **体験面 5/10** (フィードのデータ薄め、ビジュアル不足、街フォーカス感が弱い)
+- ユーザーの直感は **入賞を分ける核心** → 「使いたい!」と思わせる体験が必要
+
+### Plan A 確定 (「あなたの街フォーカス」強化)
+
+| # | 内容 | 状態 |
+|---|---|---|
+| A-1 | マイ街フィードタブ (sticky `あなたの街/その他`) | ✅ 完了 |
+| A-2 | データ厚み 3 倍 (publish-all max=10) | ユーザー手動進行中 |
+| A-3 | 街ダッシュボード `/cities/[code]` | ✅ 完了 |
+| A-4 | B-4 Imagen サムネ | 次タスク |
+| A-5 | デモビデオ 60s | 後続 |
+
+### A-1 マイ街フィードタブ Completed
+
+- [x] **`apps/web/src/app/feed/page.tsx`** を全面書き換え:
+  - sticky top タブバー (`[あなたの街] [その他]`) + バッジ件数表示
+  - `localStorage.municipality_codes` でクライアント側フィルタ (municipality_code が含まれる ↔ そうでない で分割)
+  - 各タブ空のときの hint (マイ自治体編集リンク誘導)
+  - limit 20 → 50 に拡張 (クライアント分割の母数確保)
+- [x] next build PASS (Route 7 維持)
+
+### A-3 街ダッシュボード Completed
+
+- [x] **BFF `GET /v1/cities/{municipality_code}` endpoint** (`apps/api/main.py`):
+  - 3 BQ クエリで [top_speeches (上位 N 件) + interest_counts (matched_interests UNNEST 集計) + total_speeches] を取得
+  - `CityDashboardResponse` Pydantic model (municipality_code, municipality_name, user_id, total_speeches, interest_counts, top_speeches)
+  - 5 分 TTL の in-memory cache (`_CITY_CACHE`) + Cache-Control max-age=300 + SWR 30 分
+  - `_muni_label(code)` で municipality_code → 表示用日本語名解決 (B-2 で導入した `_MUNI_NAME_MAP` を再利用)
+- [x] **`apps/web/src/lib/api.ts`** 拡張:
+  - `CityDashboardResponseSchema` (zod、interest_counts は record<string, int>)
+  - `fetchCityDashboard(userId, municipalityCode, limit)` 関数
+- [x] **`apps/web/src/app/cities/[code]/page.tsx`** 新規ページ:
+  - ヘッダー: 「あなたの街、今こうなっています」 + 自治体名大見出し + 採点済議題数
+  - 関心軸別カウント grid (件数 ≥3 でハイライト、絵文字付き) — 関心軸 10 軸を件数順表示
+  - マイ自治体登録チェック: 登録済なら ✓ バッジ、未登録なら「+ マイ自治体に追加」リンク
+  - 比較ビュー CTA (登録自治体が 2 つ以上ある場合のみ表示)
+  - 注目の議題セクション (FeedCard 縦並び、relevance_score 順)
+  - 倫理表記フッタ
+- [x] **`apps/web/src/components/feed-card.tsx`** 自治体名を `<Link>` 化:
+  - `🏙️ {muniLabel}` ボタンを `/cities/{code}` へ遷移、`prefetch` 明示
+  - hover で emerald 強調色、`title="{muniLabel} のダッシュボードを見る"`
+- [x] **ruff format + check + pytest 10/10 + next build PASS (Route 8、`/cities/[code]` 追加)**
+
+### Decisions
+
+- ✅ **方針転換は正しい判断**: 技術完成度より「使いたい体験」がハッカソン入賞の差別化要素、ユーザーの直感を最大限尊重
+- ✅ **A-1 はクライアントフィルタで実装**: BFF 拡張不要、20 行程度の追加で済む、データ量増えたら server-side filter に切替容易
+- ✅ **A-3 は BFF endpoint で 3 BQ クエリを 1 リクエストに統合**: 通信回数最小、5 分キャッシュで再訪即時表示
+- ✅ **feed-card の自治体名を Link 化**: 主動線「フィードのカード → 街ダッシュボード」を一手で完結
+- ✅ **A-2 (データ厚み) はユーザー手元で実行**: コード変更不要 (publish-all を `--max-per-feed 10` で再実行するだけ)、並行作業可能
+
+### Files Modified / Added
+
+- `apps/api/main.py` — /v1/cities/{code} endpoint + CityDashboardResponse model + _CITY_CACHE + 3 BQ クエリ
+- `apps/web/src/lib/api.ts` — CityDashboardResponseSchema + fetchCityDashboard
+- `apps/web/src/app/feed/page.tsx` — マイ街/その他 タブ実装 (全面書き換え)
+- `apps/web/src/app/cities/[code]/page.tsx` (新規) — 街ダッシュボード UI
+- `apps/web/src/components/feed-card.tsx` — 自治体名タップで /cities/{code} へ
+- `Plans.md`, `tasks.json`, `log.md` 更新
+
+### Pending (ユーザー手動)
+
+- [ ] `gcloud builds submit --config=cloudbuild.yaml --region=asia-northeast1 --project=citify-dev` (citify-api rebuild)
+- [ ] `apps/api/.venv/bin/python -m scrapers.press_rss publish-all --project-id citify-dev --csv infra/seed/tier1_supplements.csv --max-per-feed 10 --limit-feeds 45` (データ厚み 3 倍)
+- [ ] Workers 順次実行 (translator → relevance → bq-sink) を 2 回
+- [ ] git commit + push (Firebase App Hosting 自動 rollout で `/cities/[code]` ページが live に)
+- [ ] live 動作確認:
+  - フィードカードの自治体名タップで街ダッシュボードへ遷移
+  - 関心軸別カウントが表示される
+  - マイ街/その他 タブで分割される
+
+### Next
+
+- A-4 Imagen サムネ生成 (フィードのビジュアル強化)、または A-2 完了後の live 確認
+
+---
+
 ## 2026-05-26 (Tue) Session 47 — B-2 比較ビュー実装 (Citify のキラー体験)
 
 ### Completed

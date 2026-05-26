@@ -9,6 +9,7 @@ Cloud Run / ローカル開発 両対応:
     - GET|PUT|DELETE /v1/speeches/{speech_id}/reaction : リアクション永続化 (Firestore)
     - GET /v1/speeches/{speech_id}/reactions/summary : リアクション集計 (Phase X+1)
     - GET /v1/compare : 複数自治体の同テーマ比較 (B-2 比較ビュー)
+    - GET /v1/cities/{code} : 街ダッシュボード (Plan A-3、関心軸別集計 + 上位議題)
 
 ローカル起動:
     uv run uvicorn main:app --reload --port 8080
@@ -461,6 +462,136 @@ async def get_speech(
         )
 
     return _row_to_feed_item(rows[0])
+
+
+# ============================================================================
+# v1 City Dashboard (Plan A-3 — 「あなたの街」が今どうなっているかの可視化)
+# ============================================================================
+
+
+class CityDashboardResponse(BaseModel):
+    """街ダッシュボードのレスポンス。
+
+    BQ scored_speeches_latest を user_id × municipality_code でフィルタした
+    集計と上位議題を 1 リクエストで返す。
+    """
+
+    municipality_code: str
+    municipality_name: str = Field(description="表示用日本語名 (例: 東京都, 国会)")
+    user_id: str
+    total_speeches: int = Field(description="この自治体の議題件数 (user_id 採点済)")
+    interest_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="matched_interests 別件数 (関心軸 10 軸のカウント)",
+    )
+    top_speeches: list[FeedItem] = Field(
+        default_factory=list,
+        description="relevance_score DESC の上位議題 (limit 件)",
+    )
+
+
+# 街ダッシュボードは 5 分 TTL (議題リストは頻繁に変わらない、フィード並み)
+_CITY_CACHE = _TTLCache(maxsize=128, ttl_sec=300.0)
+
+
+@app.get("/v1/cities/{municipality_code}", response_model=CityDashboardResponse)
+async def get_city_dashboard(
+    municipality_code: str,
+    response: Response,
+    user_id: str = Query(..., description="ペルソナ ID (採点コンテキスト)"),
+    limit: int = Query(default=10, ge=1, le=30, description="上位議題の最大件数"),
+) -> CityDashboardResponse:
+    """街ダッシュボード: 1 自治体の議題集計 + 上位議題を 1 リクエストで返す。
+
+    Plan A-3「あなたの街が今どうなっているか」の可視化用エンドポイント。
+    関心軸別カウント (子育て/雇用/住居/...) + relevance 順上位 N 件。
+    """
+    response.headers["Cache-Control"] = (
+        "public, max-age=300, s-maxage=300, stale-while-revalidate=1800"
+    )
+    cache_key = ("city", user_id, municipality_code, limit)
+    cached = _CITY_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info("city.cache_hit muni=%s user_id=%s", municipality_code, user_id)
+        return cached
+
+    from google.cloud import bigquery
+
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
+
+    # 1 つのクエリで集計 + 上位 N 件を一度に取る (BQ コスト最小化)
+    sql_top = f"""
+        SELECT
+            speech_id, title, summary, detail_url, meeting_date,
+            municipality_code, name_of_meeting, speaker_position, tone,
+            relevance_score, score_topic, score_age, score_geographic, score_urgency,
+            matched_interests, reasoning
+        FROM `{table_fqn}`
+        WHERE user_id = @user_id AND municipality_code = @muni
+        ORDER BY relevance_score DESC, ingested_at DESC
+        LIMIT @limit
+    """  # noqa: S608
+    sql_counts = f"""
+        SELECT interest, COUNT(DISTINCT speech_id) AS n
+        FROM `{table_fqn}`, UNNEST(matched_interests) AS interest
+        WHERE user_id = @user_id AND municipality_code = @muni
+        GROUP BY interest
+    """  # noqa: S608
+    sql_total = f"""
+        SELECT COUNT(DISTINCT speech_id) AS n
+        FROM `{table_fqn}`
+        WHERE user_id = @user_id AND municipality_code = @muni
+    """  # noqa: S608
+
+    params = [
+        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        bigquery.ScalarQueryParameter("muni", "STRING", municipality_code),
+        bigquery.ScalarQueryParameter("limit", "INT64", limit),
+    ]
+
+    try:
+        rows_top = list(
+            client.query(
+                sql_top, job_config=bigquery.QueryJobConfig(query_parameters=params)
+            ).result(timeout=10)
+        )
+        rows_counts = list(
+            client.query(
+                sql_counts, job_config=bigquery.QueryJobConfig(query_parameters=params[:2])
+            ).result(timeout=10)
+        )
+        rows_total = list(
+            client.query(
+                sql_total, job_config=bigquery.QueryJobConfig(query_parameters=params[:2])
+            ).result(timeout=10)
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("city.bq_failed muni=%s err=%s", municipality_code, exc)
+        raise HTTPException(status_code=500, detail=f"BQ query failed: {exc!s}") from exc
+
+    interest_counts: dict[str, int] = {
+        str(r["interest"]): int(r["n"]) for r in rows_counts if r.get("interest")
+    }
+    total = int(rows_total[0]["n"]) if rows_total else 0
+
+    result = CityDashboardResponse(
+        municipality_code=municipality_code,
+        municipality_name=_muni_label(municipality_code),
+        user_id=user_id,
+        total_speeches=total,
+        interest_counts=interest_counts,
+        top_speeches=[_row_to_feed_item(r) for r in rows_top],
+    )
+    _CITY_CACHE.set(cache_key, result)
+    logger.info(
+        "city.served muni=%s user_id=%s total=%d top=%d",
+        municipality_code,
+        user_id,
+        total,
+        len(result.top_speeches),
+    )
+    return result
 
 
 # ============================================================================

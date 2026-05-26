@@ -284,3 +284,34 @@ export async function fetchCompare(
   });
   return fetchJson(`${API_BASE}/v1/compare?${params.toString()}`, CompareResponseSchema);
 }
+
+// ============================================================================
+// City Dashboard (Plan A-3) — 「あなたの街が今どうなっているか」
+// ============================================================================
+
+export const CityDashboardResponseSchema = z.object({
+  municipality_code: z.string(),
+  municipality_name: z.string(),
+  user_id: z.string(),
+  total_speeches: z.number().int().nonnegative(),
+  interest_counts: z.record(z.string(), z.number().int().nonnegative()),
+  top_speeches: z.array(FeedItemSchema),
+});
+
+export type CityDashboardResponse = z.infer<typeof CityDashboardResponseSchema>;
+
+/** 街ダッシュボードを取得 (関心軸別カウント + 上位議題)。 */
+export async function fetchCityDashboard(
+  userId: string,
+  municipalityCode: string,
+  limit = 10,
+): Promise<CityDashboardResponse> {
+  const params = new URLSearchParams({
+    user_id: userId,
+    limit: String(limit),
+  });
+  return fetchJson(
+    `${API_BASE}/v1/cities/${encodeURIComponent(municipalityCode)}?${params.toString()}`,
+    CityDashboardResponseSchema,
+  );
+}

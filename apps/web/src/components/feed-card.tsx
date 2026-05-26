@@ -47,9 +47,20 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
       {/* Header: 自治体 + score badge */}
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-zinc-300">
-          <span className="rounded-full border border-zinc-700 bg-zinc-800/60 px-3 py-1 font-medium">
-            {muniLabel}
-          </span>
+          {item.municipality_code ? (
+            <Link
+              href={`/cities/${encodeURIComponent(item.municipality_code)}`}
+              prefetch
+              className="rounded-full border border-zinc-700 bg-zinc-800/60 px-3 py-1 font-medium transition-colors hover:border-emerald-500 hover:bg-emerald-900/40 hover:text-emerald-200"
+              title={`${muniLabel} のダッシュボードを見る`}
+            >
+              🏙️ {muniLabel}
+            </Link>
+          ) : (
+            <span className="rounded-full border border-zinc-700 bg-zinc-800/60 px-3 py-1 font-medium">
+              {muniLabel}
+            </span>
+          )}
           {item.meeting_date && (
             <span className="text-zinc-400">{item.meeting_date}</span>
           )}

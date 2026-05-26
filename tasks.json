@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-26T12:00:00+09:00",
-  "active_week_note": "**Week 4 完了 + Week 5 開始 (B-2 比較ビュー実装完 2026-05-26)**。B-2 内容: `/v1/compare` BFF endpoint (BQ scored_speeches_latest × munis × interest 横断クエリ + Gemini 2.5 Flash 中立観察、倫理ガードレール、in-memory cache 10 分 + Cache-Control max-age=600) + `/compare` frontend ページ (テーマ 10 軸 + 自治体 2-3 選択 + 横並びカラム表示 + AI 中立観察) + メニュー導線 (top + feed フッタ)。pytest 10/10 + next build PASS (Route 7、/compare 追加)。残: Cloud Run rebuild + live 動作確認 (ユーザー手動)。次: **B-4 Imagen サムネ生成** または **B-3 Veo 60 秒動画** または **B-5 通知**",
+  "updated": "2026-05-26T15:00:00+09:00",
+  "active_week_note": "**Week 4 完了 + Week 5 進行中**。Phase Q + B-2 比較ビュー (live + 自治体名 lookup 修正) 完了。**戦略的方針転換: Plan A「あなたの街フォーカス」強化 (2026-05-26)**。A-1 マイ街フィードタブ ✅ (sticky タブ + クライアントフィルタ + カウントバッジ)、A-3 街ダッシュボード `/cities/[code]` ✅ (BFF /v1/cities/{code} BQ 集計 + 関心軸別 grid + 上位議題 + 比較 CTA、feed-card 自治体タップで遷移)。next build PASS (Route 8)。残: A-2 データ厚み (publish-all max=10、ユーザー手動)、A-4 Imagen サムネ、A-5 デモビデオ",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",
