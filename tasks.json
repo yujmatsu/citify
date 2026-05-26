@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-26T03:30:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W/X/Y/X+1 live + Week 4 (データ拡張 + パフォ)**。B-6 Drop / B-7 21 都道府県 / INFRA-006 Phase 3 政令市 12 + 中核市 12 / **Phase Q パフォーマンスチューニング完了 (2026-05-26)**: Q-1 Cloud Run min-instances=1 (cold start 撲滅) / Q-2 BFF /feed TTLCache 60s + Cache-Control / Q-3 BFF /related TTLCache 1h + Cache-Control / Q-4 municipalities.json Cache-Control 24h + SWR / Q-5 frontend fetch cache 'default' (reaction 系は no-store 明示) / Q-6 feed-card.tsx に prefetch 明示。pytest 10/10 + next build PASS + ruff PASS。次着手: **B-5 通知 (月曜 9 時メール/Push)** または Week 5 (Veo/Imagen + 比較ビュー)",
+  "updated": "2026-05-26T12:00:00+09:00",
+  "active_week_note": "**Week 4 完了 + Week 5 開始 (B-2 比較ビュー実装完 2026-05-26)**。B-2 内容: `/v1/compare` BFF endpoint (BQ scored_speeches_latest × munis × interest 横断クエリ + Gemini 2.5 Flash 中立観察、倫理ガードレール、in-memory cache 10 分 + Cache-Control max-age=600) + `/compare` frontend ページ (テーマ 10 軸 + 自治体 2-3 選択 + 横並びカラム表示 + AI 中立観察) + メニュー導線 (top + feed フッタ)。pytest 10/10 + next build PASS (Route 7、/compare 追加)。残: Cloud Run rebuild + live 動作確認 (ユーザー手動)。次: **B-4 Imagen サムネ生成** または **B-3 Veo 60 秒動画** または **B-5 通知**",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

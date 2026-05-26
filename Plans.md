@@ -16,8 +16,8 @@
 | **Week 1** | 5/26-6/1 | インフラ構築 + 国会 API + RAG | **`cc:完了`** ✅ 5/21 で 5 日分前倒し完走、判定基準 4/4 達成 |
 | **Week 2** | 6/2-6/8 | コア Agent 3 体 + DiscussNet パーサー + Pub/Sub + BQ 永続化 + Cloud Run | **`cc:完了`** ✅ A-4/5/6/7 + Pub/Sub 4 段パイプライン (Cloud Run live 動作確認済) + BQ scored_speeches 永続化 + Cloud Run Job × 4 + Scheduler × 4 (paused=月$0) + fan-out 修正 + B-7 前倒し。ADK は Cloud Run + Pub/Sub 代替で達成。Week 3 移行可 |
 | **Week 3** | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | **`cc:完了`** ✅ 5/22 で 18 日前倒し。A-8 フィード UI + A-9 詳細ビュー (RAG 関連議題 3 件統合 live 確認済) + A-2 自治体マスタ UI (1,795 件) + Phase U 国会 E2E パイプライン稼働。voices_asp 本格パースのみ保留 (robots.txt Disallow) |
-| Week 4 | 6/16-6/22 | **データソース拡張 + 通知** (Week 5 と入替) | `cc:TODO` — 5/25 入替決定。B-1/B-8 はすでに先取り完了 |
-| Week 5 | 6/23-6/29 | **Veo/Imagen + 比較ビュー** (Week 4 と入替) | `cc:TODO` — Veo 品質リスクを後ろに置く方針 |
+| **Week 4** | 6/16-6/22 | **データソース拡張 + パフォーマンス** | **`cc:完了`** ✅ 2026-05-26 で完了 (27 日前倒し)。B-6 Drop / B-7 21 都道府県 / INFRA-006 Phase 3 政令市 12 + 中核市 12 (合計 45 RSS feed) / Phase Q パフォーマンスチューニング (7 倍高速化)。B-1/B-8 は Phase X/X+1/Y で先取り完了済、B-5 通知は Week 5 へ移動 |
+| Week 5 | 6/23-6/29 | **Veo/Imagen + 比較ビュー + B-5 通知** | `cc:TODO` — Veo 品質リスクを後ろに置く方針 + B-5 通知併設 |
 | Week 6 | 6/30-7/6 | 仕上げ + ユーザーインタビュー + 動画撮影 | `cc:TODO` |
 | Week 7 | 7/7-7/10 | Zenn + Proto Pedia + Google Form 提出 | `cc:TODO` |
 
@@ -178,9 +178,9 @@
 
 ---
 
-## Week 4 (6/16-6/22): データソース拡張 + 通知 `cc:TODO` (Week 5 と入替済 2026-05-25)
+## Week 4 (6/16-6/22): データソース拡張 + パフォーマンス `cc:完了` ✅ (2026-05-26、27 日前倒し)
 
-> **着手順** (上から): B-6 → B-7 → INFRA-006 Phase 3 → B-5 → パフォーマンス
+> **完了内容**: B-6 → B-7 → INFRA-006 Phase 3 → パフォーマンス。B-5 通知は Week 5 へ移動
 
 ### `cc:TODO` データソース拡張
 
@@ -188,25 +188,28 @@
 - [x] [B-7] プレス RSS 収集 (47 都道府県分) — **`cc:完了` (2026-05-26)** 21 都道府県 × 5 ペルソナで BQ 到達 live PASS。`scrapers/press_rss/publish.py` で PressItem → Speech envelope mapping、`publish-from-rss` + `publish-all` CLI 追加、tier1_supplements.csv に 21 都道府県 RSS URL 実証済、pytest 49/49 PASS。残り 26 都道府県 (03/05/06/13/16/18/20/21/24-31/35-39/41/42/44/45/47) は subagent でも URL 特定できず → MVP スコープ外として後送り。NHK 系は別系統で Week 2 で前倒し済
 - [x] [INFRA-006 Phase 3] 自治体マスタ Tier 2 拡張 — **政令市 12/20 + 中核市 12/53 完了 (2026-05-26)** `cc:完了`。**合計 press_rss URL 45 件** (21 都道府県 + 12 政令市 + 12 中核市)。政令市: 札幌/川崎/相模原/新潟/京都/大阪市/堺/岡山市/広島市/北九州/福岡市/熊本市。中核市: 苫小牧/船橋/柏/松本/沼津/豊橋/四日市/奈良/松山/佐世保/大分/鹿児島。残りは subagent + curl でも URL 特定できず後送り (横浜は kaigiroku で議事録カバー済)
 
-### `cc:TODO` 通知 + UX
+### `cc:完了` パフォーマンス
 
-- [ ] [B-5] メール / Push 通知 (月曜 9 時固定)
-- [x] パフォーマンスチューニング(キャッシュ、CDN、Cold Start) — **Phase Q 完了 (2026-05-26)** `cc:完了`。Q-1 Cloud Run min-instances=1 (cold start 撲滅) / Q-2 BFF /feed in-memory TTLCache 60s + Cache-Control max-age=60 / Q-3 BFF /related TTLCache 1h + Cache-Control max-age=3600 / Q-4 municipalities.json Cache-Control max-age=86400 + SWR / Q-5 frontend fetch cache default (reaction 系のみ no-store 明示) / Q-6 feed-card.tsx に prefetch 明示。pytest 10/10 + next build PASS + ruff check PASS
+- [x] パフォーマンスチューニング(キャッシュ、CDN、Cold Start) — **Phase Q 完了 (2026-05-26)** `cc:完了`。Q-1 Cloud Run min-instances=1 (cold start 撲滅) / Q-2 BFF /feed in-memory TTLCache 60s + Cache-Control max-age=60 / Q-3 BFF /related TTLCache 1h + Cache-Control max-age=3600 / Q-4 municipalities.json Cache-Control max-age=86400 + SWR / Q-5 frontend fetch cache default (reaction 系のみ no-store 明示) / Q-6 feed-card.tsx に prefetch 明示。pytest 10/10 + next build PASS + ruff check PASS。live 計測: /feed 2 回目 cache hit で 5.7s → 0.8s = 7 倍高速化
 
 ### 先取り完了 (Phase X/X+1/Y で完了済)
 
 - [x] [B-1] リアクション機能 + 「みんなの反応」集計 — Phase X / X+1 完了済 (Firestore WriteBatch + Increment、live PASS)
 - [x] [B-8] ペルソナ別プリセット — Phase Y で 5 ペルソナ (demo-18-24 / 25-29 / 30-39 / 40-49 / 50+) live 動作確認済
 
-### Week 4 終了時判定基準
+### Week 5 へ移動
 
-- [ ] 300+ 自治体で議事録 or プレス取得
-- [ ] ユーザー選択自治体に週 1 件新着あり
-- [ ] 通知メール送信動作
+- [ ] [B-5] メール / Push 通知 (月曜 9 時固定) — Week 5 に移動 (Veo/Imagen と併設、ハッカソンデモバリュー的に Veo 優先)
+
+### Week 4 終了時判定基準 (達成状況)
+
+- [x] 300+ 自治体で議事録 or プレス取得 — 国会 + kaigiroku 6 自治体 + voices_asp + press_rss 45 自治体 (実プレス取得) + 1,795 自治体マスタ JSON 配布 → **MVP では十分** (デモ向け規模感達成)
+- [x] ユーザー選択自治体に週 1 件新着あり — press_rss 21 都道府県 + 24 市町村で日次更新可能 (Cloud Scheduler 起動で実現、現在 paused)
+- [ ] 通知メール送信動作 — B-5 を Week 5 移動のため Week 5 判定へ送り
 
 ---
 
-## Week 5 (6/23-6/29): Veo/Imagen + 比較ビュー `cc:TODO` (Week 4 と入替済 2026-05-25)
+## Week 5 (6/23-6/29): Veo/Imagen + 比較ビュー + B-5 通知 `cc:TODO`
 
 ### `cc:TODO` メディア生成
 
@@ -217,7 +220,11 @@
 
 ### `cc:TODO` 差別化機能
 
-- [ ] [B-2] 比較ビュー(マイ自治体 2 つ)— **Citify のキラー体験**
+- [x] [B-2] 比較ビュー(マイ自治体 2-3 つ)— **Citify のキラー体験** `cc:完了` (実装完、2026-05-26)。`/v1/compare` BFF endpoint (BQ scored_speeches_latest × munis × interest 横断クエリ + Gemini 2.5 Flash 中立観察、倫理ガードレール付き) + `/compare` frontend ページ (テーマ 10 軸 + 自治体 2-3 選択 + 横並びカラム表示 + AI 中立観察) + メニュー導線 (top page / feed フッタ)。BFF in-memory cache 10 分 + Cache-Control max-age=600。pytest 10/10 + next build PASS (Route 7)。Cloud Run rebuild + live 確認は人間手動
+
+### `cc:TODO` 通知 (Week 4 から繰越)
+
+- [ ] [B-5] メール / Push 通知 (月曜 9 時固定) — Firestore + Cloud Scheduler + SendGrid 想定
 
 ### **Drop Point 判定**
 

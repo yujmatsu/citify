@@ -8,6 +8,7 @@ Cloud Run / ローカル開発 両対応:
     - GET /v1/speeches/{speech_id}/related : RAG 関連議題 (Vertex AI corpus)
     - GET|PUT|DELETE /v1/speeches/{speech_id}/reaction : リアクション永続化 (Firestore)
     - GET /v1/speeches/{speech_id}/reactions/summary : リアクション集計 (Phase X+1)
+    - GET /v1/compare : 複数自治体の同テーマ比較 (B-2 比較ビュー)
 
 ローカル起動:
     uv run uvicorn main:app --reload --port 8080
@@ -319,6 +320,259 @@ async def get_speech(
         )
 
     return _row_to_feed_item(rows[0])
+
+
+# ============================================================================
+# v1 Compare API (B-2 比較ビュー — Citify のキラー体験)
+# ============================================================================
+
+
+class CompareSpeech(BaseModel):
+    """比較ビュー 1 自治体内の 1 件 speech (FeedItem の簡易版)。"""
+
+    speech_id: str
+    title: str | None
+    summary: list[str] = Field(default_factory=list)
+    detail_url: str | None = None
+    meeting_date: date | None = None
+    name_of_meeting: str | None = None
+    matched_interests: list[str] = Field(default_factory=list)
+    relevance_score: int = 0
+
+
+class ComparisonColumn(BaseModel):
+    """1 自治体のカラム (municipality_code + 上位 N 件 speech)。"""
+
+    municipality_code: str
+    speeches: list[CompareSpeech] = Field(default_factory=list)
+
+
+class CompareResponse(BaseModel):
+    """/v1/compare レスポンス。"""
+
+    user_id: str
+    interest: str = Field(description="比較対象テーマ (matched_interests のいずれか)")
+    municipality_codes: list[str]
+    columns: list[ComparisonColumn]
+    observation: str | None = Field(
+        default=None,
+        description="AI による中立的な観察 (3 文以内、評価コメント禁止)",
+    )
+
+
+_COMPARE_CACHE = _TTLCache(maxsize=128, ttl_sec=600.0)  # 10 分 TTL
+
+
+def _compare_row_to_speech(row: Any) -> CompareSpeech:
+    return CompareSpeech(
+        speech_id=row["speech_id"],
+        title=row.get("title"),
+        summary=list(row.get("summary") or []),
+        detail_url=row.get("detail_url"),
+        meeting_date=row.get("meeting_date"),
+        name_of_meeting=row.get("name_of_meeting"),
+        matched_interests=list(row.get("matched_interests") or []),
+        relevance_score=int(row.get("relevance_score") or 0),
+    )
+
+
+_NEUTRAL_OBSERVATION_PROMPT = """あなたは Citify の中立的観察エージェントです。
+複数の自治体の同テーマ議題を客観的に比較し、3 文以内で「共通点」と「相違点」を
+事実陳述のみで述べてください。
+
+# 厳守すべき倫理ルール (絶対遵守)
+1. 評価コメント禁止: 「優れている」「劣っている」「素晴らしい」等の評価語句使用禁止
+2. 政党推奨・批判禁止
+3. 「投票推奨」「処方」等の禁止語禁止
+4. 政治家・首長の固有名詞使わない
+5. 自治体名はそのまま使ってよい (例: 「新宿区では...」「横浜市では...」)
+6. 賛否判断をしない、事実陳述のみ
+7. 各文末は「...しています」「...が含まれています」「...されています」のような中立的表現
+
+# 出力
+3 文以内のプレーンテキスト (JSON 不要)。
+"""
+
+
+def _build_neutral_observation_user_prompt(interest: str, columns: list[ComparisonColumn]) -> str:
+    lines = [f"# テーマ\n{interest}\n"]
+    for col in columns:
+        lines.append(f"\n## 自治体コード: {col.municipality_code}")
+        for sp in col.speeches[:3]:
+            title = sp.title or "(タイトル未生成)"
+            summary_text = " / ".join(sp.summary[:3]) if sp.summary else "(要約未生成)"
+            lines.append(f"- {title}: {summary_text}")
+    lines.append(
+        "\n# タスク\n上記をふまえ、共通点 1 文 + 相違点 1-2 文で中立的に観察してください。"
+    )
+    return "\n".join(lines)
+
+
+_FORBIDDEN_OBSERVATION_PATTERNS = (
+    "投票",
+    "推奨",
+    "処方",
+    "優れて",
+    "劣って",
+    "素晴らしい",
+    "残念",
+    "賛成",
+    "反対",
+)
+
+
+def _validate_observation(text: str) -> bool:
+    """中立観察の倫理チェック (禁止語含むなら False)。"""
+    return not any(pat in text for pat in _FORBIDDEN_OBSERVATION_PATTERNS)
+
+
+def _generate_neutral_observation(interest: str, columns: list[ComparisonColumn]) -> str | None:
+    """Gemini で中立的観察を生成。失敗時 None (UI 側で観察を非表示)。"""
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        logger.warning("compare.observation.genai_unavailable")
+        return None
+
+    if not any(col.speeches for col in columns):
+        return None
+
+    try:
+        client = genai.Client(vertexai=True, project=BQ_PROJECT, location=RAG_LOCATION)
+        user_prompt = _build_neutral_observation_user_prompt(interest, columns)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=_NEUTRAL_OBSERVATION_PROMPT,
+                temperature=0.2,
+                max_output_tokens=512,
+            ),
+        )
+        text = (getattr(response, "text", "") or "").strip()
+        if not text:
+            return None
+        if not _validate_observation(text):
+            logger.warning("compare.observation.ethics_violation text=%r", text[:80])
+            return None
+        # 3 文以内に丸める (改行・句点で簡易分割)
+        sentences = [s.strip() for s in text.replace("\n", " ").split("。") if s.strip()]
+        if len(sentences) > 3:
+            sentences = sentences[:3]
+        return "。".join(sentences) + ("。" if sentences else "")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("compare.observation.gen_failed err=%s", exc)
+        return None
+
+
+@app.get("/v1/compare", response_model=CompareResponse)
+async def compare_municipalities(
+    response: Response,
+    user_id: str = Query(..., description="ペルソナ ID"),
+    munis: str = Query(..., description="比較対象の municipality_code (カンマ区切り、2-3 件)"),
+    interest: str = Query(..., description="比較対象テーマ (matched_interests の 1 つ)"),
+    limit: int = Query(default=3, ge=1, le=5, description="各自治体ごとの上限件数"),
+    include_observation: bool = Query(default=True, description="Gemini 中立観察の生成有無"),
+) -> CompareResponse:
+    """複数自治体の同テーマ議題を横並びで比較 (B-2 キラー体験)。
+
+    Flow:
+        1. munis を分割 (2-3 件)
+        2. 各 municipality_code × user_id × interest で BQ scored_speeches_latest を検索
+        3. include_observation=True なら Gemini で中立観察を生成
+    """
+    # Phase Q: ブラウザ HTTP cache (10 分)
+    response.headers["Cache-Control"] = (
+        "public, max-age=600, s-maxage=600, stale-while-revalidate=3600"
+    )
+
+    muni_codes = [m.strip() for m in munis.split(",") if m.strip()]
+    if len(muni_codes) < 2:
+        raise HTTPException(
+            status_code=400, detail="munis must contain at least 2 municipality_codes"
+        )
+    if len(muni_codes) > 3:
+        raise HTTPException(
+            status_code=400, detail="munis must contain at most 3 municipality_codes"
+        )
+
+    cache_key = (
+        "compare",
+        user_id,
+        tuple(sorted(muni_codes)),
+        interest,
+        limit,
+        include_observation,
+    )
+    cached = _COMPARE_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info(
+            "compare.cache_hit user_id=%s interest=%s munis=%s", user_id, interest, muni_codes
+        )
+        return cached
+
+    from google.cloud import bigquery
+
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
+    columns_data: list[ComparisonColumn] = []
+
+    for muni in muni_codes:
+        sql = f"""
+            SELECT
+                speech_id, title, summary, detail_url, meeting_date,
+                municipality_code, name_of_meeting, matched_interests, relevance_score
+            FROM `{table_fqn}`
+            WHERE user_id = @user_id
+              AND municipality_code = @muni
+              AND @interest IN UNNEST(matched_interests)
+            ORDER BY relevance_score DESC, ingested_at DESC
+            LIMIT @limit
+        """  # noqa: S608
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+                bigquery.ScalarQueryParameter("muni", "STRING", muni),
+                bigquery.ScalarQueryParameter("interest", "STRING", interest),
+                bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            ]
+        )
+        try:
+            rows = list(client.query(sql, job_config=job_config).result(timeout=15))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("compare.bq_failed muni=%s err=%s", muni, exc)
+            raise HTTPException(
+                status_code=500, detail=f"BQ query failed for muni={muni}: {exc!s}"
+            ) from exc
+
+        columns_data.append(
+            ComparisonColumn(
+                municipality_code=muni,
+                speeches=[_compare_row_to_speech(r) for r in rows],
+            )
+        )
+
+    observation: str | None = None
+    if include_observation:
+        observation = _generate_neutral_observation(interest, columns_data)
+
+    result = CompareResponse(
+        user_id=user_id,
+        interest=interest,
+        municipality_codes=muni_codes,
+        columns=columns_data,
+        observation=observation,
+    )
+    _COMPARE_CACHE.set(cache_key, result)
+    logger.info(
+        "compare.served user_id=%s interest=%s munis=%s observation=%s",
+        user_id,
+        interest,
+        muni_codes,
+        bool(observation),
+    )
+    return result
 
 
 # ============================================================================

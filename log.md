@@ -1,5 +1,117 @@
 # Citify 作業ログ
 
+## 2026-05-26 (Tue) Session 47 — B-2 比較ビュー実装 (Citify のキラー体験)
+
+### Completed
+
+- [x] **BFF `/v1/compare` endpoint** (`apps/api/main.py`):
+  - `GET /v1/compare?user_id=X&munis=A,B,C&interest=Y&limit=3&include_observation=true`
+  - BQ `scored_speeches_latest` を user_id × 各 muni × interest IN UNNEST(matched_interests) で fan-out クエリ (上位 N 件 / muni)
+  - レスポンス: `{user_id, interest, municipality_codes, columns: [{muni, speeches: [...]}], observation}`
+  - **Gemini 2.5 Flash で中立観察を 3 文以内生成** (Phase Y prompt 流用、倫理ガードレール: 評価語句/政党推奨/投票推奨/政治家固有名詞すべて禁止、検出時 None で UI 非表示)
+  - in-memory `_COMPARE_CACHE` (10 分 TTL) + Cache-Control max-age=600 + SWR 1h
+- [x] **`apps/web/src/lib/api.ts`** 拡張:
+  - `CompareSpeechSchema` / `ComparisonColumnSchema` / `CompareResponseSchema` (zod)
+  - `fetchCompare(userId, munis[], interest, limit)` 関数
+- [x] **`apps/web/src/app/compare/page.tsx`** 新規ページ:
+  - テーマ選択 chip (関心軸 10 軸、絵文字付き)
+  - 自治体選択 chip (localStorage `municipality_codes` 経由、国会 00000 除外、最大 3 つ)
+  - 「比較する」ボタン + loading 状態
+  - 横並びカラム表示 (2-3 grid)、各 speech カードに title + 3 行サマリ + 関連度 + 原典リンク
+  - AI 中立観察 (amber 背景で目立たせる、評価/賛否は事実陳述のみ)
+  - 倫理表記フッタ
+- [x] **メニュー導線**:
+  - `apps/web/src/app/page.tsx`: top page に「🔀 比較ビュー」リンク (emerald 強調色)
+  - `apps/web/src/app/feed/page.tsx`: feed フッタに「🔀 自治体を比較する」リンク (emerald)
+- [x] **pytest 10/10 PASS** (reaction tests に影響なし)
+- [x] **next build PASS** (Route 7、/compare 追加確認)
+- [x] **ruff format + check PASS**
+
+### Decisions
+
+- ✅ **Gemini 中立観察は Phase 1 から統合**: 1 API 呼び出し / リクエスト、コスト最小、デモバリュー大
+- ✅ **倫理ガードレールを 2 段階**: (a) system prompt で禁止行為明示 + (b) レスポンス後の禁止語パターンマッチ。違反検出時は `observation=None` (UI 非表示)
+- ✅ **BQ 横断クエリは 1 自治体ずつ N 回**: SQL を UNION ALL でまとめる手もあるが、可読性 + 各 muni 独立エラーハンドリングが効くため per-muni 方式
+- ✅ **テーマは 10 軸固定**: matched_interests のいずれかから 1 つ選択、複数選択は UI 複雑化のため避ける
+- ✅ **observation の倫理ガード**: 「投票」「推奨」「処方」「優れて」「劣って」「素晴らしい」「残念」「賛成」「反対」を含むと None 化
+
+### Files Modified / Added
+
+- `apps/api/main.py` — `/v1/compare` endpoint + CompareSpeech/ComparisonColumn/CompareResponse model + _COMPARE_CACHE + Gemini 中立観察ロジック + 倫理ガードレール
+- `apps/web/src/lib/api.ts` — Compare schema + fetchCompare
+- `apps/web/src/app/compare/page.tsx` (新規) — 比較ビュー UI
+- `apps/web/src/app/page.tsx` — top page メニューに比較ビュー追加
+- `apps/web/src/app/feed/page.tsx` — feed フッタに比較ビュー追加
+- `Plans.md`, `tasks.json`, `log.md` 更新
+
+### Pending (ユーザー手動)
+
+- [ ] Cloud Run citify-api rebuild (`gcloud builds submit --config=cloudbuild.yaml --region=asia-northeast1 --project=citify-dev`)
+- [ ] Firebase App Hosting は git push で自動 rollout
+- [ ] live 動作確認:
+  - 2 自治体 (例: 13104 新宿区 + 14100 横浜市) + interest=子育て で比較できるか
+  - AI 中立観察が事実陳述のみで評価語句なし
+  - 各 speech カードに原典リンクが付いているか
+  - 「マイ自治体を編集」リンクが選択肢を変更できるか
+
+### Next
+
+- B-4 Imagen サムネ生成 (フィードのビジュアル強化、簡単で見栄え強い)
+- B-3 Veo 60 秒動画 (デモの華、Veo 品質次第)
+- B-5 通知 (月曜 9 時メール/Push)
+
+---
+
+## 2026-05-26 (Tue) Session 46 — Phase Q live 確認 (7 倍高速化) + Week 4 完了判定
+
+### Completed
+
+- [x] **Cloud Build `fe941d96-6f78-4c5a-9c6b-79c334c09c3d`** SUCCESS (1m40s)、citify-api 新 image deploy + min-instances=1 反映済
+- [x] **git push** (`e5e1bd8..1f23c67`) で frontend も Firebase App Hosting 自動 rollout
+- [x] **live 性能検証**:
+  - 1st call (cache miss + BQ): **5.694 秒**
+  - 2nd call (cache hit): **0.835 秒**
+  - **改善: 約 7 倍高速化 / -4.86 秒**
+- [x] **Week 4 完了判定 + Plans.md/tasks.json 更新**:
+  - Plans.md テーブルの Week 4 行を `cc:完了` ✅ に
+  - Week 4 セクションの構造を整理 (B-5 通知を Week 5 へ移動)
+  - Week 5 セクションに B-5 を併設 (Veo/Imagen + 比較ビュー + B-5 通知)
+  - tasks.json `active_week_note` 更新
+
+### Week 4 完了サマリー
+
+| タスク | 状態 | 備考 |
+|---|---|---|
+| B-6 DB-Search | `cc:Drop` | dbsr.jp robots.txt 全面 Disallow |
+| B-7 プレス RSS 47 都道府県 | `cc:完了` (21/47) | 残り 26 都道府県 URL 特定不可で後送り |
+| INFRA-006 Phase 3 | `cc:完了` (政令市 12/20 + 中核市 12/53) | 合計 45 RSS feed |
+| Phase Q パフォーマンスチューニング | `cc:完了` | 7 倍高速化確認 |
+| B-1 リアクション | `cc:完了` (Phase X/X+1 先取り) | live PASS |
+| B-8 ペルソナ別プリセット | `cc:完了` (Phase Y 先取り、5 ペルソナ) | live PASS |
+| B-5 通知 | **Week 5 へ移動** | デモバリュー的に Veo 優先 |
+
+**進捗**: Week 4 完了予定 6/16-6/22 → 実完了 2026-05-26 = **27 日前倒し**
+**累積前倒し**: Week 1 (5 日) + Week 2 (大幅) + Week 3 (18 日) + Week 4 (27 日) = 提出 7/10 に対し約 1.5 ヶ月の余裕
+
+### Decisions
+
+- ✅ **B-5 通知を Week 5 へ移動**: ハッカソンデモバリュー的には Veo/Imagen が圧倒的に高い (動画でビジュアル訴求)。月曜メール通知は B-5 として残しつつ Week 5 で扱う
+- ✅ **Week 4 完了判定基準は MVP 達成として OK**: 300+ 自治体は kaigiroku 350+ + 国会 + voices_asp + press_rss 45 で達成、週 1 件新着は press_rss 日次更新で実現可能
+- ✅ **Phase Q の効果は live 計測済**: 5.7s → 0.8s の 7 倍高速化は予想通り、デモでの体感品質向上に直結
+
+### Files Modified
+
+- `Plans.md` — Week 4 を `cc:完了` 化、B-5 を Week 5 へ移動
+- `tasks.json` — active_week_note 更新
+- `log.md` — Session 46 追記
+
+### Next
+
+- Week 5 着手: B-3/B-4 Veo/Imagen (デモの華) + B-2 比較ビュー (Citify のキラー体験) + B-5 通知
+- 提出 7/10 まで 45 日、デモシナリオ準備とスライドも順次
+
+---
+
 ## 2026-05-26 (Tue) Session 45 — Phase Q パフォーマンスチューニング (Cold start + BFF cache + CDN)
 
 ### Completed

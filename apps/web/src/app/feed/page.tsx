@@ -126,7 +126,13 @@ export default function FeedPage() {
           ))}
           <footer className="snap-end px-6 py-12 text-center text-xs text-zinc-500">
             <p>これで全部 ({state.items.length} 件)</p>
-            <p className="mt-3 flex justify-center gap-4">
+            <p className="mt-3 flex flex-wrap justify-center gap-4">
+              <Link
+                href="/compare"
+                className="font-medium text-emerald-700 underline hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-200"
+              >
+                🔀 自治体を比較する
+              </Link>
               <Link
                 href="/municipalities"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"

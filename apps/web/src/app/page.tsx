@@ -46,7 +46,13 @@ export default function Home() {
             >
               フィードを見る
             </Link>
-            <div className="flex justify-center gap-4 text-sm text-zinc-500">
+            <div className="flex flex-wrap justify-center gap-4 text-sm text-zinc-500">
+              <Link
+                href="/compare"
+                className="font-medium text-emerald-700 underline hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-200"
+              >
+                🔀 比較ビュー
+              </Link>
               <Link
                 href="/municipalities"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"

@@ -228,3 +228,59 @@ export async function fetchReactionSummary(
   )}/reactions/summary`;
   return fetchJson(url, ReactionSummarySchema, { cache: "no-store" });
 }
+
+// ============================================================================
+// Compare (B-2 比較ビュー) — 複数自治体の同テーマ議題横並び
+// ============================================================================
+
+export const CompareSpeechSchema = z.object({
+  speech_id: z.string(),
+  title: z.string().nullable(),
+  summary: z.array(z.string()).default([]),
+  detail_url: z.string().nullable(),
+  meeting_date: z.string().nullable(),
+  name_of_meeting: z.string().nullable(),
+  matched_interests: z.array(z.string()).default([]),
+  relevance_score: z.number().int(),
+});
+
+export type CompareSpeech = z.infer<typeof CompareSpeechSchema>;
+
+export const ComparisonColumnSchema = z.object({
+  municipality_code: z.string(),
+  speeches: z.array(CompareSpeechSchema).default([]),
+});
+
+export type ComparisonColumn = z.infer<typeof ComparisonColumnSchema>;
+
+export const CompareResponseSchema = z.object({
+  user_id: z.string(),
+  interest: z.string(),
+  municipality_codes: z.array(z.string()),
+  columns: z.array(ComparisonColumnSchema),
+  observation: z.string().nullable(),
+});
+
+export type CompareResponse = z.infer<typeof CompareResponseSchema>;
+
+/**
+ * 複数自治体 (2-3) を同テーマで比較。
+ * @param userId  ペルソナ ID
+ * @param munis   municipality_code 配列 (2-3 件)
+ * @param interest 比較対象テーマ (matched_interests の 1 つ、例: "子育て")
+ * @param limit   各自治体ごとの最大件数 (default 3)
+ */
+export async function fetchCompare(
+  userId: string,
+  munis: string[],
+  interest: string,
+  limit = 3,
+): Promise<CompareResponse> {
+  const params = new URLSearchParams({
+    user_id: userId,
+    munis: munis.join(","),
+    interest,
+    limit: String(limit),
+  });
+  return fetchJson(`${API_BASE}/v1/compare?${params.toString()}`, CompareResponseSchema);
+}
