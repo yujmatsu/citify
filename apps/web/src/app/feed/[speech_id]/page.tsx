@@ -16,6 +16,12 @@ import {
   type ReactionSummary,
   type RelatedResponse,
 } from "@/lib/api";
+import {
+  findByCode,
+  formatMunicipalityLabel,
+  loadMunicipalities,
+  type Municipality,
+} from "@/lib/municipalities";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
 
@@ -24,18 +30,6 @@ type State =
   | { kind: "ok"; item: FeedItem; persona: Persona }
   | { kind: "error"; message: string };
 
-const MUNICIPALITY_LABEL: Record<string, string> = {
-  "00000": "国会",
-  "13104": "新宿区",
-  "13107": "墨田区",
-  "13118": "荒川区",
-  "14100": "横浜市",
-  "27000": "大阪府",
-  "27100": "大阪市",
-  "33000": "岡山県",
-  "39000": "土佐市",
-  "44000": "大分県",
-};
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
   const pct = Math.max(0, Math.min(100, (value / 25) * 100));
@@ -63,6 +57,7 @@ export default function SpeechDetailPage() {
   const [reactionPending, setReactionPending] = useState(false);
   const [reactionError, setReactionError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ReactionSummary | null>(null);
+  const [municipalities, setMunicipalities] = useState<Municipality[] | null>(null);
   const [related, setRelated] = useState<
     | { kind: "loading" }
     | { kind: "ok"; data: RelatedResponse }
@@ -78,6 +73,14 @@ export default function SpeechDetailPage() {
     }
     const sid = decodeURIComponent(params.speech_id);
     let cancelled = false;
+
+    // 自治体マスタを並行ロード (cache あり、複数ページで共有)
+    loadMunicipalities()
+      .then((m) => {
+        if (cancelled) return;
+        setMunicipalities(m);
+      })
+      .catch(() => setMunicipalities([]));
 
     // 主データ (speech 詳細) を先に取得
     fetchSpeech(sid, persona.user_id)
@@ -211,10 +214,13 @@ export default function SpeechDetailPage() {
   }
 
   const { item } = state;
-  const muni =
-    (item.municipality_code && MUNICIPALITY_LABEL[item.municipality_code]) ??
-    item.municipality_code ??
-    "—";
+  const muniRecord =
+    municipalities && item.municipality_code
+      ? findByCode(municipalities, item.municipality_code)
+      : undefined;
+  const muni = muniRecord
+    ? formatMunicipalityLabel(muniRecord)
+    : (item.municipality_code ?? "—");
 
   return (
     <main className="flex flex-1 flex-col px-6 pb-24 pt-6 sm:px-10 sm:py-10">

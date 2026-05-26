@@ -1,28 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import type { FeedItem } from "@/lib/api";
 import { firstInterestImageUrl } from "@/lib/interest-images";
+import {
+  findByCode,
+  formatMunicipalityLabel,
+  loadMunicipalities,
+  type Municipality,
+} from "@/lib/municipalities";
 import { cn } from "@/lib/utils";
 
 interface FeedCardProps {
   item: FeedItem;
-  /** 自治体名表示用のマッピング (5 桁コード → 表示名)。未登録は code をそのまま表示。 */
+  /** 自治体名表示用のマッピング (5 桁コード → 表示名、優先される)。 */
   municipalityName?: Record<string, string>;
 }
-
-const MUNICIPALITY_FALLBACK: Record<string, string> = {
-  "00000": "国会",
-  "13104": "新宿区",
-  "13107": "墨田区",
-  "13118": "荒川区",
-  "14100": "横浜市",
-  "27000": "大阪府",
-  "27100": "大阪市",
-  "33000": "岡山県",
-  "39000": "土佐市",
-  "44000": "大分県",
-};
 
 function scoreColor(score: number): string {
   if (score >= 80) return "bg-emerald-500";
@@ -30,11 +24,41 @@ function scoreColor(score: number): string {
   return "bg-zinc-400";
 }
 
+/** municipality_code から表示用ラベル。
+ *  1. props.municipalityName が指定されていればそれを優先
+ *  2. lib/municipalities.ts の全 1,795 件マスタから引く
+ *  3. どちらにもなければコード番号をそのまま表示 */
+function resolveMuniLabel(
+  code: string | null | undefined,
+  override: Record<string, string> | undefined,
+  municipalities: Municipality[] | null,
+): string {
+  if (!code) return "—";
+  if (override?.[code]) return override[code];
+  if (municipalities) {
+    const m = findByCode(municipalities, code);
+    if (m) return formatMunicipalityLabel(m);
+  }
+  return code;
+}
+
 export function FeedCard({ item, municipalityName }: FeedCardProps) {
-  const muniMap = { ...MUNICIPALITY_FALLBACK, ...(municipalityName ?? {}) };
-  const muniLabel = item.municipality_code
-    ? (muniMap[item.municipality_code] ?? item.municipality_code)
-    : "—";
+  const [municipalities, setMunicipalities] = useState<Municipality[] | null>(
+    null,
+  );
+
+  useEffect(() => {
+    // loadMunicipalities は内部キャッシュあり、複数回呼んでも fetch 1 回
+    loadMunicipalities()
+      .then(setMunicipalities)
+      .catch(() => setMunicipalities([]));
+  }, []);
+
+  const muniLabel = resolveMuniLabel(
+    item.municipality_code,
+    municipalityName,
+    municipalities,
+  );
   const interestImage = firstInterestImageUrl(item.matched_interests);
 
   return (
