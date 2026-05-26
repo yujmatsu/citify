@@ -191,7 +191,7 @@
 ### `cc:TODO` 通知 + UX
 
 - [ ] [B-5] メール / Push 通知 (月曜 9 時固定)
-- [ ] パフォーマンスチューニング(キャッシュ、CDN、Cold Start)
+- [x] パフォーマンスチューニング(キャッシュ、CDN、Cold Start) — **Phase Q 完了 (2026-05-26)** `cc:完了`。Q-1 Cloud Run min-instances=1 (cold start 撲滅) / Q-2 BFF /feed in-memory TTLCache 60s + Cache-Control max-age=60 / Q-3 BFF /related TTLCache 1h + Cache-Control max-age=3600 / Q-4 municipalities.json Cache-Control max-age=86400 + SWR / Q-5 frontend fetch cache default (reaction 系のみ no-store 明示) / Q-6 feed-card.tsx に prefetch 明示。pytest 10/10 + next build PASS + ruff check PASS
 
 ### 先取り完了 (Phase X/X+1/Y で完了済)
 

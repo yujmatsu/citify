@@ -21,16 +21,63 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# In-memory TTL cache (Phase Q パフォーマンスチューニング)
+# 外部依存なし、軽量。Cloud Run 単一インスタンスでの per-process キャッシュ。
+# ============================================================================
+
+
+class _TTLCache:
+    """TTL 付きの dict-like キャッシュ (FIFO eviction)。
+
+    process 内のみ有効。Cloud Run の min-instances=1 と組み合わせて
+    BQ/RAG 呼び出しの体感速度を改善する目的。
+    """
+
+    def __init__(self, maxsize: int = 128, ttl_sec: float = 60.0) -> None:
+        self.maxsize = maxsize
+        self.ttl_sec = ttl_sec
+        self._data: dict[Any, tuple[Any, float]] = {}
+
+    def get(self, key: Any) -> Any | None:
+        item = self._data.get(key)
+        if item is None:
+            return None
+        value, expire_at = item
+        if time.monotonic() > expire_at:
+            self._data.pop(key, None)
+            return None
+        return value
+
+    def set(self, key: Any, value: Any) -> None:
+        if len(self._data) >= self.maxsize:
+            # FIFO で最古を 1 件削除 (LRU ほど厳密でなくてよい、process scope)
+            oldest = next(iter(self._data), None)
+            if oldest is not None:
+                self._data.pop(oldest, None)
+        self._data[key] = (value, time.monotonic() + self.ttl_sec)
+
+    def clear(self) -> None:
+        self._data.clear()
+
+
+# /v1/feed/{user_id} (60 秒 TTL): 同 user_id × min_relevance × limit の組み合わせ
+_FEED_CACHE = _TTLCache(maxsize=64, ttl_sec=60.0)
+# /v1/speeches/{id}/related (1 時間 TTL): RAG 結果は安定なので長めに
+_RELATED_CACHE = _TTLCache(maxsize=256, ttl_sec=3600.0)
 
 # BQ 設定 (env で上書き可)
 BQ_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev")
@@ -173,6 +220,7 @@ def _row_to_feed_item(row: Any) -> FeedItem:
 @app.get("/v1/feed/{user_id}", response_model=FeedResponse)
 async def get_feed(
     user_id: str,
+    response: Response,
     min_relevance: int = Query(default=0, ge=0, le=100, description="フィルタ閾値 (default 0)"),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> FeedResponse:
@@ -183,6 +231,18 @@ async def get_feed(
         min_relevance: 0-100 スコア閾値、default 0 (全件)
         limit: 取得上限件数
     """
+    # Phase Q: ブラウザ HTTP cache 用 header (60 秒、SWR 5 分)
+    response.headers["Cache-Control"] = (
+        "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+    )
+
+    # Phase Q: in-memory cache (60 秒 TTL) — 同 user_id × params の連続リクエストを高速化
+    cache_key = ("feed", user_id, min_relevance, limit)
+    cached = _FEED_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info("feed.cache_hit user_id=%s", user_id)
+        return cached
+
     client = _get_bq_client()
     table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
     sql = f"""
@@ -214,8 +274,10 @@ async def get_feed(
         raise HTTPException(status_code=500, detail=f"BQ query failed: {exc!s}") from exc
 
     items = [_row_to_feed_item(r) for r in rows]
-    logger.info("feed.served user_id=%s n=%d", user_id, len(items))
-    return FeedResponse(user_id=user_id, items=items, total=len(items))
+    response = FeedResponse(user_id=user_id, items=items, total=len(items))
+    _FEED_CACHE.set(cache_key, response)
+    logger.info("feed.served user_id=%s n=%d cached=true", user_id, len(items))
+    return response
 
 
 @app.get("/v1/speeches/{speech_id}", response_model=FeedItem)
@@ -329,6 +391,7 @@ def _resolve_rag_corpus_name() -> str | None:
 @app.get("/v1/speeches/{speech_id}/related", response_model=RelatedResponse)
 async def get_related_speeches(
     speech_id: str,
+    response: Response,
     user_id: str = Query(..., description="ペルソナ ID (元 speech 取得コンテキスト)"),
     limit: int = Query(default=3, ge=1, le=10),
 ) -> RelatedResponse:
@@ -340,6 +403,18 @@ async def get_related_speeches(
         3. Vertex AI RAG corpus に retrieval_query
         4. top-K chunk を返す
     """
+    # Phase Q: ブラウザ HTTP cache 用 header (1 時間、SWR 1 日)
+    response.headers["Cache-Control"] = (
+        "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400"
+    )
+
+    # Phase Q: in-memory cache (1 時間 TTL) — RAG retrieval は重い (~2-5 秒)、結果は安定
+    cache_key = ("related", speech_id, user_id, limit)
+    cached = _RELATED_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info("related.cache_hit speech_id=%s", speech_id)
+        return cached
+
     # 1. 元 speech の title + summary 取得
     client = _get_bq_client()
     table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
@@ -375,7 +450,9 @@ async def get_related_speeches(
     query_text = " ".join([title, *summary_lines]).strip()
 
     if not query_text:
-        return RelatedResponse(speech_id=speech_id, query_text="", items=[], corpus_used=None)
+        empty = RelatedResponse(speech_id=speech_id, query_text="", items=[], corpus_used=None)
+        _RELATED_CACHE.set(cache_key, empty)
+        return empty
 
     # 2. RAG corpus を解決
     corpus_name = _resolve_rag_corpus_name()
@@ -385,9 +462,11 @@ async def get_related_speeches(
             "related.no_corpus speech_id=%s (RAG_CORPUS_NAME env or display_name lookup failed)",
             speech_id,
         )
-        return RelatedResponse(
+        no_corpus = RelatedResponse(
             speech_id=speech_id, query_text=query_text, items=[], corpus_used=None
         )
+        _RELATED_CACHE.set(cache_key, no_corpus)
+        return no_corpus
 
     # 3. retrieval_query
     try:
@@ -413,17 +492,19 @@ async def get_related_speeches(
         for ctx in contexts
     ]
     logger.info(
-        "related.served speech_id=%s n=%d query_chars=%d",
+        "related.served speech_id=%s n=%d query_chars=%d cached=true",
         speech_id,
         len(items),
         len(query_text),
     )
-    return RelatedResponse(
+    response = RelatedResponse(
         speech_id=speech_id,
         query_text=query_text,
         items=items,
         corpus_used=corpus_name,
     )
+    _RELATED_CACHE.set(cache_key, response)
+    return response
 
 
 # ============================================================================

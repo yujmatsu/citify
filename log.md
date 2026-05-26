@@ -1,5 +1,68 @@
 # Citify 作業ログ
 
+## 2026-05-26 (Tue) Session 45 — Phase Q パフォーマンスチューニング (Cold start + BFF cache + CDN)
+
+### Completed
+
+- [x] **Q-1 Cloud Run citify-api `--min-instances=1`** (`cloudbuild.yaml` 編集): cold start (~2-3 秒) を撲滅、月 $10 程度のコスト許容
+- [x] **`_TTLCache` 自前実装** (`apps/api/main.py`): 外部依存ゼロ (cachetools 不要)、FIFO eviction の軽量 TTL dict
+- [x] **Q-2 BFF /v1/feed/{user_id} に in-memory cache 60 秒**: 同一 user_id × min_relevance × limit の連続リクエストで BQ クエリスキップ (~1-2 秒短縮)
+- [x] **Q-3 BFF /v1/speeches/{id}/related に in-memory cache 1 時間**: RAG retrieval が重い (~2-5 秒)、同 speech_id の繰返アクセスで即時応答
+- [x] **BFF レスポンスに `Cache-Control` header 追加**:
+  - /feed: `public, max-age=60, s-maxage=60, stale-while-revalidate=300` (ブラウザ + CDN 60 秒キャッシュ)
+  - /related: `public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400` (ブラウザ + CDN 1 時間キャッシュ)
+- [x] **Q-4 `next.config.ts` に `municipalities.json` 専用 Cache-Control**: `public, max-age=86400, stale-while-revalidate=604800` (1 日キャッシュ + 1 週 SWR、1,795 件 207KB)
+- [x] **Q-5 `apps/web/src/lib/api.ts` の fetch cache 戦略分離**:
+  - default を `"default"` (HTTP cache 準拠) に変更 → BFF が返す Cache-Control header を活用
+  - リアルタイム性が必要な reaction 系 (fetchReaction / setReaction / clearReaction / fetchReactionSummary) は `cache: "no-store"` を明示
+- [x] **Q-6 `feed-card.tsx` に `<Link prefetch>` 明示**: feed カード → 詳細ページの遷移を高速化 (viewport に入った時点で詳細 JS をプリロード)
+- [x] **pytest 10/10 PASS** (reaction tests に影響なし)
+- [x] **next build PASS** (Route 6 維持)
+- [x] **ruff format + check PASS**
+
+### Decisions
+
+- ✅ **外部依存 `cachetools` は撤回し自前 _TTLCache 実装**: dev 環境の sandbox 制約で pip install 不可、+ 自前なら 30 行未満で実現可能 (FIFO eviction で十分)
+- ✅ **frontend fetch cache を "default" に**: BFF が Cache-Control を返すので、ブラウザの HTTP cache がそれに従う。リアクション系のみ明示的に no-store
+- ✅ **min-instances=1 のコスト ($10/月) は許容**: ハッカソンデモで cold start は致命的、$10 は十分価値あり
+- ✅ **キャッシュ TTL**: /feed 60 秒 (リアクション集計の即時性とのバランス) / /related 1 時間 (RAG 結果は安定) / municipalities.json 1 日 (build 時更新で十分)
+
+### 性能改善の体感シミュレーション
+
+| 操作 | Before | After (cache hit) | 改善 |
+|---|---|---|---|
+| /feed 初回 | ~3-5 秒 (cold start + BQ) | ~1-2 秒 (min-instances=1 + BQ) | -3 秒 |
+| /feed 2 回目 (60 秒以内) | ~1-2 秒 (BQ) | <100ms (cache hit) | -1.5 秒 |
+| /feed/[id]/related 初回 | ~3-5 秒 (RAG) | ~2-3 秒 (warm instance + RAG) | -2 秒 |
+| /feed/[id]/related 2 回目 (1 時間以内) | ~3-5 秒 | <100ms (cache hit) | -3 秒 |
+| /municipalities (onboarding) | 毎回 207KB DL | 2 回目以降キャッシュ | -300ms |
+
+### Files Modified
+
+- `cloudbuild.yaml` — `--min-instances=1`
+- `apps/api/main.py` — _TTLCache + /feed と /related の cache + Cache-Control header
+- `apps/api/Dockerfile` — (cachetools 追加→撤回で no-op)
+- `apps/api/pyproject.toml` — (同上)
+- `apps/web/next.config.ts` — headers() で municipalities.json Cache-Control
+- `apps/web/src/lib/api.ts` — fetch cache 戦略分離
+- `apps/web/src/components/feed-card.tsx` — `<Link prefetch>` 明示
+- `Plans.md` / `tasks.json` / `log.md` 更新
+
+### Pending (ユーザー手動)
+
+- [ ] Cloud Build で citify-api rebuild (`gcloud builds submit --config=cloudbuild.yaml --region=asia-northeast1 --project=citify-dev`) → min-instances=1 + TTLCache + Cache-Control が live で適用
+- [ ] Firebase App Hosting は git push で自動 rollout
+- [ ] live 動作確認:
+  - Chrome DevTools Network タブで Cache-Control / age header 確認
+  - /feed 2 回目以降の応答時間が <100ms か計測
+  - Cold start が無くなったか (1 時間アクセスなし → 即応答)
+
+### Next
+
+- B-5 通知 (月曜 9 時メール/Push) または Week 5 (Veo/Imagen + 比較ビュー)
+
+---
+
 ## 2026-05-26 (Tue) Session 44 — INFRA-006 Phase 3 中核市 12 追加 (合計 45 RSS feed)
 
 ### Completed

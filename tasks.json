@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-26T02:30:00+09:00",
-  "active_week_note": "**Week 3 完了 + Phase W/X/Y/X+1 live + Week 4 (データ拡張)**。B-6 Drop / B-7 21 都道府県 / **INFRA-006 Phase 3 政令市 12 + 中核市 12 完了 (2026-05-26)**: 合計 press_rss URL **45 件** (21 都道府県 + 12 政令市 + 12 中核市)。中核市 12 都市: 苫小牧/船橋/柏/松本/沼津/豊橋/四日市/奈良/松山/佐世保/大分/鹿児島。残り 41 中核市は subagent + curl でも URL 特定できず後送り。pytest 24/24 PASS。次着手: **B-5 通知 (月曜 9 時メール/Push)** or **パフォーマンスチューニング**",
+  "updated": "2026-05-26T03:30:00+09:00",
+  "active_week_note": "**Week 3 完了 + Phase W/X/Y/X+1 live + Week 4 (データ拡張 + パフォ)**。B-6 Drop / B-7 21 都道府県 / INFRA-006 Phase 3 政令市 12 + 中核市 12 / **Phase Q パフォーマンスチューニング完了 (2026-05-26)**: Q-1 Cloud Run min-instances=1 (cold start 撲滅) / Q-2 BFF /feed TTLCache 60s + Cache-Control / Q-3 BFF /related TTLCache 1h + Cache-Control / Q-4 municipalities.json Cache-Control 24h + SWR / Q-5 frontend fetch cache 'default' (reaction 系は no-store 明示) / Q-6 feed-card.tsx に prefetch 明示。pytest 10/10 + next build PASS + ruff PASS。次着手: **B-5 通知 (月曜 9 時メール/Push)** または Week 5 (Veo/Imagen + 比較ビュー)",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

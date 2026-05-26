@@ -89,7 +89,7 @@ steps:
       # - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
       - --memory=512Mi
       - --cpu=1
-      - --min-instances=0                          # Cold start 許容、コスト最優先
+      - --min-instances=1                          # Phase Q: cold start 撲滅 (デモ体感優先、月 $10 程度)
       - --max-instances=10
       - --concurrency=80
       - --timeout=60s

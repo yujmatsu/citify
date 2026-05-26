@@ -106,6 +106,7 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
         <div className="flex items-center justify-between gap-3 pt-2">
           <Link
             href={`/feed/${encodeURIComponent(item.speech_id)}`}
+            prefetch
             className="flex-1 rounded-full bg-zinc-50 px-4 py-3 text-center text-sm font-semibold text-zinc-900 transition-colors hover:bg-zinc-200"
           >
             詳しく見る

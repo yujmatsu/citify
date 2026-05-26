@@ -61,14 +61,16 @@ async function fetchJson<T extends z.ZodTypeAny>(
   schema: T,
   init?: RequestInit,
 ): Promise<z.infer<T>> {
+  // Phase Q: 呼び出し側で cache を指定しない場合は "default" にし、
+  // BFF が返す Cache-Control header (max-age) をブラウザ HTTP cache で活用する。
+  // リアルタイム性が必要な reaction 系は呼び出し側で明示的に "no-store" を指定。
   const res = await fetch(url, {
     ...init,
     headers: {
       Accept: "application/json",
       ...(init?.headers ?? {}),
     },
-    // App Router (Server Components) の fetch cache を default 抑制
-    cache: init?.cache ?? "no-store",
+    cache: init?.cache ?? "default",
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -170,12 +172,14 @@ function reactionUrl(speechId: string, userId: string): string {
   )}/reaction?user_id=${encodeURIComponent(userId)}`;
 }
 
-/** 現在のリアクションを取得 (未設定なら reaction=null)。 */
+/** 現在のリアクションを取得 (未設定なら reaction=null)。リアルタイム性が必要なので no-store。 */
 export async function fetchReaction(
   speechId: string,
   userId: string,
 ): Promise<ReactionResponse> {
-  return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema);
+  return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema, {
+    cache: "no-store",
+  });
 }
 
 /** リアクションを設定 or 上書き。 */
@@ -188,6 +192,7 @@ export async function setReaction(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reaction }),
+    cache: "no-store",
   });
 }
 
@@ -198,6 +203,7 @@ export async function clearReaction(
 ): Promise<ReactionResponse> {
   return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema, {
     method: "DELETE",
+    cache: "no-store",
   });
 }
 
@@ -220,5 +226,5 @@ export async function fetchReactionSummary(
   const url = `${API_BASE}/v1/speeches/${encodeURIComponent(
     speechId,
   )}/reactions/summary`;
-  return fetchJson(url, ReactionSummarySchema);
+  return fetchJson(url, ReactionSummarySchema, { cache: "no-store" });
 }
