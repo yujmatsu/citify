@@ -447,7 +447,7 @@ def _generate_neutral_observation(interest: str, columns: list[ComparisonColumn]
             config=types.GenerateContentConfig(
                 system_instruction=_NEUTRAL_OBSERVATION_PROMPT,
                 temperature=0.2,
-                max_output_tokens=512,
+                max_output_tokens=1024,
             ),
         )
         text = (getattr(response, "text", "") or "").strip()
@@ -458,9 +458,14 @@ def _generate_neutral_observation(interest: str, columns: list[ComparisonColumn]
             return None
         # 3 文以内に丸める (改行・句点で簡易分割)
         sentences = [s.strip() for s in text.replace("\n", " ").split("。") if s.strip()]
+        # 元テキストが「。」で終わっていない = 最後の文は不完全 → 破棄
+        if sentences and not text.rstrip().endswith("。"):
+            sentences = sentences[:-1]
         if len(sentences) > 3:
             sentences = sentences[:3]
-        return "。".join(sentences) + ("。" if sentences else "")
+        if not sentences:
+            return None
+        return "。".join(sentences) + "。"
     except Exception as exc:  # noqa: BLE001
         logger.exception("compare.observation.gen_failed err=%s", exc)
         return None
