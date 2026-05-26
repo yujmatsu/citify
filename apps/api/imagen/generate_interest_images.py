@@ -97,9 +97,9 @@ INTERESTS: tuple[InterestSpec, ...] = (
         slug="childcare",
         label="子育て",
         prompt=(
-            "Silhouette of a parent and child holding hands in a park, "
-            "warm afternoon light, abstract flat illustration, "
-            "no facial details, no specific people, calm green and yellow palette."
+            "Cute teddy bear, building blocks, and pacifier on a soft mat, "
+            "childcare and nursery concept, no people, "
+            "warm yellow and pastel green palette, flat illustration."
         ),
     ),
     InterestSpec(
@@ -131,9 +131,9 @@ INTERESTS: tuple[InterestSpec, ...] = (
         slug="medical",
         label="医療",
         prompt=(
-            "Stethoscope wrapped around a stylized heart icon, "
-            "clean medical concept, soft blue and white palette, "
-            "flat illustration, no people, no text."
+            "Pill bottle, bandage, and red plus medical cross symbol on white background, "
+            "healthcare and pharmacy concept, soft blue and white palette, "
+            "flat geometric illustration, no people, no text."
         ),
     ),
     InterestSpec(
@@ -228,17 +228,33 @@ def generate_and_upload_all(
     prefix: str,
     model: str = DEFAULT_MODEL,
     dry_run: bool = False,
+    only_slugs: list[str] | None = None,
+    sleep_between_sec: float = 0.0,
 ) -> dict[str, str]:
-    """全 10 軸を生成してアップロード。slug → public URL の dict を返す。"""
+    """全 10 軸を生成してアップロード。slug → public URL の dict を返す。
+
+    Args:
+        only_slugs: 指定された slug だけ実行 (None なら全 10 軸)
+        sleep_between_sec: 各リクエスト後の sleep 秒数 (Imagen quota 回避用)
+    """
+    import time
+
     results: dict[str, str] = {}
-    for spec in INTERESTS:
+    target = [s for s in INTERESTS if (only_slugs is None or s.slug in only_slugs)]
+    if not target:
+        logger.warning("imagen.no_target_slugs only=%s", only_slugs)
+        return results
+
+    for i, spec in enumerate(target):
         full_prompt = _full_prompt(spec)
         object_path = f"{prefix}/{spec.slug}.jpg"
         logger.info(
-            "imagen.generate slug=%s label=%s prompt_chars=%d",
+            "imagen.generate slug=%s label=%s prompt_chars=%d (%d/%d)",
             spec.slug,
             spec.label,
             len(full_prompt),
+            i + 1,
+            len(target),
         )
         if dry_run:
             logger.info("imagen.dry_run slug=%s prompt=%r", spec.slug, full_prompt[:120])
@@ -270,6 +286,10 @@ def generate_and_upload_all(
         except Exception as exc:  # noqa: BLE001
             logger.exception("imagen.failed slug=%s err=%s", spec.slug, exc)
             results[spec.slug] = f"FAILED: {exc.__class__.__name__}"
+        # Quota 回避用 sleep (last 以外)
+        if sleep_between_sec > 0 and i < len(target) - 1:
+            logger.debug("imagen.sleep %ss before next request", sleep_between_sec)
+            time.sleep(sleep_between_sec)
     return results
 
 
@@ -283,6 +303,18 @@ def main() -> int:
     parser.add_argument("--prefix", default=DEFAULT_PREFIX)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--dry-run", action="store_true", help="生成せず prompt のみ表示")
+    parser.add_argument(
+        "--only",
+        type=str,
+        default=None,
+        help="特定 slug のみ実行 (カンマ区切り、例: childcare,tax,disaster)",
+    )
+    parser.add_argument(
+        "--sleep-between-sec",
+        type=float,
+        default=20.0,
+        help="各リクエスト後の sleep 秒数 (Imagen quota 回避、default 20s)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -292,6 +324,7 @@ def main() -> int:
         stream=sys.stderr,
     )
 
+    only_slugs = [s.strip() for s in args.only.split(",") if s.strip()] if args.only else None
     results = generate_and_upload_all(
         project_id=args.project_id,
         location=args.location,
@@ -299,6 +332,8 @@ def main() -> int:
         prefix=args.prefix,
         model=args.model,
         dry_run=args.dry_run,
+        only_slugs=only_slugs,
+        sleep_between_sec=args.sleep_between_sec,
     )
 
     print("# Summary")

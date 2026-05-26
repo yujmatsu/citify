@@ -1,8 +1,8 @@
 {
   "project": "citify",
   "version": "0.1.0",
-  "updated": "2026-05-26T15:00:00+09:00",
-  "active_week_note": "**Week 4 完了 + Week 5 進行中**。Phase Q + B-2 比較ビュー (live + 自治体名 lookup 修正) 完了。**戦略的方針転換: Plan A「あなたの街フォーカス」強化 (2026-05-26)**。A-1 マイ街フィードタブ ✅ (sticky タブ + クライアントフィルタ + カウントバッジ)、A-3 街ダッシュボード `/cities/[code]` ✅ (BFF /v1/cities/{code} BQ 集計 + 関心軸別 grid + 上位議題 + 比較 CTA、feed-card 自治体タップで遷移)。next build PASS (Route 8)。残: A-2 データ厚み (publish-all max=10、ユーザー手動)、A-4 Imagen サムネ、A-5 デモビデオ",
+  "updated": "2026-05-26T17:00:00+09:00",
+  "active_week_note": "**Week 4 完了 + Plan A 大幅進捗 (2026-05-26)**。Phase Q + B-2 比較ビュー / A-1 マイ街フィードタブ / A-3 街ダッシュボード / **A-4 Imagen 10 軸サムネ生成** (gs://citify-dev-public-assets/interests/) すべて完了。データ厚み 5 倍 (publish-all max=10、BQ 169 unique speeches)、Imagen 3 倫理ガード (person_generation=dont_allow + safety filter) で人物描写なし。子育て・医療は safety filter で失敗→プロンプト改善で再生成 OK。残り: A-5 デモビデオ 60 秒",
   "submission_deadline": "2026-07-10T23:59:00+09:00",
   "active_week": 1,
   "schedule_ref": "docs/SCHEDULE.md",

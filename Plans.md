@@ -227,7 +227,7 @@
 - [x] **A-1 マイ街フィードタブ** `cc:完了` — `/feed` 上部に sticky タブ (`あなたの街` / `その他`)、`localStorage.municipality_codes` でクライアント側フィルタ、カウントバッジ、空タブ時の hint
 - [x] **A-3 街ダッシュボード `/cities/[code]`** `cc:完了` — BFF `/v1/cities/{code}` endpoint (BQ 集計: total_speeches + matched_interests 別 + 上位 N 件 FeedItem、5 分 TTL キャッシュ + Cache-Control max-age=300) + frontend ページ (関心軸別カウント grid 表示 + 注目議題カード列挙 + 「マイ自治体に追加」CTA + 比較ビューへの動線)、feed-card の自治体名タップで遷移。next build PASS (Route 8)
 - [ ] **A-2 データ厚み 3 倍** — `publish-all --max-per-feed 10` で再投入 (ユーザー手動、進行中)
-- [ ] **A-4 B-4 Imagen サムネ** — フィードカードに画像追加
+- [x] **A-4 B-4 Imagen サムネ** — `cc:完了` (2026-05-26)。関心軸 10 軸 (住居/雇用/結婚/子育て/税/起業/防災/医療/教育/移住) を Imagen 3 で 1 枚ずつ生成 + GCS public 配信 (`gs://citify-dev-public-assets/interests/{slug}.jpg`)。倫理ガード: `person_generation="dont_allow"` + negative prompt + 共通ガードレール (政治家顔/ロゴ/旗禁止)。FeedCard 背景に画像 (opacity 30 + gradient overlay)、cities/[code] 関心軸 grid に 7×7 サムネ。子育て・医療は safety filter で初回失敗 → プロンプトを物だけに修正で再生成 OK。
 - [ ] **A-5 デモビデオ 60 秒** — ピッチ動画
 
 ### `cc:TODO` 通知 (Week 4 から繰越)

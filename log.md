@@ -1,5 +1,74 @@
 # Citify 作業ログ
 
+## 2026-05-26 (Tue) Session 49 — Plan A-2 データ厚み 5 倍 + A-4 Imagen 10 軸サムネ完成
+
+### Completed
+
+#### A-2 データ厚み
+
+- [x] **publish-all `--max-per-feed 10`** 実行: 45 自治体 × 最大 10 件 = **421 envelope publish** (前回 86 → 5 倍)
+- [x] **Workers 2 回実行** (translator → relevance → bq-sink)
+- [x] **BQ 確認**: 43 自治体 × 1-10 件 = **169 unique speeches** (前回 43 → 4 倍、各 user 5 ペルソナ採点で実質 845 行)
+- [x] git push: Plan A-1 + A-3 (commit 6151583) は既に live
+- [x] Cloud Build `766b51b7` SUCCESS
+
+#### A-4 Imagen 10 軸サムネ生成
+
+- [x] **`apps/api/imagen/generate_interest_images.py`** 新規 (Vertex AI Imagen 3 + GCS upload、倫理ガード `person_generation=dont_allow` + negative prompt)
+- [x] **GCS bucket 作成**: `citify-dev-public-assets` (asia-northeast1, uniform bucket-level access, allUsers:objectViewer)
+- [x] **10 軸プロンプト確定** (住居/雇用/結婚/子育て/税/起業/防災/医療/教育/移住)
+- [x] **1 回目実行**: 5/10 成功、5/10 Quota exceeded (429)
+- [x] **スクリプト改修**: `--only {slug,...}` + `--sleep-between-sec` 引数追加 (Quota 回避)
+- [x] **2 回目実行 (5 軸、20s sleep)**: 3/5 成功 (tax/disaster/education)、2/5 safety filter で失敗 (childcare/medical = 人物表現でブロック)
+- [x] **プロンプト改善**: 子育て「親子のシルエット」→「テディベア・積み木・おしゃぶり」、医療「聴診器+心臓」→「薬瓶・絆創膏・赤十字」(人物・人体パーツ完全除去)
+- [x] **3 回目実行**: 2/2 成功 → **10/10 完成**
+- [x] **`apps/web/src/lib/interest-images.ts`** 新規: matched_interests → 画像 URL マッピング
+- [x] **`apps/web/src/components/feed-card.tsx`**: カード背景に画像 (opacity 30 + gradient overlay)、右上に「✨ AI 生成画像」ラベル
+- [x] **`apps/web/src/app/cities/[code]/page.tsx`**: 関心軸 grid の各カードに 7×7 サムネ表示
+- [x] **next build PASS (Route 8 維持)** + **ruff PASS** + **pytest 10/10 PASS**
+- [x] git commit `26f2a17` push 済
+
+### 倫理ガードレール (PROJECT.md §5 準拠)
+
+- ✅ Imagen API レベル: `person_generation="dont_allow"` で人物顔生成を完全禁止
+- ✅ Prompt レベル: 「No specific people's faces, no politicians, no celebrity, no logos」を全画像に明示
+- ✅ Negative prompt: human faces, politicians, logos, watermarks, national flags 等
+- ✅ UI ラベル: フィードカード右上に「✨ AI 生成画像」明示
+- ✅ SynthID 透かし保持 (Imagen 標準で付与)
+
+### Decisions
+
+- ✅ **Quota 回避は `--sleep-between-sec 20`**: Imagen 3 のオンライン推論 quota は default 5 req/min、20s sleep でクリア
+- ✅ **safety filter 対策はプロンプトから人物表現を完全除去**: `person_generation=dont_allow` × 「parent and child silhouette」のような曖昧な人物表現は API が安全側で空 response を返す。物・記号のみのプロンプトに修正で安定生成
+- ✅ **画像は背景 opacity 30 + gradient overlay**: テキスト可読性とビジュアル両立、デモ映え
+
+### Files Modified / Added
+
+- `apps/api/imagen/__init__.py` (新規)
+- `apps/api/imagen/generate_interest_images.py` (新規、Imagen 3 + GCS upload + `--only` / `--sleep-between-sec`)
+- `apps/web/src/lib/interest-images.ts` (新規)
+- `apps/web/src/components/feed-card.tsx` (画像背景)
+- `apps/web/src/app/cities/[code]/page.tsx` (関心軸サムネ)
+- `Plans.md`, `tasks.json`, `log.md` 更新
+
+### Pending (ユーザー手動)
+
+- [ ] プロンプト改善後の最終 commit + push (Imagen スクリプトに `--only` / `--sleep` 追加 + プロンプト 2 軸改修):
+  ```bash
+  git add apps/api/imagen/generate_interest_images.py Plans.md tasks.json log.md
+  git commit -m "feat(plan-a-4): Imagen 10/10 生成完了 (childcare/medical プロンプト改善 + --only/--sleep-between-sec 引数追加)"
+  git push origin main
+  ```
+- [ ] ブラウザでデザイン確認:
+  - https://citify-web--citify-dev.asia-east1.hosted.app/feed → フィードカード背景に画像
+  - https://citify-web--citify-dev.asia-east1.hosted.app/cities/14100 等で関心軸 grid サムネ確認
+
+### Next
+
+- A-5 デモビデオ 60 秒 (ピッチ動画)
+
+---
+
 ## 2026-05-26 (Tue) Session 48 — 戦略的方針転換 + Plan A 「あなたの街フォーカス」着手 (A-1 + A-3 実装完)
 
 ### Strategic Discussion (率直な評価)
