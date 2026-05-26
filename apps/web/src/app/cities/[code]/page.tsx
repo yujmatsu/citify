@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { FeedCard } from "@/components/feed-card";
 import { fetchCityDashboard, type CityDashboardResponse } from "@/lib/api";
+import { interestImageUrl } from "@/lib/interest-images";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
 
@@ -148,23 +149,37 @@ function CityDashboardView({
               📊 関心軸別の議題数
             </h2>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {sortedInterests.map(([interest, count]) => (
-                <div
-                  key={interest}
-                  className={cn(
-                    "flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800",
-                    count >= 3 &&
-                      "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
-                  )}
-                >
-                  <span className="text-sm">
-                    {INTEREST_EMOJI[interest] ?? "📌"} {interest}
-                  </span>
-                  <span className="text-sm font-semibold tabular-nums">
-                    {count}
-                  </span>
-                </div>
-              ))}
+              {sortedInterests.map(([interest, count]) => {
+                const img = interestImageUrl(interest);
+                return (
+                  <div
+                    key={interest}
+                    className={cn(
+                      "relative flex items-center justify-between gap-2 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800",
+                      count >= 3 &&
+                        "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      {img ? (
+                        <span
+                          className="h-7 w-7 flex-shrink-0 rounded-md bg-cover bg-center"
+                          style={{ backgroundImage: `url(${img})` }}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <span className="text-base">
+                          {INTEREST_EMOJI[interest] ?? "📌"}
+                        </span>
+                      )}
+                      <span className="text-sm">{interest}</span>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums">
+                      {count}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { FeedItem } from "@/lib/api";
+import { firstInterestImageUrl } from "@/lib/interest-images";
 import { cn } from "@/lib/utils";
 
 interface FeedCardProps {
@@ -34,18 +35,37 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
   const muniLabel = item.municipality_code
     ? (muniMap[item.municipality_code] ?? item.municipality_code)
     : "—";
+  const interestImage = firstInterestImageUrl(item.matched_interests);
 
   return (
     <article
       className={cn(
-        "relative flex h-full w-full snap-start snap-always flex-col justify-between",
+        "relative flex h-full w-full snap-start snap-always flex-col justify-between overflow-hidden",
         "px-6 py-10 sm:px-10 sm:py-12",
         "bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 text-zinc-50",
         "min-h-[80vh] sm:rounded-3xl sm:shadow-2xl",
       )}
     >
+      {/* Background image (関心軸サムネ、暗いオーバーレイで読みやすく) */}
+      {interestImage && (
+        <>
+          <div
+            className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center opacity-30"
+            style={{ backgroundImage: `url(${interestImage})` }}
+            aria-hidden="true"
+          />
+          <div
+            className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-zinc-900/70 via-zinc-900/60 to-zinc-900/95"
+            aria-hidden="true"
+          />
+          <span className="absolute right-3 top-3 z-10 rounded-full bg-black/40 px-2 py-0.5 text-[9px] text-zinc-300 backdrop-blur">
+            ✨ AI 生成画像
+          </span>
+        </>
+      )}
+
       {/* Header: 自治体 + score badge */}
-      <header className="flex items-center justify-between">
+      <header className="relative z-10 flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-zinc-300">
           {item.municipality_code ? (
             <Link
@@ -77,7 +97,7 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
       </header>
 
       {/* Body: title + summary */}
-      <div className="flex flex-1 flex-col justify-center gap-6 py-8">
+      <div className="relative z-10 flex flex-1 flex-col justify-center gap-6 py-8">
         <h2 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
           {item.title || "(タイトル未生成)"}
         </h2>
@@ -96,7 +116,7 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
       </div>
 
       {/* Footer: matched interests + 詳細リンク */}
-      <footer className="space-y-3">
+      <footer className="relative z-10 space-y-3">
         {item.matched_interests.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {item.matched_interests.map((interest) => (
