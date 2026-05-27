@@ -296,25 +296,71 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
       sub: "人口千対 (2023)",
     });
   }
+  // Phase F: Reinfolib 由来カード (サンプル不足 n<10 は非描画)
+  const sampleSize = stats.used_apartment_sample_size ?? 0;
+  if (
+    stats.used_apartment_median_price_man_yen != null &&
+    sampleSize >= 10
+  ) {
+    cards.push({
+      label: "🏠 中古マンション中央値",
+      value: `¥${formatNumber(stats.used_apartment_median_price_man_yen)}万`,
+      sub: `n=${sampleSize}件 過去4Q集計`,
+    });
+  }
+  if (
+    stats.used_apartment_median_unit_price_yen != null &&
+    sampleSize >= 10
+  ) {
+    cards.push({
+      label: "🏠 ㎡単価中央値",
+      value: `¥${formatNumber(Math.round(stats.used_apartment_median_unit_price_yen / 10000))}万/㎡`,
+      sub: stats.used_apartment_avg_building_age != null
+        ? `築${stats.used_apartment_avg_building_age.toFixed(0)}年平均`
+        : undefined,
+    });
+  }
+  if (
+    stats.emergency_shelter_count != null &&
+    stats.emergency_shelter_count > 0
+  ) {
+    cards.push({
+      label: "🌊 周辺地域の避難所",
+      value: `${formatNumber(stats.emergency_shelter_count)} か所`,
+      sub: "~50km圏 (Citify集計)",
+    });
+  }
 
   if (cards.length === 0) return <></>;
 
   return (
     <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-zinc-500">
           📊 街のかたち (客観統計)
         </h2>
-        {stats.source_url && (
-          <a
-            href={stats.source_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] text-zinc-400 underline hover:text-zinc-600"
-          >
-            出典: e-Stat
-          </a>
-        )}
+        <div className="flex flex-wrap items-baseline gap-2 text-[10px] text-zinc-400">
+          {stats.source_url && (
+            <a
+              href={stats.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-zinc-600"
+            >
+              出典: e-Stat
+            </a>
+          )}
+          {stats.reinfolib_source_url && (
+            <a
+              href={stats.reinfolib_source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-zinc-600"
+            >
+              + 不動産情報ライブラリ (国土交通省)
+            </a>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {cards.map((card) => (
@@ -344,6 +390,24 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
           </div>
         ))}
       </div>
+      {/* Phase F 倫理ガード: 防災 link は自治体公式ハザードマップに誘導 */}
+      {stats.emergency_shelter_official_link && (
+        <p className="text-[10px] text-zinc-500">
+          ⚠️ 防災カードは Citify 集計値です。実際の避難計画は{" "}
+          <a
+            href={stats.emergency_shelter_official_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-zinc-700"
+          >
+            国土地理院 ハザードマップポータルサイト
+          </a>{" "}
+          で確認してください。
+        </p>
+      )}
+      <p className="text-[10px] text-zinc-400">
+        Citify 集計値です。価値判断は含みません。
+      </p>
     </section>
   );
 }

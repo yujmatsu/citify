@@ -301,6 +301,14 @@ export const MunicipalityStatsSchema = z.object({
   birth_rate_per_1000: z.number().nullable(),
   data_year: z.number().int().nullable(),
   source_url: z.string().nullable(),
+  // Phase F: Reinfolib 由来 (optional、未投入自治体は null)
+  used_apartment_median_price_man_yen: z.number().int().nullable().optional(),
+  used_apartment_sample_size: z.number().int().nullable().optional(),
+  used_apartment_median_unit_price_yen: z.number().int().nullable().optional(),
+  used_apartment_avg_building_age: z.number().nullable().optional(),
+  emergency_shelter_count: z.number().int().nullable().optional(),
+  emergency_shelter_official_link: z.string().nullable().optional(),
+  reinfolib_source_url: z.string().nullable().optional(),
 });
 
 export type MunicipalityStats = z.infer<typeof MunicipalityStatsSchema>;

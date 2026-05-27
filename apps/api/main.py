@@ -489,6 +489,35 @@ class MunicipalityStats(BaseModel):
     birth_rate_per_1000: float | None = None
     data_year: int | None = None
     source_url: str | None = None
+    # Phase F: Reinfolib (不動産情報ライブラリ) 由来
+    used_apartment_median_price_man_yen: int | None = Field(
+        default=None,
+        description="中古マンション中央値 (万円、過去 4Q 集計、XIT001)",
+    )
+    used_apartment_sample_size: int | None = Field(
+        default=None,
+        description="中古マンション取引サンプル数 (n<10 は UI 非表示推奨)",
+    )
+    used_apartment_median_unit_price_yen: int | None = Field(
+        default=None,
+        description="中古マンション ㎡単価中央値 (円/㎡)",
+    )
+    used_apartment_avg_building_age: float | None = Field(
+        default=None,
+        description="中古マンション築年数平均 (年)",
+    )
+    emergency_shelter_count: int | None = Field(
+        default=None,
+        description="周辺地域 (z=11 3x3 タイル ~50km四方) の指定緊急避難場所数 (XGT001)",
+    )
+    emergency_shelter_official_link: str | None = Field(
+        default=None,
+        description="国土地理院ハザードマップポータル URL (自治体中心座標)",
+    )
+    reinfolib_source_url: str | None = Field(
+        default=None,
+        description="不動産情報ライブラリ URL (引用元)",
+    )
 
 
 class CityDashboardResponse(BaseModel):
@@ -567,7 +596,14 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
             households_total, births_annual,
             youth_share_pct, elderly_share_pct,
             population_change_pct, birth_rate_per_1000,
-            data_year, source_url
+            data_year, source_url,
+            used_apartment_median_price_man_yen,
+            used_apartment_sample_size,
+            used_apartment_median_unit_price_yen,
+            used_apartment_avg_building_age,
+            emergency_shelter_count,
+            emergency_shelter_official_link,
+            reinfolib_source_url
         FROM `{table_fqn}`
         WHERE municipality_code = @muni
         LIMIT 1
@@ -599,6 +635,13 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
         birth_rate_per_1000=r.get("birth_rate_per_1000"),
         data_year=r.get("data_year"),
         source_url=r.get("source_url"),
+        used_apartment_median_price_man_yen=r.get("used_apartment_median_price_man_yen"),
+        used_apartment_sample_size=r.get("used_apartment_sample_size"),
+        used_apartment_median_unit_price_yen=r.get("used_apartment_median_unit_price_yen"),
+        used_apartment_avg_building_age=r.get("used_apartment_avg_building_age"),
+        emergency_shelter_count=r.get("emergency_shelter_count"),
+        emergency_shelter_official_link=r.get("emergency_shelter_official_link"),
+        reinfolib_source_url=r.get("reinfolib_source_url"),
     )
     _STATS_CACHE.set(municipality_code, stats)
     return stats

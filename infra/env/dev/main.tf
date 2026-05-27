@@ -437,6 +437,15 @@ resource "google_bigquery_table" "municipality_stats" {
     { name = "data_year", type = "INTEGER", mode = "REQUIRED", description = "主データ年 (国勢調査基準年 = 2020)" },
     { name = "source_url", type = "STRING", mode = "NULLABLE", description = "e-Stat 統計表 URL (引用元)" },
     { name = "loaded_at", type = "TIMESTAMP", mode = "REQUIRED", description = "BQ 投入タイムスタンプ" },
+    # ----- Phase F: Reinfolib (不動産情報ライブラリ) 由来列 -----
+    { name = "used_apartment_median_price_man_yen", type = "INTEGER", mode = "NULLABLE", description = "中古マンション中央値 (万円、過去4Q集計、XIT001)" },
+    { name = "used_apartment_sample_size", type = "INTEGER", mode = "NULLABLE", description = "中古マンション取引サンプル数 (n<10 は UI 非表示)" },
+    { name = "used_apartment_median_unit_price_yen", type = "INTEGER", mode = "NULLABLE", description = "中古マンション ㎡単価中央値 (円/㎡)" },
+    { name = "used_apartment_avg_building_age", type = "FLOAT", mode = "NULLABLE", description = "中古マンション築年数平均 (年)" },
+    { name = "emergency_shelter_count", type = "INTEGER", mode = "NULLABLE", description = "周辺地域 (z=11 3x3タイル ~50km四方) の指定緊急避難場所数 (XGT001)" },
+    { name = "emergency_shelter_official_link", type = "STRING", mode = "NULLABLE", description = "国土地理院ハザードマップポータル URL (自治体中心座標)" },
+    { name = "reinfolib_loaded_at", type = "TIMESTAMP", mode = "NULLABLE", description = "Reinfolib データ最終取得時刻" },
+    { name = "reinfolib_source_url", type = "STRING", mode = "NULLABLE", description = "不動産情報ライブラリ URL (引用元)" },
   ])
 
   labels = merge(local.common_labels, { purpose = "city_dashboard_stats" })
