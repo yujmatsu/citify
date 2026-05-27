@@ -330,6 +330,42 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
       sub: "~50km圏 (Citify集計)",
     });
   }
+  // Phase F v3: 将来推計人口 (2050)
+  if (
+    stats.population_2050_estimated != null &&
+    stats.population_change_2025_2050_pct != null
+  ) {
+    const v = stats.population_change_2025_2050_pct;
+    cards.push({
+      label: "🚆 2050年予測人口",
+      value: `${formatNumber(stats.population_2050_estimated)} 人`,
+      sub: `2025比 ${v >= 0 ? "+" : ""}${v.toFixed(1)}%`,
+      accent: v >= 0 ? "positive" : "negative",
+    });
+  }
+  // Phase F v3: 医療機関
+  if (stats.medical_facility_count != null && stats.medical_facility_count > 0) {
+    const hospital = stats.medical_hospital_count ?? 0;
+    const clinic = stats.medical_clinic_count ?? 0;
+    cards.push({
+      label: "🏥 周辺地域の医療機関",
+      value: `${formatNumber(stats.medical_facility_count)} か所`,
+      sub: `病院 ${hospital} / 診療所 ${clinic}`,
+    });
+  }
+  // Phase F v3: 保育園・幼稚園
+  if (
+    stats.childcare_facility_count != null &&
+    stats.childcare_facility_count > 0
+  ) {
+    const k = stats.kindergarten_count ?? 0;
+    const n = stats.nursery_count ?? 0;
+    cards.push({
+      label: "👶 保育・幼児教育施設",
+      value: `${formatNumber(stats.childcare_facility_count)} 施設`,
+      sub: `幼稚園 ${k} / 保育園他 ${n}`,
+    });
+  }
 
   if (cards.length === 0) return <></>;
 

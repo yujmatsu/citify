@@ -101,6 +101,18 @@ def load_normalized_csv(csv_path: Path) -> list[dict[str, object]]:
                     "emergency_shelter_official_link": _parse_str(
                         raw.get("emergency_shelter_official_link")
                     ),
+                    # Phase F v3: XKT013/XKT010/XKT007 (CSV にカラムがあれば値、なければ None)
+                    "population_2025_estimated": _parse_int(raw.get("population_2025_estimated")),
+                    "population_2050_estimated": _parse_int(raw.get("population_2050_estimated")),
+                    "population_change_2025_2050_pct": _parse_float(
+                        raw.get("population_change_2025_2050_pct")
+                    ),
+                    "medical_facility_count": _parse_int(raw.get("medical_facility_count")),
+                    "medical_hospital_count": _parse_int(raw.get("medical_hospital_count")),
+                    "medical_clinic_count": _parse_int(raw.get("medical_clinic_count")),
+                    "childcare_facility_count": _parse_int(raw.get("childcare_facility_count")),
+                    "kindergarten_count": _parse_int(raw.get("kindergarten_count")),
+                    "nursery_count": _parse_int(raw.get("nursery_count")),
                     "reinfolib_loaded_at": _parse_str(raw.get("reinfolib_loaded_at"))
                     or dt.datetime.now(dt.UTC).isoformat(),
                     "reinfolib_source_url": _parse_str(raw.get("reinfolib_source_url")),
@@ -130,6 +142,16 @@ def write_to_bq(
         bigquery.SchemaField("used_apartment_avg_building_age", "FLOAT", mode="NULLABLE"),
         bigquery.SchemaField("emergency_shelter_count", "INTEGER", mode="NULLABLE"),
         bigquery.SchemaField("emergency_shelter_official_link", "STRING", mode="NULLABLE"),
+        # Phase F v3
+        bigquery.SchemaField("population_2025_estimated", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("population_2050_estimated", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("population_change_2025_2050_pct", "FLOAT", mode="NULLABLE"),
+        bigquery.SchemaField("medical_facility_count", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("medical_hospital_count", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("medical_clinic_count", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("childcare_facility_count", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("kindergarten_count", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("nursery_count", "INTEGER", mode="NULLABLE"),
         bigquery.SchemaField("reinfolib_loaded_at", "TIMESTAMP", mode="NULLABLE"),
         bigquery.SchemaField("reinfolib_source_url", "STRING", mode="NULLABLE"),
     ]
@@ -163,6 +185,15 @@ def write_to_bq(
       used_apartment_avg_building_age = S.used_apartment_avg_building_age,
       emergency_shelter_count = S.emergency_shelter_count,
       emergency_shelter_official_link = S.emergency_shelter_official_link,
+      population_2025_estimated = S.population_2025_estimated,
+      population_2050_estimated = S.population_2050_estimated,
+      population_change_2025_2050_pct = S.population_change_2025_2050_pct,
+      medical_facility_count = S.medical_facility_count,
+      medical_hospital_count = S.medical_hospital_count,
+      medical_clinic_count = S.medical_clinic_count,
+      childcare_facility_count = S.childcare_facility_count,
+      kindergarten_count = S.kindergarten_count,
+      nursery_count = S.nursery_count,
       reinfolib_loaded_at = S.reinfolib_loaded_at,
       reinfolib_source_url = S.reinfolib_source_url
     """

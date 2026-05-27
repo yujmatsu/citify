@@ -34,6 +34,9 @@ from pathlib import Path
 from .client import ReinfolibAPIError, ReinfolibClient
 from .parsers.xgt001 import aggregate_shelters
 from .parsers.xit001 import aggregate_used_apartments
+from .parsers.xkt007 import aggregate_childcare
+from .parsers.xkt010 import aggregate_medical
+from .parsers.xkt013 import aggregate_future_population
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +44,27 @@ SOURCE_URL = "https://www.reinfolib.mlit.go.jp/"
 
 OUTPUT_COLUMNS = (
     "municipality_code",
+    # XIT001 取引価格
     "used_apartment_median_price_man_yen",
     "used_apartment_sample_size",
     "used_apartment_median_unit_price_yen",
     "used_apartment_avg_building_age",
+    # XGT001 避難所
     "emergency_shelter_count",
     "emergency_shelter_official_link",
+    # Phase F v3: XKT013 将来推計人口
+    "population_2025_estimated",
+    "population_2050_estimated",
+    "population_change_2025_2050_pct",
+    # Phase F v3: XKT010 医療機関
+    "medical_facility_count",
+    "medical_hospital_count",
+    "medical_clinic_count",
+    # Phase F v3: XKT007 保育園・幼稚園
+    "childcare_facility_count",
+    "kindergarten_count",
+    "nursery_count",
+    # メタ
     "reinfolib_loaded_at",
     "reinfolib_source_url",
 )
@@ -98,10 +116,55 @@ def fetch_one(
             ),
         }
 
+    # Phase F v3: XKT013 将来推計人口 (z=11、9 タイル)
+    try:
+        xkt013_features = client.fetch_geojson_tiles("XKT013", lng, lat, z=11, radius=1)
+        xkt013 = aggregate_future_population(xkt013_features)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("xkt013.failed code=%s err=%s", code, exc)
+        xkt013 = {
+            "population_2025_estimated": None,
+            "population_2050_estimated": None,
+            "population_change_2025_2050_pct": None,
+        }
+
+    # Phase F v3: XKT010 医療機関 (z=13、25 タイル ~25 秒)
+    try:
+        xkt010_features = client.fetch_geojson_tiles("XKT010", lng, lat, z=13, radius=2)
+        xkt010 = aggregate_medical(xkt010_features)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("xkt010.failed code=%s err=%s", code, exc)
+        xkt010 = {
+            "medical_facility_count": None,
+            "medical_hospital_count": None,
+            "medical_clinic_count": None,
+        }
+
+    # Phase F v3: XKT007 保育園・幼稚園 (z=13、25 タイル ~25 秒)
+    # 政令市親 (XX100) は子区合算が必要なので、xit001_method を見て判定
+    try:
+        xkt007_features = client.fetch_geojson_tiles("XKT007", lng, lat, z=13, radius=2)
+        # 政令市親 (city_sum) の場合は administrativeAreaCode フィルタを使わず全件採用
+        # その他 (city/area) は厳密に自治体コードでフィルタ
+        if method == "city_sum":
+            xkt007 = aggregate_childcare(xkt007_features, municipality_code=None)
+        else:
+            xkt007 = aggregate_childcare(xkt007_features, municipality_code=code)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("xkt007.failed code=%s err=%s", code, exc)
+        xkt007 = {
+            "childcare_facility_count": None,
+            "kindergarten_count": None,
+            "nursery_count": None,
+        }
+
     return {
         "municipality_code": code,
         **xit001,
         **xgt001,
+        **xkt013,
+        **xkt010,
+        **xkt007,
         "reinfolib_loaded_at": dt.datetime.now(dt.UTC).isoformat(),
         "reinfolib_source_url": SOURCE_URL,
     }

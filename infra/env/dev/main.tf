@@ -444,6 +444,18 @@ resource "google_bigquery_table" "municipality_stats" {
     { name = "used_apartment_avg_building_age", type = "FLOAT", mode = "NULLABLE", description = "中古マンション築年数平均 (年)" },
     { name = "emergency_shelter_count", type = "INTEGER", mode = "NULLABLE", description = "周辺地域 (z=11 3x3タイル ~50km四方) の指定緊急避難場所数 (XGT001)" },
     { name = "emergency_shelter_official_link", type = "STRING", mode = "NULLABLE", description = "国土地理院ハザードマップポータル URL (自治体中心座標)" },
+    # ----- Phase F v3: XKT013 将来推計人口 (z=11 3x3タイル、~50km四方の 250m メッシュ合算) -----
+    { name = "population_2025_estimated", type = "INTEGER", mode = "NULLABLE", description = "2025 年予測人口 (250m メッシュ合算、秘匿メッシュ除外、XKT013)" },
+    { name = "population_2050_estimated", type = "INTEGER", mode = "NULLABLE", description = "2050 年予測人口 (XKT013)" },
+    { name = "population_change_2025_2050_pct", type = "FLOAT", mode = "NULLABLE", description = "2050 vs 2025 人口変動率 (%)" },
+    # ----- Phase F v3: XKT010 医療機関 (z=13 5x5 タイル、~25km四方) -----
+    { name = "medical_facility_count", type = "INTEGER", mode = "NULLABLE", description = "医療機関数 (名前+住所で重複除外、XKT010)" },
+    { name = "medical_hospital_count", type = "INTEGER", mode = "NULLABLE", description = "うち病院 (P04_001=1)" },
+    { name = "medical_clinic_count", type = "INTEGER", mode = "NULLABLE", description = "うち診療所 (P04_001=2)" },
+    # ----- Phase F v3: XKT007 保育園・幼稚園 (z=13 5x5 タイル、administrativeAreaCode フィルタ) -----
+    { name = "childcare_facility_count", type = "INTEGER", mode = "NULLABLE", description = "保育・幼児教育施設数 (XKT007、自治体内厳密集計)" },
+    { name = "kindergarten_count", type = "INTEGER", mode = "NULLABLE", description = "うち幼稚園" },
+    { name = "nursery_count", type = "INTEGER", mode = "NULLABLE", description = "うち保育園・認定こども園・その他" },
     { name = "reinfolib_loaded_at", type = "TIMESTAMP", mode = "NULLABLE", description = "Reinfolib データ最終取得時刻" },
     { name = "reinfolib_source_url", type = "STRING", mode = "NULLABLE", description = "不動産情報ライブラリ URL (引用元)" },
   ])

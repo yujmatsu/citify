@@ -188,22 +188,54 @@ class ReinfolibClient:
             z: ズームレベル (XGT001 は 11-15)
             radius: 中心タイルから何個拡張するか (1 = 3x3)
         """
+        return self.fetch_geojson_tiles("XGT001", center_lng, center_lat, z=z, radius=radius)
+
+    # ------------------------------------------------------------------
+    # XKT013 / XKT010 / XKT007 など他 GIS タイル API も一般化して扱う
+    # ------------------------------------------------------------------
+
+    def fetch_geojson_tiles(
+        self,
+        api_id: str,
+        center_lng: float,
+        center_lat: float,
+        z: int,
+        radius: int = 1,
+    ) -> list[dict[str, Any]]:
+        """自治体中心座標周辺の (2*radius+1)^2 タイルから GeoJSON features を取得。
+
+        XGT001 / XKT013 / XKT010 / XKT007 など `response_format=geojson&z&x&y`
+        を取る GIS タイル API すべてに使える。
+
+        Args:
+            api_id: "XGT001" / "XKT013" / "XKT010" / "XKT007" など
+            center_lng / center_lat: 自治体中心座標
+            z: ズームレベル (API ごとに z=11-15 or z=13-15 等)
+            radius: 中心タイルから何個拡張するか (1 = 3x3=9, 2 = 5x5=25)
+        """
         tile_list = tiles_around(center_lng, center_lat, z, radius=radius)
         features: list[dict[str, Any]] = []
         for x, y in tile_list:
             params = {"response_format": "geojson", "z": z, "x": x, "y": y}
             try:
-                body = self._call("XGT001", params)
+                body = self._call(api_id, params)
             except ReinfolibAPIError as exc:
-                # タイル内にデータなし (204 / 空 GeoJSON) も考慮
                 if exc.status_code in (204, 404):
                     continue
-                logger.warning("reinfolib.xgt001.tile_failed z=%d x=%d y=%d err=%s", z, x, y, exc)
+                logger.warning(
+                    "reinfolib.%s.tile_failed z=%d x=%d y=%d err=%s",
+                    api_id.lower(),
+                    z,
+                    x,
+                    y,
+                    exc,
+                )
                 continue
             tile_features = body.get("features", []) if isinstance(body, dict) else []
             features.extend(tile_features)
         logger.info(
-            "reinfolib.xgt001.fetch_done center=(%.4f,%.4f) z=%d tiles=%d n_features=%d",
+            "reinfolib.%s.fetch_done center=(%.4f,%.4f) z=%d tiles=%d n_features=%d",
+            api_id.lower(),
             center_lat,
             center_lng,
             z,

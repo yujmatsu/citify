@@ -515,6 +515,26 @@ class MunicipalityStats(BaseModel):
         default=None,
         description="国土地理院ハザードマップポータル URL (自治体中心座標)",
     )
+    # Phase F v3
+    population_2025_estimated: int | None = Field(
+        default=None, description="2025 年予測人口 (XKT013、周辺地域メッシュ合算)"
+    )
+    population_2050_estimated: int | None = Field(
+        default=None, description="2050 年予測人口 (XKT013)"
+    )
+    population_change_2025_2050_pct: float | None = Field(
+        default=None, description="2050 vs 2025 人口変動率 (%)"
+    )
+    medical_facility_count: int | None = Field(
+        default=None, description="医療機関数 (XKT010、周辺 ~25km、重複除外)"
+    )
+    medical_hospital_count: int | None = Field(default=None, description="うち病院")
+    medical_clinic_count: int | None = Field(default=None, description="うち診療所")
+    childcare_facility_count: int | None = Field(
+        default=None, description="保育・幼児教育施設数 (XKT007、自治体内厳密集計)"
+    )
+    kindergarten_count: int | None = Field(default=None, description="うち幼稚園")
+    nursery_count: int | None = Field(default=None, description="うち保育園・認定こども園・その他")
     reinfolib_source_url: str | None = Field(
         default=None,
         description="不動産情報ライブラリ URL (引用元)",
@@ -604,6 +624,15 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
             used_apartment_avg_building_age,
             emergency_shelter_count,
             emergency_shelter_official_link,
+            population_2025_estimated,
+            population_2050_estimated,
+            population_change_2025_2050_pct,
+            medical_facility_count,
+            medical_hospital_count,
+            medical_clinic_count,
+            childcare_facility_count,
+            kindergarten_count,
+            nursery_count,
             reinfolib_source_url
         FROM `{table_fqn}`
         WHERE municipality_code = @muni
@@ -642,6 +671,15 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
         used_apartment_avg_building_age=r.get("used_apartment_avg_building_age"),
         emergency_shelter_count=r.get("emergency_shelter_count"),
         emergency_shelter_official_link=r.get("emergency_shelter_official_link"),
+        population_2025_estimated=r.get("population_2025_estimated"),
+        population_2050_estimated=r.get("population_2050_estimated"),
+        population_change_2025_2050_pct=r.get("population_change_2025_2050_pct"),
+        medical_facility_count=r.get("medical_facility_count"),
+        medical_hospital_count=r.get("medical_hospital_count"),
+        medical_clinic_count=r.get("medical_clinic_count"),
+        childcare_facility_count=r.get("childcare_facility_count"),
+        kindergarten_count=r.get("kindergarten_count"),
+        nursery_count=r.get("nursery_count"),
         reinfolib_source_url=r.get("reinfolib_source_url"),
     )
     _STATS_CACHE.set(municipality_code, stats)

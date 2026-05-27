@@ -308,6 +308,16 @@ export const MunicipalityStatsSchema = z.object({
   used_apartment_avg_building_age: z.number().nullable().optional(),
   emergency_shelter_count: z.number().int().nullable().optional(),
   emergency_shelter_official_link: z.string().nullable().optional(),
+  // Phase F v3
+  population_2025_estimated: z.number().int().nullable().optional(),
+  population_2050_estimated: z.number().int().nullable().optional(),
+  population_change_2025_2050_pct: z.number().nullable().optional(),
+  medical_facility_count: z.number().int().nullable().optional(),
+  medical_hospital_count: z.number().int().nullable().optional(),
+  medical_clinic_count: z.number().int().nullable().optional(),
+  childcare_facility_count: z.number().int().nullable().optional(),
+  kindergarten_count: z.number().int().nullable().optional(),
+  nursery_count: z.number().int().nullable().optional(),
   reinfolib_source_url: z.string().nullable().optional(),
 });
 
