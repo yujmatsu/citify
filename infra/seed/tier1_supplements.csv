@@ -61,7 +61,7 @@ municipality_code,scraper_type,scraper_base_url,tenant_id,press_rss_url,opendata
 40130,press_rss,,,https://www.city.fukuoka.lg.jp/data/open/rss/RSS_7225.xml,,1,true,Fukuoka city press_rss (INFRA-006 Phase 3 verified 2026-05-26)
 43100,press_rss,,,https://www.city.kumamoto.jp/new_list.xml,,1,true,Kumamoto city press_rss (INFRA-006 Phase 3 verified 2026-05-26)
 01213,press_rss,,,https://www.city.tomakomai.hokkaido.jp/rss/whatsnew.rdf,,2,true,Tomakomai chukaku press_rss (INFRA-006 Phase 3 verified 2026-05-26)
-12203,press_rss,,,http://www.city.funabashi.lg.jp/information.xml,,2,true,Funabashi chukaku press_rss (INFRA-006 Phase 3 verified 2026-05-26)
+12204,press_rss,,,http://www.city.funabashi.lg.jp/information.xml,,2,true,Funabashi chukaku press_rss (INFRA-006 Phase 3 verified 2026-05-26)
 12217,press_rss,,,https://www.city.kashiwa.lg.jp/shinchaku/shimin.xml,,2,true,Kashiwa chukaku press_rss (INFRA-006 Phase 3 verified 2026-05-26)
 20202,press_rss,,,https://www.city.matsumoto.nagano.jp/rss/10/list1.xml,,2,true,Matsumoto chukaku press_rss (INFRA-006 Phase 3 verified 2026-05-26)
 22203,press_rss,,,https://www.city.numazu.shizuoka.jp/rss/top_rss.xml,,2,true,Numazu chukaku press_rss (INFRA-006 Phase 3 verified 2026-05-26)
