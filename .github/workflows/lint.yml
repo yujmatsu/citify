@@ -64,3 +64,34 @@ jobs:
       - name: Terraform fmt --check
         run: terraform fmt -check -recursive infra/
         if: ${{ hashFiles('infra/**/*.tf') != '' }}
+
+  # ---------------------------------------------------------------------------
+  # Secret scanning: gitleaks (API キー漏洩防止)
+  # Reinfolib (Ocp-Apim-Subscription-Key) / e-Stat appId / Gemini API key /
+  # GCP service account JSON 等の典型パターンを検知して commit / PR を block。
+  #
+  # 設計:
+  #   - gitleaks 公式 binary を download → 自前実行 (license 縛りなし、private repo 対応)
+  #   - fetch-depth=0 で全 history scan (PR / main push どちらも完全な scan)
+  #   - 失敗時は CI を red にして、PR をブロック
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 全 history を scan するため
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.18.4
+          curl -sSL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Run gitleaks
+        run: gitleaks detect --source . --verbose --no-banner --redact
