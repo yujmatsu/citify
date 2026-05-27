@@ -55,9 +55,7 @@ _OUTPUT_COLUMNS = (
 )
 
 # e-Stat 表 2-7-1 source URL (公開ページ)
-_SOURCE_URL_CENSUS_2020 = (
-    "https://www.e-stat.go.jp/stat-search/database?statdisp_id=0003445245"
-)
+_SOURCE_URL_CENSUS_2020 = "https://www.e-stat.go.jp/stat-search/database?statdisp_id=0003445245"
 
 # 国勢調査 2020 表 2-7-1 の列インデックス (0-origin)
 # 0:時間軸code 1:時間軸補助 2:時間軸
