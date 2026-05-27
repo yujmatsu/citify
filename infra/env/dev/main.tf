@@ -545,6 +545,24 @@ resource "google_pubsub_topic" "speech_translate_dlq" {
   labels = merge(local.common_labels, { purpose = "dlq" })
 }
 
+# --- DLQ Subscription (DLQ 行きメッセージの保持・inspect 用) ---
+# DLQ topic に subscription が無いと dead-letter 配信されたメッセージは消失する。
+# このサブスクで未消化のまま retention 7d 保持し、必要時に Cloud Console / gcloud で
+# pull して内容確認 → コード修正 → 再 publish の運用が可能。
+resource "google_pubsub_subscription" "speech_translate_dlq_sub" {
+  name  = "citify-speech-translate-dlq-sub"
+  topic = google_pubsub_topic.speech_translate_dlq.id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "604800s" # 7 days、DLQ inspect の猶予
+
+  expiration_policy {
+    ttl = "" # 永続化 (DLQ inspect 用は消えないように)
+  }
+
+  labels = merge(local.common_labels, { purpose = "dlq_inspect" })
+}
+
 # --- Subscription: speech-translate-sub (A-5 worker pull) ---
 resource "google_pubsub_subscription" "speech_translate_sub" {
   name  = "citify-speech-translate-sub"
