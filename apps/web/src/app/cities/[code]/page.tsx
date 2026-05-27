@@ -408,6 +408,10 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
       <p className="text-[10px] text-zinc-400">
         Citify 集計値です。価値判断は含みません。
       </p>
+      {/* e-Stat 利用規約 (https://www.e-stat.go.jp/api/api-info/credit) 必須クレジット */}
+      <p className="text-[10px] text-zinc-400">
+        このサービスは、政府統計総合窓口(e-Stat)のAPI機能を使用していますが、サービスの内容は国によって保証されたものではありません。
+      </p>
     </section>
   );
 }
