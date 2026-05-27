@@ -94,8 +94,7 @@ def fetch_one(
         xgt001 = {
             "emergency_shelter_count": 0,
             "emergency_shelter_official_link": (
-                f"https://disaportal.gsi.go.jp/hazardmapportal/hazardmap/maps/index.html"
-                f"?ll={lat},{lng}&z=12"
+                f"https://disaportal.gsi.go.jp/hazardmap/maps/index.html?ll={lat},{lng}&z=12"
             ),
         }
 

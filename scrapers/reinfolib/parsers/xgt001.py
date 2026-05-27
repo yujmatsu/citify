@@ -39,11 +39,10 @@ def aggregate_shelters(
     # XGT001 features は { "type": "Feature", "properties": {...}, "geometry": {...} }
     count = sum(1 for f in features if isinstance(f, dict) and f.get("type") == "Feature")
 
-    # 国土地理院ハザードマップポータルサイトの自治体検索 URL
+    # 国土地理院 重ねるハザードマップ の自治体検索 URL
     # 中心座標 + z=12 で開く (各自治体の表示)
     portal_url = (
-        f"https://disaportal.gsi.go.jp/hazardmapportal/hazardmap/maps/index.html"
-        f"?ll={center_lat},{center_lng}&z=12"
+        f"https://disaportal.gsi.go.jp/hazardmap/maps/index.html?ll={center_lat},{center_lng}&z=12"
     )
 
     logger.info(
