@@ -85,6 +85,7 @@ _RELATED_CACHE = _TTLCache(maxsize=256, ttl_sec=3600.0)
 BQ_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev")
 BQ_DATASET_CURATED = os.getenv("BQ_DATASET_CURATED", "citify_curated")
 BQ_VIEW_SCORED_LATEST = os.getenv("BQ_VIEW_SCORED_LATEST", "scored_speeches_latest")
+BQ_TABLE_STATS = os.getenv("BQ_TABLE_STATS", "municipality_stats")
 
 # RAG 設定 (Phase D で作成した Vertex AI corpus)
 # RAG_CORPUS_NAME を直接指定するか、起動時に display_name で lookup
@@ -469,11 +470,34 @@ async def get_speech(
 # ============================================================================
 
 
+class MunicipalityStats(BaseModel):
+    """Plan A Phase D — 街ダッシュボード用の客観統計。
+
+    municipality_stats テーブル 1 行に対応 (国勢調査 2020 + 人口動態 2023)。
+    fallback とは独立に、自治体コード直の数値を常に優先表示する
+    (Tier 3 で議題がなくても「街の輪郭」が見える背骨データ)。
+    """
+
+    population_total: int | None = None
+    population_15_29: int | None = None
+    population_65_plus: int | None = None
+    households_total: int | None = None
+    births_annual: int | None = None
+    youth_share_pct: float | None = None
+    elderly_share_pct: float | None = None
+    population_change_pct: float | None = None
+    birth_rate_per_1000: float | None = None
+    data_year: int | None = None
+    source_url: str | None = None
+
+
 class CityDashboardResponse(BaseModel):
     """街ダッシュボードのレスポンス。
 
     BQ scored_speeches_latest を user_id × municipality_code でフィルタした
     集計と上位議題を 1 リクエストで返す。
+    Tier 3 一般市町村でデータがない場合は所属都道府県のデータで fallback (Plan A-F)。
+    Phase D で municipality_stats から客観数値も同梱。
     """
 
     municipality_code: str
@@ -488,10 +512,96 @@ class CityDashboardResponse(BaseModel):
         default_factory=list,
         description="relevance_score DESC の上位議題 (limit 件)",
     )
+    fallback_used: str | None = Field(
+        default=None,
+        description="Tier 3 で自治体直のデータがなく都道府県データを使った場合、所属都道府県コード",
+    )
+    fallback_name: str | None = Field(
+        default=None,
+        description="fallback 元都道府県の表示名 (例: '東京都')",
+    )
+    stats: MunicipalityStats | None = Field(
+        default=None,
+        description="Phase D 客観統計 (国勢調査 2020 + 人口動態 2023)。データ未投入なら null",
+    )
+
+
+def _prefecture_code_from_municipality(municipality_code: str) -> str | None:
+    """5 桁自治体コードから所属都道府県コード (XX000) を導出。
+
+    municipality_code の先頭 2 桁が都道府県識別。XX001-XX999 はすべて XX000 に属する。
+    国会 (00000) や都道府県集約 (XX000) は対象外 (fallback 不要)。
+    """
+    if not municipality_code or len(municipality_code) != 5 or not municipality_code.isdigit():
+        return None
+    if municipality_code == "00000":
+        return None
+    if municipality_code.endswith("000"):
+        return None
+    return municipality_code[:2] + "000"
 
 
 # 街ダッシュボードは 5 分 TTL (議題リストは頻繁に変わらない、フィード並み)
 _CITY_CACHE = _TTLCache(maxsize=128, ttl_sec=300.0)
+
+# municipality_stats は 1 時間 TTL (国勢調査ベースで日次変動なし)
+_STATS_CACHE = _TTLCache(maxsize=2048, ttl_sec=3600.0)
+
+
+def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | None:
+    """municipality_stats から 1 自治体の客観統計を取得。
+
+    テーブル未投入や該当行なしは静かに None を返す (Phase D は optional 機能)。
+    """
+    cached = _STATS_CACHE.get(municipality_code)
+    if cached is not None:
+        return cached if isinstance(cached, MunicipalityStats) else None
+
+    from google.cloud import bigquery
+
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
+    sql = f"""
+        SELECT
+            population_total, population_15_29, population_65_plus,
+            households_total, births_annual,
+            youth_share_pct, elderly_share_pct,
+            population_change_pct, birth_rate_per_1000,
+            data_year, source_url
+        FROM `{table_fqn}`
+        WHERE municipality_code = @muni
+        LIMIT 1
+    """  # noqa: S608
+    params = [bigquery.ScalarQueryParameter("muni", "STRING", municipality_code)]
+    try:
+        rows = list(
+            client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result(
+                timeout=5
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stats.bq_failed muni=%s err=%s", municipality_code, exc)
+        _STATS_CACHE.set(municipality_code, None)
+        return None
+    if not rows:
+        _STATS_CACHE.set(municipality_code, None)
+        return None
+    r = rows[0]
+    stats = MunicipalityStats(
+        population_total=r.get("population_total"),
+        population_15_29=r.get("population_15_29"),
+        population_65_plus=r.get("population_65_plus"),
+        households_total=r.get("households_total"),
+        births_annual=r.get("births_annual"),
+        youth_share_pct=r.get("youth_share_pct"),
+        elderly_share_pct=r.get("elderly_share_pct"),
+        population_change_pct=r.get("population_change_pct"),
+        birth_rate_per_1000=r.get("birth_rate_per_1000"),
+        data_year=r.get("data_year"),
+        source_url=r.get("source_url"),
+    )
+    _STATS_CACHE.set(municipality_code, stats)
+    return stats
 
 
 @app.get("/v1/cities/{municipality_code}", response_model=CityDashboardResponse)
@@ -575,13 +685,67 @@ async def get_city_dashboard(
     }
     total = int(rows_total[0]["n"]) if rows_total else 0
 
+    # Plan A-F: Tier 3 一般市町村でデータがない場合、所属都道府県データで fallback
+    fallback_used: str | None = None
+    fallback_name: str | None = None
+    if total == 0:
+        pref_code = _prefecture_code_from_municipality(municipality_code)
+        if pref_code and pref_code != municipality_code:
+            logger.info("city.fallback_to_pref muni=%s -> pref=%s", municipality_code, pref_code)
+            fallback_params = [
+                bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+                bigquery.ScalarQueryParameter("muni", "STRING", pref_code),
+                bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            ]
+            try:
+                fb_top = list(
+                    client.query(
+                        sql_top,
+                        job_config=bigquery.QueryJobConfig(query_parameters=fallback_params),
+                    ).result(timeout=10)
+                )
+                fb_counts = list(
+                    client.query(
+                        sql_counts,
+                        job_config=bigquery.QueryJobConfig(query_parameters=fallback_params[:2]),
+                    ).result(timeout=10)
+                )
+                fb_total = list(
+                    client.query(
+                        sql_total,
+                        job_config=bigquery.QueryJobConfig(query_parameters=fallback_params[:2]),
+                    ).result(timeout=10)
+                )
+                fb_total_n = int(fb_total[0]["n"]) if fb_total else 0
+                if fb_total_n > 0:
+                    rows_top = fb_top
+                    interest_counts = {
+                        str(r["interest"]): int(r["n"]) for r in fb_counts if r.get("interest")
+                    }
+                    total = fb_total_n
+                    fallback_used = pref_code
+                    fallback_name = _muni_label(pref_code)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "city.fallback_failed muni=%s pref=%s err=%s",
+                    municipality_code,
+                    pref_code,
+                    exc,
+                )
+
+    # Phase D: 客観統計を fetch (fallback とは独立、自治体コード直の数値を表示)
+    stats = _fetch_municipality_stats(municipality_code)
+
     result = CityDashboardResponse(
         municipality_code=municipality_code,
         municipality_name=_muni_label(municipality_code),
         user_id=user_id,
         total_speeches=total,
         interest_counts=interest_counts,
+        fallback_used=fallback_used,
+        fallback_name=fallback_name,
         top_speeches=[_row_to_feed_item(r) for r in rows_top],
+        stats=stats,
     )
     _CITY_CACHE.set(cache_key, result)
     logger.info(

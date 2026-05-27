@@ -408,6 +408,41 @@ resource "google_bigquery_table" "scored_speeches_latest" {
 }
 
 # ---------------------------------------------------------------------------
+# BigQuery Table: municipality_stats (Plan A Phase D — e-Stat 統計)
+# ---------------------------------------------------------------------------
+# 街ダッシュボード /cities/{code} に「客観数値」を載せるためのテーブル。
+#   - 1 行 = 1 自治体 (1,741 市区町村 + prefecture_aggregate)
+#   - 国勢調査 2020 + 人口動態調査から手動 prep → scripts/load_estat_stats.py で投入
+#   - Tier 3 で議題が薄くても「街の輪郭」が見える背骨データ
+resource "google_bigquery_table" "municipality_stats" {
+  dataset_id          = google_bigquery_dataset.curated.dataset_id
+  table_id            = "municipality_stats"
+  description         = "Plan A Phase D 街ダッシュボード用 統計指標 (国勢調査 2020 + 人口動態 2023)"
+  deletion_protection = false
+
+  schema = jsonencode([
+    { name = "municipality_code", type = "STRING", mode = "REQUIRED", description = "5 桁自治体コード (PK)" },
+    { name = "municipality_name", type = "STRING", mode = "REQUIRED", description = "自治体名" },
+    { name = "prefecture", type = "STRING", mode = "REQUIRED", description = "都道府県名" },
+    { name = "population_total", type = "INTEGER", mode = "NULLABLE", description = "総人口 (2020 国勢調査)" },
+    { name = "population_15_29", type = "INTEGER", mode = "NULLABLE", description = "15-29 歳人口" },
+    { name = "population_65_plus", type = "INTEGER", mode = "NULLABLE", description = "65 歳以上人口" },
+    { name = "population_2015", type = "INTEGER", mode = "NULLABLE", description = "2015 国勢調査人口 (増減率算出用)" },
+    { name = "households_total", type = "INTEGER", mode = "NULLABLE", description = "総世帯数 (2020 国勢調査)" },
+    { name = "births_annual", type = "INTEGER", mode = "NULLABLE", description = "年間出生数 (2023 人口動態)" },
+    { name = "youth_share_pct", type = "FLOAT", mode = "NULLABLE", description = "15-29 歳比率 (%)" },
+    { name = "elderly_share_pct", type = "FLOAT", mode = "NULLABLE", description = "65+ 比率 (%)" },
+    { name = "population_change_pct", type = "FLOAT", mode = "NULLABLE", description = "5 年人口増減率 ((2020-2015)/2015)" },
+    { name = "birth_rate_per_1000", type = "FLOAT", mode = "NULLABLE", description = "普通出生率 (出生数/人口×1000)" },
+    { name = "data_year", type = "INTEGER", mode = "REQUIRED", description = "主データ年 (国勢調査基準年 = 2020)" },
+    { name = "source_url", type = "STRING", mode = "NULLABLE", description = "e-Stat 統計表 URL (引用元)" },
+    { name = "loaded_at", type = "TIMESTAMP", mode = "REQUIRED", description = "BQ 投入タイムスタンプ" },
+  ])
+
+  labels = merge(local.common_labels, { purpose = "city_dashboard_stats" })
+}
+
+# ---------------------------------------------------------------------------
 # GCS: RAG corpus 取り込み用 staging bucket (Phase D)
 # ---------------------------------------------------------------------------
 # Vertex AI RAG Engine は GCS から file を import するため、BQ から export した

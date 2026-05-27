@@ -1,0 +1,15 @@
+municipality_code,name,prefecture,rss_url
+01364,乙部町,北海道,https://www.town.otobe.lg.jp/rss.xml
+01407,仁木町,北海道,https://www.town.niki.hokkaido.jp/rss.xml
+01668,白糠町,北海道,https://www.town.shiranuka.lg.jp/rss.xml
+06208,村山市,山形県,https://www.city.murayama.lg.jp/rss_news.xml
+07505,古殿町,福島県,https://www.town.furudono.fukushima.jp/rss.xml
+11243,吉川市,埼玉県,https://www.city.yoshikawa.saitama.jp/rss.xml
+11361,横瀬町,埼玉県,https://www.town.yokoze.saitama.jp/rss.xml
+11362,皆野町,埼玉県,https://www.town.minano.saitama.jp/rss.xml
+13107,墨田区,東京都,https://www.city.sumida.lg.jp/rss_news.xml
+18210,坂井市,福井県,https://www.city.sakai.lg.jp/rss_news.xml
+40214,豊前市,福岡県,https://www.city.buzen.lg.jp/news/rss.xml
+42209,対馬市,長崎県,https://www.city.tsushima.lg.jp/rss_news.xml
+45208,西都市,宮崎県,https://www.city.saito.lg.jp/rss.xml
+46533,和泊町,鹿児島県,https://www.town.wadomari.lg.jp/rss.xml

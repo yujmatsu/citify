@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { FeedCard } from "@/components/feed-card";
-import { fetchCityDashboard, type CityDashboardResponse } from "@/lib/api";
+import {
+  fetchCityDashboard,
+  type CityDashboardResponse,
+  type MunicipalityStats,
+} from "@/lib/api";
 import { interestImageUrl } from "@/lib/interest-images";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
@@ -140,7 +144,16 @@ function CityDashboardView({
               {data.total_speeches} 件
             </span>
           </p>
+          {data.fallback_used && data.fallback_name && (
+            <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+              ℹ️ {data.municipality_name} 自治体のニュースはまだ収集できていないため、
+              所属する <span className="font-semibold">{data.fallback_name}</span> の議題を表示しています。
+            </div>
+          )}
         </header>
+
+        {/* 客観統計 (Phase D) */}
+        {data.stats && <StatsCards stats={data.stats} />}
 
         {/* 関心軸別カウント */}
         {sortedInterests.length > 0 && (
@@ -225,4 +238,116 @@ function CityDashboardView({
       </div>
     </main>
   );
+}
+
+function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element {
+  const cards: Array<{
+    label: string;
+    value: string;
+    sub?: string;
+    accent?: "default" | "positive" | "negative";
+  }> = [];
+
+  if (stats.population_total != null) {
+    cards.push({
+      label: "総人口",
+      value: formatNumber(stats.population_total),
+      sub: stats.data_year ? `${stats.data_year} 年` : undefined,
+    });
+  }
+  if (stats.youth_share_pct != null) {
+    cards.push({
+      label: "15-29 歳比率",
+      value: `${stats.youth_share_pct.toFixed(1)}%`,
+      sub: stats.population_15_29 != null
+        ? `${formatNumber(stats.population_15_29)} 人`
+        : undefined,
+    });
+  }
+  if (stats.population_change_pct != null) {
+    const v = stats.population_change_pct;
+    cards.push({
+      label: "5 年人口変動",
+      value: `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`,
+      sub: "2015 → 2020",
+      accent: v >= 0 ? "positive" : "negative",
+    });
+  }
+  if (stats.elderly_share_pct != null) {
+    cards.push({
+      label: "高齢化率 (65+)",
+      value: `${stats.elderly_share_pct.toFixed(1)}%`,
+      sub: stats.population_65_plus != null
+        ? `${formatNumber(stats.population_65_plus)} 人`
+        : undefined,
+    });
+  }
+  if (stats.households_total != null) {
+    cards.push({
+      label: "総世帯数",
+      value: formatNumber(stats.households_total),
+      sub: stats.data_year ? `${stats.data_year} 年` : undefined,
+    });
+  }
+  if (stats.birth_rate_per_1000 != null) {
+    cards.push({
+      label: "出生率",
+      value: stats.birth_rate_per_1000.toFixed(1),
+      sub: "人口千対 (2023)",
+    });
+  }
+
+  if (cards.length === 0) return <></>;
+
+  return (
+    <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold text-zinc-500">
+          📊 街のかたち (客観統計)
+        </h2>
+        {stats.source_url && (
+          <a
+            href={stats.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-zinc-400 underline hover:text-zinc-600"
+          >
+            出典: e-Stat
+          </a>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {cards.map((card) => (
+          <div
+            key={card.label}
+            className={cn(
+              "rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800",
+              card.accent === "positive" &&
+                "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
+              card.accent === "negative" &&
+                "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950",
+            )}
+          >
+            <p className="text-[10px] text-zinc-500">{card.label}</p>
+            <p
+              className={cn(
+                "text-lg font-semibold tabular-nums leading-tight",
+                card.accent === "positive" && "text-emerald-700 dark:text-emerald-300",
+                card.accent === "negative" && "text-rose-700 dark:text-rose-300",
+              )}
+            >
+              {card.value}
+            </p>
+            {card.sub && (
+              <p className="text-[10px] text-zinc-400">{card.sub}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString("ja-JP");
 }

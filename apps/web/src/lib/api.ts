@@ -289,6 +289,22 @@ export async function fetchCompare(
 // City Dashboard (Plan A-3) — 「あなたの街が今どうなっているか」
 // ============================================================================
 
+export const MunicipalityStatsSchema = z.object({
+  population_total: z.number().int().nullable(),
+  population_15_29: z.number().int().nullable(),
+  population_65_plus: z.number().int().nullable(),
+  households_total: z.number().int().nullable(),
+  births_annual: z.number().int().nullable(),
+  youth_share_pct: z.number().nullable(),
+  elderly_share_pct: z.number().nullable(),
+  population_change_pct: z.number().nullable(),
+  birth_rate_per_1000: z.number().nullable(),
+  data_year: z.number().int().nullable(),
+  source_url: z.string().nullable(),
+});
+
+export type MunicipalityStats = z.infer<typeof MunicipalityStatsSchema>;
+
 export const CityDashboardResponseSchema = z.object({
   municipality_code: z.string(),
   municipality_name: z.string(),
@@ -296,6 +312,9 @@ export const CityDashboardResponseSchema = z.object({
   total_speeches: z.number().int().nonnegative(),
   interest_counts: z.record(z.string(), z.number().int().nonnegative()),
   top_speeches: z.array(FeedItemSchema),
+  fallback_used: z.string().nullable().optional(),
+  fallback_name: z.string().nullable().optional(),
+  stats: MunicipalityStatsSchema.nullable().optional(),
 });
 
 export type CityDashboardResponse = z.infer<typeof CityDashboardResponseSchema>;

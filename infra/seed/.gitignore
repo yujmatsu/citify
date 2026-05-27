@@ -1,0 +1,5 @@
+# e-Stat 生 CSV (cp932、8MB 級)
+# ローカルでの前処理 (apps/api/scripts/prep_estat_csv.py) 用入力。
+# 正規化済み municipality_stats_normalized.csv のみ commit する。
+Tokei*.csv
+FEH_*.csv
