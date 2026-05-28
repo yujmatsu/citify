@@ -37,6 +37,7 @@ from .parsers.xit001 import aggregate_used_apartments
 from .parsers.xkt007 import aggregate_childcare
 from .parsers.xkt010 import aggregate_medical
 from .parsers.xkt013 import aggregate_future_population
+from .regions import REGION_LABELS, REGION_MAP, is_in_region, list_regions
 
 logger = logging.getLogger(__name__)
 
@@ -186,22 +187,58 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
 
 def cmd_fetch_all(args: argparse.Namespace) -> int:
-    """全 45 自治体を fetch → CSV 出力。"""
+    """全自治体を fetch → CSV 出力 (--region で地方フィルタ、--resume で append 続行)。"""
     targets = _load_targets(args.targets_csv)
-    logger.info("reinfolib.fetch_all start n_targets=%d", len(targets))
 
+    # 地方フィルタ
+    if args.region:
+        if args.region not in REGION_MAP:
+            print(
+                f"ERROR: unknown --region={args.region!r}, valid={list_regions()}",
+                file=sys.stderr,
+            )
+            return 1
+        before = len(targets)
+        targets = [t for t in targets if is_in_region(t["municipality_code"], args.region)]
+        logger.info(
+            "reinfolib.fetch_all region_filter region=%s (%s) %d -> %d",
+            args.region,
+            REGION_LABELS.get(args.region, args.region),
+            before,
+            len(targets),
+        )
+
+    # resume: 既存 CSV から完了 code を読み取って skip
+    completed_codes: set[str] = set()
+    if args.resume and args.output.exists():
+        with args.output.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                completed_codes.add(row["municipality_code"])
+        logger.info("reinfolib.fetch_all resume: %d 完了済 skip", len(completed_codes))
+    todo = [t for t in targets if t["municipality_code"] not in completed_codes]
+    logger.info(
+        "reinfolib.fetch_all start n_total=%d n_todo=%d region=%s",
+        len(targets),
+        len(todo),
+        args.region or "(all)",
+    )
+
+    # resume の場合は append、新規の場合は write
+    mode = "a" if (args.resume and args.output.exists()) else "w"
     with (
         ReinfolibClient(rate_limit_sec=args.rate_limit_sec) as client,
-        args.output.open("w", encoding="utf-8", newline="") as f,
+        args.output.open(mode, encoding="utf-8", newline="") as f,
     ):
         writer = csv.DictWriter(f, fieldnames=OUTPUT_COLUMNS)
-        writer.writeheader()
-        for i, target in enumerate(targets, 1):
+        if mode == "w":
+            writer.writeheader()
+        for i, target in enumerate(todo, 1):
             code = target["municipality_code"]
             logger.info(
                 "reinfolib.fetch_one %d/%d code=%s name=%s",
                 i,
-                len(targets),
+                len(todo),
                 code,
                 target.get("name", ""),
             )
@@ -233,16 +270,28 @@ def main() -> int:
     )
     p_fetch.set_defaults(func=cmd_fetch)
 
-    p_all = sub.add_parser("fetch-all", help="45 自治体全部 fetch → CSV")
+    p_all = sub.add_parser("fetch-all", help="全自治体 fetch → CSV (--region で地方フィルタ可)")
     p_all.add_argument(
         "--targets-csv",
         type=Path,
         default=Path("infra/seed/reinfolib_targets.csv"),
+        help="targets CSV (Phase F v4 で全自治体 → reinfolib_targets_full.csv 推奨)",
     )
     p_all.add_argument(
         "--output",
         type=Path,
         default=Path("infra/seed/reinfolib_normalized.csv"),
+    )
+    p_all.add_argument(
+        "--region",
+        default=None,
+        choices=list_regions(),
+        help="地方フィルタ (hokkaido_tohoku / kanto / koshinetsu / hokuriku / tokai / kinki / chugoku / shikoku / kyushu_okinawa)",
+    )
+    p_all.add_argument(
+        "--resume",
+        action="store_true",
+        help="既存 --output から完了 code を読み取って続きから (append モード)",
     )
     p_all.add_argument("--rate-limit-sec", type=float, default=1.0)
     p_all.set_defaults(func=cmd_fetch_all)
