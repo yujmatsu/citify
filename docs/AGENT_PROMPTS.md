@@ -423,6 +423,124 @@ agents/timeline/
 
 ---
 
+### 0.10 議題件数トレンド予測 Agent (Plan Z 実装済、余裕枠 COULD)
+
+月別議題件数の時系列を線形回帰 + 3 か月予測 + LLM 介入的説明で物語化する 2 段階 Agent。Plan X (空間軸) と Plan N (イベント時系列) に続く「数値時系列予測」軸。ハッカソン審査基準①「マルチエージェント必然性」(Engine + Narrator 2 段階) + ④「実用性」を補強。
+
+```python
+# 利用例
+from agents.forecast import ForecastEngine, ForecastNarrator, MonthCount, PersonaContext
+
+engine = ForecastEngine()
+series = engine.forecast_series(
+    monthly_counts=[MonthCount(year_month="2025-01", speech_count=5), ...],
+    horizon=3,
+)
+# series.trend_classification / slope / slope_std_error / confidence / forecast[3] / historical[]
+
+narrator = ForecastNarrator(project_id="citify-dev")
+narrative = narrator.narrate(series, persona, municipality_label="全国")
+# narrative.headline (40 字) / reasoning (240 字) / source
+```
+
+#### 2 段階構成 (Plan X / Plan N との一貫性)
+
+```
+ForecastEngine (純計算、numpy なし)
+  ↓ 移動平均 (window=3) + 直近 6 ヶ月線形回帰 + slope 標準誤差
+  ↓ trend 分類 5 段階 (surge/increasing/flat/decreasing/crash)
+  ↓ confidence 3 段階 (high/medium/low、Reviewer High #2)
+  ↓ forecast clip 0+ & 上限 cap
+
+ForecastNarrator (Gemini Flash + Chain-of-Thought)
+  ↓ trend + slope + confidence + 月別件数 → headline + reasoning
+  ↓ 倫理 post-validation (47 都道府県 + 政令市/特別区 + 政治家/政党)
+  ↓ leak/失敗時は rule_based テンプレ fallback
+```
+
+#### Confidence 算出 (Reviewer High #2: slope 標準誤差ベース)
+
+```python
+# 純 Python 実装 (numpy なし)
+se_slope = sqrt( sum((y_i - y_hat_i)^2) / (n-2) / sum((x_i - x_mean)^2) )
+
+# 3 段階判定:
+#   - history < 6 ヶ月 → "low"
+#   - CV (stddev / mean) > 0.5 → "low" 強制 (分散大ケース)
+#   - |slope| / se(slope) < 2.0 (t 値小) → "medium"
+#   - 上記すべて満たさず → "high"
+```
+
+#### 倫理ガード (3 層防御)
+
+1. **47 都道府県名 leak** (`PREFECTURE_NAMES_JA` from `agents/heatmap_advisor/prompts/system.py`)
+2. **主要市区町村名 leak** (`MAJOR_MUNI_NAMES`、政令市 + 23 特別区 = 43 件、Plan Z 独自)
+3. **政治家・政党名 leak** (`POLITICAL_PERSON_PATTERNS` from `agents/timeline/main.py`)
+
+LLM 出力後に `_detect_any_leak()` で 3 層チェック、leak 検出時は rule_based fallback (leaked 文字列はユーザー向け文に残らない、ログのみ詳細記録)
+
+#### LLM schema 制約 (Reviewer Medium #5: 数値捏造防止)
+
+`ForecastNarrative` schema には **`slope` / `trend_classification` を含めない**:
+- 数値は Engine 側で確定し、Frontend が series + narrative を結合表示
+- Narrator は `headline` + `reasoning` のみ生成 (LLM が数値を書き換えるリスクを構造的に排除)
+
+#### LLM パラメータ
+
+```python
+DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MAX_OUTPUT_TOKENS = 1024     # headline + reasoning ≈ 280 << 1024
+DEFAULT_THINKING_BUDGET = 256        # CoT 軽量
+```
+
+#### 公開 endpoint
+
+- `GET /v1/forecast?theme_interest=...&user_id=...&municipality_code=...&history_months=12`
+- response: `{ series: ForecastSeries, narrative: ForecastNarrative }`
+- BQ query: `FORMAT_DATE("%Y-%m", meeting_date)` で月別集計、`meeting_date IS NOT NULL` + 集計行除外 + 10 軸 allowlist
+- `_FORECAST_CACHE` TTL=10 分
+
+#### Frontend (`/forecast`)
+
+- **Disclaimer banner 常設** (Reviewer High #1): 「議題件数の数値推移、特定行動の推奨ではない」
+- Interest selector (10 軸) + 自治体コード入力 + 期間 (6/12/24 ヶ月) 切替
+- **NarrativeBanner**: headline + reasoning + TrendBadge (5 分類色分け) + 信頼度 + slope 数値
+- **ForecastChart**: 自前 SVG 折れ線 (依存追加なし)
+  - 実績: 実線青、各点 circle
+  - 予測: 破線オレンジ (historical 末尾から連結)
+  - Y 軸 5 等分 grid + X 軸 3 ラベル + legend
+
+#### モジュール構成
+
+```
+agents/forecast/
+├── __init__.py            # ForecastEngine / ForecastNarrator / 全 schema export
+├── engine.py              # 純計算 (moving_average / linear_regression / classify_trend / compute_confidence)
+├── main.py                # ForecastNarrator + MAJOR_MUNI_NAMES + _detect_geographic_leak + _detect_any_leak
+├── schema.py              # MonthCount / ForecastPoint / ForecastSeries / ForecastNarrative / PersonaContext / ForecastResponse
+├── prompts/
+│   └── system.py          # FORECAST_SYSTEM_PROMPT + build_narrator_user_prompt
+└── tests/
+    └── test_forecast.py   # 20 unit test
+```
+
+#### テスト数
+
+| ファイル | 件数 | カバー範囲 |
+|---|---|---|
+| `agents/forecast/tests/test_forecast.py` | 20 | Engine 増加/減少/横ばい 3 trend / データ不足 / CV 大 / clip / 完全直線回帰 / 閾値境界 / confidence 3 段階 + Narrator LLM 成功 / LLM 失敗 / 47 県 leak / 市区 leak / 政治家 leak + 検出 helper 5 件 + MAJOR_MUNI_NAMES 構造 |
+| `apps/api/tests/test_forecast_endpoint.py` | 7 | 200 / rule_based 透過 / BQ 失敗 500 / 422 / SQL 集計行+NULL date フィルタ / interest allowlist / cache hit |
+
+→ **計 27 件**、既存 257 + 27 = **284 passed**。
+
+#### Backward compatibility / Out of Scope
+
+- Concierge tool として再利用しない (Plan X / Plan N と同じ Out of Scope)
+- ADK 化は将来
+- ARIMA / Prophet 等の高度時系列モデルは別 Plan (3 か月予測には線形回帰で十分)
+
+---
+
 ## 1. 収集 Agent (Collector)
 
 ### 1.1 役割

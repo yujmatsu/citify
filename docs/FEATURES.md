@@ -241,6 +241,27 @@
 
 ---
 
+### A-19. 議題件数トレンド予測 Agent(Plan Z、余裕枠 COULD)
+
+**説明**:月別議題件数を Engine が純計算 (移動平均 + 線形回帰 + 標準誤差) で 3 か月予測、Narrator が「上昇/下降/横ばい/急騰/急減」5 分類 + 介入的説明を生成。Plan X (空間軸) と Plan N (イベント時系列) に続く「数値時系列予測」軸、ハッカソン審査基準①「マルチエージェント必然性」(2 段階 Agent) + ④「実用性」を補強。
+
+**受け入れ条件**:
+- `agents/forecast/` 独立モジュール:`ForecastEngine` (純計算、numpy 等の依存なし) + `ForecastNarrator` (Gemini Flash)
+- 信頼度 3 段階(`high`/`medium`/`low`):`history < 6`/`CV > 0.5`/`t 値 < 2.0` の階層判定(Reviewer High #2)
+- LLM schema には `slope` / `trend` を含めず数値捏造を構造防止(Reviewer Medium #5)
+- 3 層倫理ガード:47 都道府県名 + 主要市区町村名 (政令市 20 + 23 特別区) + 政治家/政党名(Reviewer High #1)
+- `GET /v1/forecast?theme_interest=...&user_id=...&municipality_code=...&history_months=...` endpoint
+- BQ query:`FORMAT_DATE("%Y-%m", meeting_date)` 月別集計、`meeting_date IS NOT NULL` + 集計行除外 + 10 軸 allowlist
+- Frontend `/forecast` page:**disclaimer banner 常設**(行動推奨ではないと明示、Reviewer High #1)、自前 SVG ForecastChart(d3 等依存追加なし)、NarrativeBanner + TrendBadge 5 色分け
+- 20 unit test + 7 endpoint test、既存 257 + 27 = 284 passed
+- 工数 12-14h 実績(余裕枠 18h 想定の圧縮版)
+
+**依存**:Plan A(scored_speeches_latest)、Plan N(`POLITICAL_PERSON_PATTERNS` 流用)、Plan X(`PREFECTURE_NAMES_JA` 流用)、独立 endpoint
+
+**Drop 判断**:このまま実装(余裕枠 COULD で 1.5 日で完了、Plan N/X と並ぶ「数値時系列軸」のキラー機能)
+
+---
+
 ### A-18. 議論タイムライン Agent(Plan N)
 
 **説明**:ユーザーが選んだテーマ(interest 軸 + 自治体 or 全国 + 期間)について、議論変遷を時系列イベント 5-10 件 + 全体ナラティブとして Agent が物語化。Citify のキラー UX「議題が点ではなく流れで見える」を実現、ハッカソン審査基準②「ストーリー性」を強化。
