@@ -241,6 +241,24 @@
 
 ---
 
+### A-15. Concierge 会話履歴 + Story Recall(Plan L+LL)
+
+**説明**:Concierge との対話を Firestore に永続化し、過去の関心軸を踏まえた「Story Recall」体験を提供。再訪時に「前回は子育て・住居の話をしました。今回は ○○ ですね」のような連続性を演出し、ハッカソン審査基準②「ストーリー性」を強化。
+
+**受け入れ条件**:
+- Firestore `concierge_history` collection(1 turn = 1 doc)に保存(user_id / timestamp / message / reply / short_summary / candidates_codes / matched_interests / embedding[768])
+- Vertex AI `text-multilingual-embedding-002` で embedding 計算、in-memory cosine similarity で類似検索(scan limit 50 turn)
+- `matched_interests` は rule-based 固定辞書で抽出(LLM call なし、save 高速化)
+- `GET /v1/concierge/history/{user_id}`(x-user-id header 認可、403 on mismatch)
+- ConciergeAgent は倫理 OK の時のみ fire-and-forget で `save_turn()` 呼び出し、save 失敗はユーザー応答に影響しない(graceful)
+- 25 unit test + 5 endpoint test、全 200 件 pass
+
+**依存**:Plan E(A-14、Concierge endpoint)、Firestore、Vertex AI Embedding
+
+**Drop 判断**:このまま実装(Plan E の必須拡張。Frontend history modal は Phase 4 として後続)
+
+---
+
 ## B. 差別化機能(Should)
 
 ### B-1. 「気になる / 関係なさそう」リアクション + 「みんなの反応」
