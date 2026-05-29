@@ -134,6 +134,90 @@ Frontend:
 
 ---
 
+### 0.7 Translator Self-Critique Loop (Plan D 実装済)
+
+翻訳品質を多軸スコアリング + 自動再生成する Critic agent を導入し、ハッカソン審査基準①「マルチエージェント必然性」を補強。
+
+```python
+# 利用例 (DI で Critic を Translator に渡す)
+from agents.critic import CriticAgent
+from agents.translator import TranslatorAgent
+
+translator = TranslatorAgent(project_id="citify-dev")
+critic = CriticAgent(project_id="citify-dev")
+
+result = translator.translate_with_critique(input, critic=critic, threshold=70)
+# result: TranslatorWithCritique
+#   .translation       — TranslatorOutput (revise 後 or 初回 draft)
+#   .critique          — CritiqueResult (scores / overall_score / feedback / passed)
+#   .revision_count    — 0 (合格) or 1 (revise 実施)
+#   .initial_score     — revise 前 overall_score (改善幅 demo 用)
+```
+
+#### Critic 評価軸 (rubric)
+
+| 軸 | 0-100 | 意味 |
+|---|---|---|
+| **faithfulness** | 100 / 0 | 原典忠実度: 事実関係を正確に反映 / 誤情報・捏造 |
+| **simplicity** | 100 / 0 | 平易さ: 18-24 歳が辞書なしで理解可能 / 専門用語残存 |
+| **tone** | 100 / 0 | トーン適合: age_group の TONE_GUIDANCE 準拠 / 不適合 |
+| **ethics** | 100 / 0 | 倫理: 固有名詞/政党/賛否ゼロ / 政治家名・政治判断あり |
+
+#### 動作フロー
+
+```
+1. translate() で初回 draft (既存 flow、倫理リトライ 3 回まで含む)
+2. CriticAgent.critique() で 4 軸スコアリング + feedback
+3. passed (overall>=threshold ∧ ethics>=60) → return revision_count=0
+4. !passed → _revise(draft, feedback) で 1 度修正 → 再 critique → return revision_count=1
+   (revise 後も failed でも cost cap で return)
+```
+
+#### overall_score 算出
+
+```python
+overall_score = round((faithfulness + simplicity + tone + ethics) / 4)
+# ETHICS_HARD_FLOOR=60: overall>=threshold でも ethics<60 なら passed=False
+# (倫理は他軸の平均で薄まらせない)
+```
+
+#### 倫理ガードの二重防御
+
+1. **Critic ethics スコア** (LLM 判定): 文脈・意味理解で固有名詞や政治判断を検出
+2. **`_validate_ethics()` post-validation** (regex): `FORBIDDEN_PATTERNS` と speaker/party 名 leak 検出
+
+→ 互いに補完 (LLM は曖昧表現に強い、regex は確実なキーワード検知)
+
+#### Backward compatibility
+
+- `TranslatorAgent.translate()` は完全不変
+- `translate_with_critique()` は **新規 method**、worker (Pub/Sub) や ADK wrapper は当面触らず、デモ/手動実行で使用
+- Production cost 増は構造的に防止 (Pub/Sub flow から呼ばない)
+
+#### モジュール構成
+
+```
+agents/critic/
+├── __init__.py            # CriticAgent / CriticScores / CritiqueResult を export
+├── main.py                # CriticAgent class (Gemini 2.5 Flash, response_schema 強制)
+├── schema.py              # CriticScores (4 軸 0-100) + CritiqueResult (+ empty_skip())
+├── prompts/
+│   └── system.py          # CRITIC_SYSTEM_PROMPT + build_critic_user_prompt
+└── tests/
+    └── test_critic.py     # 9 unit test (threshold 境界 / ethics floor / Pydantic validation / parse failure)
+```
+
+#### テスト数
+
+| ファイル | 件数 | カバー範囲 |
+|---|---|---|
+| `agents/critic/tests/test_critic.py` | 9 | critic 単体 (skip / score / boundary / ethics floor / validation / truncate / parse failure) |
+| `agents/translator/tests/test_self_critique.py` | 8 | translator + critic 結合 (revise なし / あり / cost cap / empty skip / DI / threshold / initial_score 保持) |
+
+→ **計 17 件**、既存 27 件と合わせて translator + critic で **44 passed**。
+
+---
+
 ## 1. 収集 Agent (Collector)
 
 ### 1.1 役割

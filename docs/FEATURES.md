@@ -241,6 +241,26 @@
 
 ---
 
+### A-16. Translator Self-Critique Loop(Plan D)
+
+**説明**:翻訳結果を独立 Critic Agent が 4 軸 (faithfulness/simplicity/tone/ethics) で 0-100 点スコアリングし、threshold 未達なら 1 度自動 revise する Self-Critique ループ。ハッカソン審査基準①「マルチエージェント必然性」を Critic 独立 Agent + DI で補強、デモ動画で「改善幅 (initial_score → final overall_score)」を可視化可能。
+
+**受け入れ条件**:
+- `agents/critic/` ディレクトリに `CriticAgent` クラス独立 (DI で Translator が受け取り、ADK 化への布石)
+- `CriticScores` Pydantic schema が 4 軸各 0-100 (`ge=0, le=100`) 強制
+- `TranslatorAgent.translate_with_critique(input, critic, threshold=70)` メソッドが (draft → critic → revise → re-critique) の 1-round loop を実行
+- `overall_score = round((4 軸平均))`、ただし `ETHICS_HARD_FLOOR=60` で ethics<60 は強制 revise (倫理は他軸で薄めない)
+- `revision_count` 0/1、`initial_score` で revise 前スコアを保持 (改善幅 demo 用)
+- empty draft (`notes` が `empty_reason:` で始まる) は critique skip + revise skip
+- 既存 `TranslatorAgent.translate()` は完全不変 (backward compat、worker.py / ADK wrapper 不触)
+- 17 unit test 追加 (critic 9 + self_critique integration 8)、既存 27 件 + 全 44 passed
+
+**依存**:Plan C(ADK wrapper)、`agents/_shared/forbidden.py`(倫理ガード regex)
+
+**Drop 判断**:このまま実装(短期 1 日で完了、Plan E の Concierge 内部品質も将来補強可能)
+
+---
+
 ### A-15. Concierge 会話履歴 + Story Recall(Plan L+LL)
 
 **説明**:Concierge との対話を Firestore に永続化し、過去の関心軸を踏まえた「Story Recall」体験を提供。再訪時に「前回は子育て・住居の話をしました。今回は ○○ ですね」のような連続性を演出し、ハッカソン審査基準②「ストーリー性」を強化。
