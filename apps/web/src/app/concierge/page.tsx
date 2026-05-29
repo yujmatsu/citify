@@ -6,7 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   ApiError,
+  fetchConciergeHistory,
   postConcierge,
+  type ConciergeHistoryItem,
   type ConciergeResponse,
   type MunicipalityCandidate,
   type ToolCallLog,
@@ -39,6 +41,11 @@ export default function ConciergePage() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Plan L+LL: 履歴 modal state
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState<ConciergeHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     const p = loadPersona();
@@ -134,6 +141,33 @@ export default function ConciergePage() {
   function handleSampleClick(sample: string): void {
     if (isLoading) return;
     setInput(sample);
+  }
+
+  async function handleOpenHistory(): Promise<void> {
+    if (!persona || historyLoading) return;
+    setIsHistoryOpen(true);
+    setHistoryError(null);
+    setHistoryLoading(true);
+    try {
+      const res = await fetchConciergeHistory(persona.user_id, 20);
+      setHistoryItems(res.items);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `履歴取得失敗 (${err.status}): ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : "予期せぬエラーが発生しました";
+      setHistoryError(msg);
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function handleSelectHistoryItem(item: ConciergeHistoryItem): void {
+    setInput(item.message);
+    setIsHistoryOpen(false);
   }
 
   // SSR / hydration 中
@@ -237,6 +271,14 @@ export default function ConciergePage() {
               ⌘+Enter で送信 / 単発相談 (会話履歴は保存されません)
             </div>
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleOpenHistory}
+                disabled={isLoading || historyLoading}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-zinc-300 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+              >
+                📜 過去の相談履歴
+              </button>
               {turns.length > 0 && (
                 <button
                   type="button"
@@ -258,7 +300,143 @@ export default function ConciergePage() {
           </div>
         </form>
       </div>
+
+      {/* Plan L+LL: 過去の相談履歴 Modal */}
+      {isHistoryOpen && (
+        <HistoryModal
+          items={historyItems}
+          loading={historyLoading}
+          error={historyError}
+          onSelect={handleSelectHistoryItem}
+          onClose={() => setIsHistoryOpen(false)}
+        />
+      )}
     </main>
+  );
+}
+
+// ============================================================================
+// 過去の相談履歴 Modal (Plan L+LL Phase 4)
+// ============================================================================
+
+function HistoryModal({
+  items,
+  loading,
+  error,
+  onSelect,
+  onClose,
+}: {
+  items: ConciergeHistoryItem[];
+  loading: boolean;
+  error: string | null;
+  onSelect: (item: ConciergeHistoryItem) => void;
+  onClose: () => void;
+}): React.ReactElement {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="過去の相談履歴"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/50 px-4 py-6 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl max-h-[80vh] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+      >
+        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3 dark:border-zinc-700">
+          <h2 className="text-sm font-semibold">
+            📜 過去の相談履歴 (最新 20 件)
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="閉じる"
+            className="rounded-lg px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            ✕ 閉じる
+          </button>
+        </div>
+
+        <div className="max-h-[calc(80vh-3rem)] overflow-y-auto p-4 space-y-2">
+          {loading && (
+            <div className="py-8 text-center text-sm text-zinc-500">
+              ⏳ 履歴を取得中...
+            </div>
+          )}
+          {!loading && error && (
+            <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-200">
+              ❌ {error}
+              <div className="mt-1 text-rose-600 dark:text-rose-400">
+                Firestore に履歴が未登録の場合や認可エラーの場合があります
+              </div>
+            </div>
+          )}
+          {!loading && !error && items.length === 0 && (
+            <div className="py-8 text-center text-sm text-zinc-500">
+              💭 まだ Concierge に相談したことがありません
+              <div className="mt-1 text-xs">
+                相談すると、次回からここに過去の対話が並びます
+              </div>
+            </div>
+          )}
+          {!loading &&
+            !error &&
+            items.map((item) => (
+              <button
+                key={item.doc_id}
+                type="button"
+                onClick={() => onSelect(item)}
+                className="block w-full text-left rounded-lg border border-zinc-200 bg-white p-3 transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-blue-600 dark:hover:bg-zinc-800"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="text-xs text-zinc-500">
+                    {item.timestamp
+                      ? new Date(item.timestamp).toLocaleString("ja-JP", {
+                          year: "numeric",
+                          month: "2-digit",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "-"}
+                  </div>
+                  {item.matched_interests.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {item.matched_interests.map((i) => (
+                        <span
+                          key={i}
+                          className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                        >
+                          {i}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2 line-clamp-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  {item.message}
+                </div>
+                {item.short_summary && (
+                  <div className="mt-1 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    → {item.short_summary}
+                  </div>
+                )}
+                {item.candidates_codes.length > 0 && (
+                  <div className="mt-1 text-[10px] text-zinc-500">
+                    候補 {item.candidates_codes.length} 件:{" "}
+                    {item.candidates_codes.slice(0, 3).join(", ")}
+                    {item.candidates_codes.length > 3 ? " ..." : ""}
+                  </div>
+                )}
+                <div className="mt-2 text-[10px] text-blue-600 dark:text-blue-400">
+                  ↺ このメッセージを再入力する
+                </div>
+              </button>
+            ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

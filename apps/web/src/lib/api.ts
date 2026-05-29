@@ -430,3 +430,54 @@ export async function postConcierge(
   const data = await res.json();
   return ConciergeResponseSchema.parse(data);
 }
+
+// ============================================================================
+// Concierge 会話履歴 (Plan L+LL) — GET /v1/concierge/history/{user_id}
+// ============================================================================
+
+export const ConciergeHistoryItemSchema = z.object({
+  doc_id: z.string(),
+  timestamp: z.string().nullable(),
+  message: z.string(),
+  short_summary: z.string().default(""),
+  candidates_codes: z.array(z.string()).default([]),
+  matched_interests: z.array(z.string()).default([]),
+});
+
+export type ConciergeHistoryItem = z.infer<typeof ConciergeHistoryItemSchema>;
+
+export const ConciergeHistoryResponseSchema = z.object({
+  user_id: z.string(),
+  items: z.array(ConciergeHistoryItemSchema),
+  total: z.number().int().nonnegative(),
+});
+
+export type ConciergeHistoryResponse = z.infer<
+  typeof ConciergeHistoryResponseSchema
+>;
+
+/**
+ * Concierge 会話履歴を取得 (Plan L+LL)。
+ * x-user-id header で簡易認可 (path user_id と一致しないと 403)。
+ */
+export async function fetchConciergeHistory(
+  userId: string,
+  limit = 20,
+): Promise<ConciergeHistoryResponse> {
+  const res = await fetch(
+    `${API_BASE}/v1/concierge/history/${encodeURIComponent(userId)}?limit=${limit}`,
+    {
+      headers: {
+        Accept: "application/json",
+        "x-user-id": userId,
+      },
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return ConciergeHistoryResponseSchema.parse(data);
+}
