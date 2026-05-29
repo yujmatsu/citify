@@ -558,3 +558,67 @@ export async function fetchHeatmap(args: {
   const data = await res.json();
   return HeatmapResponseSchema.parse(data);
 }
+
+// ============================================================================
+// Timeline (Plan N) — GET /v1/timeline
+// ============================================================================
+
+export const TimelineEventSchema = z.object({
+  event_date: z.string(), // ISO date
+  municipality_code: z.string(),
+  municipality_name: z.string().default(""),
+  headline: z.string(),
+  detail: z.string(),
+  source_speech_id: z.string(),
+  importance: z.number().int().default(50),
+});
+
+export type TimelineEvent = z.infer<typeof TimelineEventSchema>;
+
+export const TimelineNarrativeSchema = z.object({
+  theme_label: z.string(),
+  period_start: z.string(),
+  period_end: z.string(),
+  overall_summary: z.string().default(""),
+  events: z.array(TimelineEventSchema).default([]),
+  source: z.enum(["llm", "rule_based"]),
+});
+
+export type TimelineNarrative = z.infer<typeof TimelineNarrativeSchema>;
+
+export const TimelineResponseSchema = z.object({
+  narrative: TimelineNarrativeSchema,
+  candidate_count: z.number().int().nonnegative(),
+});
+
+export type TimelineResponse = z.infer<typeof TimelineResponseSchema>;
+
+/**
+ * 議論タイムラインを取得 (Plan N)。
+ * TimelineAgent が theme_interest + 自治体 + 期間で物語化したナラティブ + イベント 5-10 件。
+ */
+export async function fetchTimeline(args: {
+  themeInterest: string;
+  userId?: string;
+  municipalityCode?: string | null;
+  days?: number;
+}): Promise<TimelineResponse> {
+  const params = new URLSearchParams({
+    theme_interest: args.themeInterest,
+    user_id: args.userId ?? "anon",
+    days: String(args.days ?? 90),
+  });
+  if (args.municipalityCode) {
+    params.set("municipality_code", args.municipalityCode);
+  }
+  const res = await fetch(`${API_BASE}/v1/timeline?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return TimelineResponseSchema.parse(data);
+}

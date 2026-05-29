@@ -313,10 +313,46 @@ export default function SpeechDetailPage() {
           )}
         </section>
 
+        {/* Plan N: 議論タイムライン動線 (Reviewer High #3: RAG 関連議題と差別化) */}
+        {item.matched_interests.length > 0 && (
+          <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+                🕰 議論の流れを見る
+              </h2>
+              <span className="text-[10px] text-blue-700 dark:text-blue-300">Plan N</span>
+            </div>
+            <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
+              この interest 軸の議論変遷を Agent が物語化、5-10 マイルストーンで表示します。
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {item.matched_interests.slice(0, 3).map((interest) => {
+                const params = new URLSearchParams({
+                  theme_interest: interest,
+                });
+                if (item.municipality_code) {
+                  params.set("municipality_code", item.municipality_code);
+                }
+                return (
+                  <Link
+                    key={interest}
+                    href={`/timeline?${params.toString()}`}
+                    className="rounded-full bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+                  >
+                    {interest} ({item.municipality_code ? "この自治体" : "全国"})
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* RAG 検索結果 (Vertex AI RAG Engine、国会会議録 corpus に対する semantic search) */}
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold text-zinc-500">関連議題 (国会 RAG)</h2>
+            <h2 className="text-sm font-semibold text-zinc-500">
+              🔗 関連議題 (この発言の周辺、RAG semantic search)
+            </h2>
             <span className="text-[10px] text-zinc-400">Vertex AI</span>
           </div>
 

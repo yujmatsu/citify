@@ -66,6 +66,12 @@ export default function Home() {
                 🗾 全国ヒートマップ
               </Link>
               <Link
+                href="/timeline"
+                className="font-medium text-rose-700 underline hover:text-rose-900 dark:text-rose-300 dark:hover:text-rose-200"
+              >
+                🕰 議論タイムライン
+              </Link>
+              <Link
                 href="/municipalities"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
               >
