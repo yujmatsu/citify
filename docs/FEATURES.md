@@ -241,6 +241,28 @@
 
 ---
 
+### A-17. 全国ヒートマップ Agent(Plan X)
+
+**説明**:ペルソナ(年代/関心軸/自由記述)を踏まえて 47 都道府県を比較する「最も示唆的な統計指標」を `HeatmapAdvisor` Agent が自動選定し、タイルマップで Chloropleth 表示。タイルクリックで県内 TOP3 自治体を表示。Plan A の客観統計(Reinfolib + 国勢調査)を「全国規模」で活用する Agent。ハッカソン審査基準②「ストーリー性」+ ④「実用性」を強化。
+
+**受け入れ条件**:
+- `agents/heatmap_advisor/` 独立 Agent (DI / ADK 化と無関係、google.genai 直接 call)
+- Chain-of-Thought prompt: ペルソナ要約 → 候補 3 つ → 最適 1 つ + 介入的説明 (200-300 字)
+- LLM 失敗時 / 倫理 leak 検出時は `FALLBACK_METRIC_BY_INTEREST` (10 関心軸 × 9 指標) で graceful degrade、`source="rule_based"` で UI 区別可能
+- 倫理ガード: reasoning に 47 都道府県名禁止、post-validation で leak 検出時は fallback、leaked 県名はユーザー向け文には含めず log のみ
+- `GET /v1/heatmap?focus_interest=...&user_id=...` endpoint が 47 県中央値 + 県別 TOP3 (141 自治体) を返す
+- **集計行 (XX000) と国会 (00000) を SQL で必ず除外** (Reviewer Critical #1、`NOT LIKE '%000'`)
+- SQL injection 防止: `metric_column` を allowlist で検証 (9 指標のみ許可)
+- Frontend `/heatmap` page: tile-grid 日本地図 (FT/Reuters 方式、TopoJSON 不要)、AdviceBanner で Agent reasoning + persona_summary 表示、タイルクリックで PrefectureModal が県内 TOP3 を表示
+- HeatmapAdvisor 10 unit test + endpoint 7 test、既存 217 件と合わせて全 234 passed
+- 工数 17-19h (3 日想定通り)
+
+**依存**:Plan A(municipality_stats テーブル)、Phase F(Reinfolib データ充填)、Plan E と独立
+
+**Drop 判断**:このまま実装(短期 3 日で完了、ハッカソン審査②④への寄与大)
+
+---
+
 ### A-16. Translator Self-Critique Loop(Plan D)
 
 **説明**:翻訳結果を独立 Critic Agent が 4 軸 (faithfulness/simplicity/tone/ethics) で 0-100 点スコアリングし、threshold 未達なら 1 度自動 revise する Self-Critique ループ。ハッカソン審査基準①「マルチエージェント必然性」を Critic 独立 Agent + DI で補強、デモ動画で「改善幅 (initial_score → final overall_score)」を可視化可能。

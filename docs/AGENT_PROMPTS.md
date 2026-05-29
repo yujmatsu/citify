@@ -218,6 +218,106 @@ agents/critic/
 
 ---
 
+### 0.8 全国ヒートマップ Agent (Plan X 実装済)
+
+ペルソナを踏まえて 47 都道府県を比較する「最も示唆的な統計指標」を選定する独立 Agent。
+ハッカソン審査基準②「ストーリー性」+ ④「実用性」を補強。
+
+```python
+# 利用例
+from agents.heatmap_advisor import HeatmapAdvisor, PersonaContext
+
+advisor = HeatmapAdvisor(project_id="citify-dev")
+persona = PersonaContext(
+    user_id="demo",
+    age_group="25-29",
+    interests=["住居", "子育て"],
+    focus_interest="住居",
+    free_form_context="リモートワーク中心、家賃を抑えたい",
+)
+advice = advisor.suggest_metric(persona)
+# advice.metric_column       — 例: "used_apartment_median_price_man_yen"
+# advice.direction           — "lower_is_better" / "higher_is_better"
+# advice.reasoning           — 200-300 字、Chain-of-Thought ベースの介入的説明
+# advice.source              — "llm" / "rule_based"
+```
+
+#### 動作フロー (Chain of Thought)
+
+```
+1. ペルソナ要約: 年代 / 関心軸 / 自由記述 を 1 行にまとめる (内部)
+2. 候補 metric 3 つを列挙: ペルソナと相性の良い候補を 9 指標から 3 つ
+3. 最適 1 つを選定 + 介入的説明:「他 2 つではなくこの 1 つ」の理由 (200-300 字)
+4. HeatmapAdvice schema として構造化出力
+5. 倫理 post-validation: 47 都道府県名が reasoning に含まれていたら fallback へ
+```
+
+#### Fallback (LLM 失敗時)
+
+LLM call の例外 or 倫理 leak 検出時は `FALLBACK_METRIC_BY_INTEREST` 固定 mapping で graceful degrade:
+
+| 関心軸 | metric | direction |
+|---|---|---|
+| 住居 | `used_apartment_median_price_man_yen` | lower_is_better |
+| 子育て | `childcare_facility_count` | higher_is_better |
+| 医療 | `medical_facility_count` | higher_is_better |
+| 防災 | `emergency_shelter_count` | higher_is_better |
+| 雇用/結婚/起業 | `youth_share_pct` | higher_is_better |
+| 税/移住 | `population_change_2025_2050_pct` | higher_is_better |
+| 教育 | `childcare_facility_count` | higher_is_better |
+
+reasoning に `"(rule-based) "` prefix を付与し UI で source 区別可能。
+
+#### 倫理ガード (PROJECT.md §5)
+
+- system prompt で「47 都道府県名を reasoning に含めない」と明記
+- LLM 出力後に `_contains_prefecture_name()` で post-validation
+- leak 検出時は ユーザー向け reasoning に leaked 県名を含めず fallback (ログのみ詳細記録)
+
+#### 公開 endpoint
+
+- `GET /v1/heatmap?user_id=...&age_group=...&interests=...&focus_interest=...&free_form_context=...`
+- response: `{ advice, prefecture_values[47], top_municipalities[47×3] }`
+- BQ query 2 本 (47 県中央値 + 県別 TOP3)、いずれも **`municipality_code NOT LIKE '%000'` フィルタ必須** (集計行除外)
+- SQL injection 防止: `metric_column` を allowlist で検証 (BQ identifier は param 化不可)
+- `_HEATMAP_CACHE` TTL 10 分
+
+#### Frontend (`/heatmap`)
+
+- **Tile-grid Japan map** (FT/Reuters 方式、47 タイル): TopoJSON 不要、d3-geo 不要、軽量・均一サイズ
+- Chloropleth: 色相 212 (blue) + 彩度/明度 で順位を表現 (rank=1 が最深)
+- タイルクリック → 県内 TOP3 自治体モーダル (Plan L+LL HistoryModal パターン踏襲)
+- AdviceBanner で Agent 選定理由 + persona_summary 表示 (source="llm"/"rule_based" で色分け)
+
+#### モジュール構成
+
+```
+agents/heatmap_advisor/
+├── __init__.py            # HeatmapAdvisor / HeatmapAdvice / FALLBACK_METRIC_BY_INTEREST export
+├── main.py                # HeatmapAdvisor + FALLBACK_METRIC_BY_INTEREST + _contains_prefecture_name
+├── schema.py              # HeatmapAdvice / HeatmapMetricSpec / PersonaContext (Direction enum)
+├── prompts/
+│   └── system.py          # HEATMAP_ADVISOR_SYSTEM_PROMPT + PREFECTURE_NAMES_JA + build_advisor_user_prompt
+└── tests/
+    └── test_advisor.py    # 10 unit test
+```
+
+#### テスト数
+
+| ファイル | 件数 | カバー範囲 |
+|---|---|---|
+| `agents/heatmap_advisor/tests/test_advisor.py` | 10 | LLM 成功 / LLM 失敗 fallback / 倫理 leak fallback / mapping 網羅 / 47 県名定数 / direction / Pydantic validation |
+| `apps/api/tests/test_heatmap_endpoint.py` | 7 | 200 / advisor LLM 失敗透過 / BQ 失敗 500 / SQL filter `NOT LIKE '%000'` 検証 / metric_column allowlist / direction enum / 422 missing focus_interest |
+
+→ **計 17 件**、既存 217 + 17 = **234 passed**。
+
+#### Backward compatibility
+
+- Concierge tool として再利用しない (独立 Agent、Plan X miniplan Out of Scope)
+- ADK 化は将来 (現状 google.genai 直 call)
+
+---
+
 ## 1. 収集 Agent (Collector)
 
 ### 1.1 役割
