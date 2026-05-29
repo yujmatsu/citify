@@ -72,6 +72,12 @@ export default function Home() {
                 🕰 議論タイムライン
               </Link>
               <Link
+                href="/forecast"
+                className="font-medium text-orange-700 underline hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-200"
+              >
+                📈 議題件数の推移と予測
+              </Link>
+              <Link
                 href="/municipalities"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
               >

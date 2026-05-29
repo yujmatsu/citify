@@ -622,3 +622,86 @@ export async function fetchTimeline(args: {
   const data = await res.json();
   return TimelineResponseSchema.parse(data);
 }
+
+// ============================================================================
+// Forecast (Plan Z) — GET /v1/forecast
+// ============================================================================
+
+export const MonthCountSchema = z.object({
+  year_month: z.string(),
+  speech_count: z.number().nonnegative(),
+});
+
+export const ForecastPointSchema = z.object({
+  year_month: z.string(),
+  speech_count: z.number().nonnegative(),
+  is_forecast: z.boolean(),
+});
+
+export type ForecastPoint = z.infer<typeof ForecastPointSchema>;
+export type MonthCount = z.infer<typeof MonthCountSchema>;
+
+export const ForecastSeriesSchema = z.object({
+  historical: z.array(MonthCountSchema),
+  forecast: z.array(ForecastPointSchema),
+  trend_classification: z.enum([
+    "surge",
+    "increasing",
+    "flat",
+    "decreasing",
+    "crash",
+  ]),
+  slope: z.number(),
+  slope_std_error: z.number().nonnegative().default(0),
+  confidence: z.enum(["high", "medium", "low"]),
+  months_in_history: z.number().int().nonnegative(),
+});
+
+export type ForecastSeries = z.infer<typeof ForecastSeriesSchema>;
+
+export const ForecastNarrativeSchema = z.object({
+  headline: z.string(),
+  reasoning: z.string(),
+  source: z.enum(["llm", "rule_based"]),
+});
+
+export type ForecastNarrative = z.infer<typeof ForecastNarrativeSchema>;
+
+export const ForecastResponseSchema = z.object({
+  series: ForecastSeriesSchema,
+  narrative: ForecastNarrativeSchema,
+});
+
+export type ForecastResponse = z.infer<typeof ForecastResponseSchema>;
+
+/**
+ * 議題件数トレンド予測 (Plan Z)。
+ * Engine が線形回帰で 3 か月予測、Narrator が介入的説明。
+ */
+export async function fetchForecast(args: {
+  themeInterest: string;
+  userId?: string;
+  ageGroup?: string;
+  municipalityCode?: string | null;
+  historyMonths?: number;
+}): Promise<ForecastResponse> {
+  const params = new URLSearchParams({
+    theme_interest: args.themeInterest,
+    user_id: args.userId ?? "anon",
+    age_group: args.ageGroup ?? "25-29",
+    history_months: String(args.historyMonths ?? 12),
+  });
+  if (args.municipalityCode) {
+    params.set("municipality_code", args.municipalityCode);
+  }
+  const res = await fetch(`${API_BASE}/v1/forecast?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return ForecastResponseSchema.parse(data);
+}
