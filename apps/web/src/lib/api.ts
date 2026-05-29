@@ -481,3 +481,80 @@ export async function fetchConciergeHistory(
   const data = await res.json();
   return ConciergeHistoryResponseSchema.parse(data);
 }
+
+// ============================================================================
+// Heatmap (Plan X) — GET /v1/heatmap
+// ============================================================================
+
+export const HeatmapAdviceSchema = z.object({
+  metric_column: z.string(),
+  metric_label_ja: z.string(),
+  direction: z.enum(["lower_is_better", "higher_is_better"]),
+  unit: z.string().default(""),
+  reasoning: z.string(),
+  persona_summary: z.string(),
+  source: z.enum(["llm", "rule_based"]),
+});
+
+export type HeatmapAdvice = z.infer<typeof HeatmapAdviceSchema>;
+
+export const PrefectureValueSchema = z.object({
+  prefecture_code: z.string(),
+  prefecture_name: z.string(),
+  metric_median: z.number(),
+  muni_count: z.number().int(),
+  rank: z.number().int(),
+});
+
+export type PrefectureValue = z.infer<typeof PrefectureValueSchema>;
+
+export const PrefectureTopMuniSchema = z.object({
+  prefecture_code: z.string(),
+  municipalities: z.array(
+    z.object({
+      municipality_code: z.string(),
+      municipality_name: z.string(),
+      metric_value: z.number(),
+    }),
+  ),
+});
+
+export type PrefectureTopMuni = z.infer<typeof PrefectureTopMuniSchema>;
+
+export const HeatmapResponseSchema = z.object({
+  advice: HeatmapAdviceSchema,
+  prefecture_values: z.array(PrefectureValueSchema),
+  top_municipalities: z.array(PrefectureTopMuniSchema),
+});
+
+export type HeatmapResponse = z.infer<typeof HeatmapResponseSchema>;
+
+/**
+ * 全国ヒートマップを取得 (Plan X)。
+ * HeatmapAdvisor がペルソナを踏まえて metric を選定し、47 都道府県の中央値 + 県別 TOP3 を返す。
+ */
+export async function fetchHeatmap(args: {
+  userId?: string;
+  ageGroup?: string;
+  interests?: string[];
+  focusInterest: string;
+  freeFormContext?: string;
+}): Promise<HeatmapResponse> {
+  const params = new URLSearchParams({
+    user_id: args.userId ?? "anon",
+    age_group: args.ageGroup ?? "25-29",
+    interests: (args.interests ?? []).join(","),
+    focus_interest: args.focusInterest,
+    free_form_context: args.freeFormContext ?? "",
+  });
+  const res = await fetch(`${API_BASE}/v1/heatmap?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return HeatmapResponseSchema.parse(data);
+}

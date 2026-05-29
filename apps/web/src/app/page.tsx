@@ -60,6 +60,12 @@ export default function Home() {
                 🔀 比較ビュー
               </Link>
               <Link
+                href="/heatmap"
+                className="font-medium text-violet-700 underline hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-200"
+              >
+                🗾 全国ヒートマップ
+              </Link>
+              <Link
                 href="/municipalities"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
               >
