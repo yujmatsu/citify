@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -1548,10 +1548,21 @@ async def get_reaction_summary(speech_id: str) -> ReactionSummary:
 # Concierge は module-level lazy init (初回 POST 受信時に構築)、process 内 reuse
 _CONCIERGE_AGENT: Any = None
 _CONCIERGE_RUNNER: Any = None
+_CONCIERGE_MEMORY: Any = None  # Plan L+LL: ConversationMemory
+
+
+def _get_concierge_memory() -> Any:
+    """ConversationMemory を遅延構築 (Plan L+LL)。"""
+    global _CONCIERGE_MEMORY
+    if _CONCIERGE_MEMORY is None:
+        from agents.concierge.memory import ConversationMemory
+
+        _CONCIERGE_MEMORY = ConversationMemory()
+    return _CONCIERGE_MEMORY
 
 
 def _get_concierge_agent() -> Any:
-    """ConciergeAgent + GenaiConciergeRunner を遅延構築 (lazy import + lazy init)。"""
+    """ConciergeAgent + GenaiConciergeRunner + Memory を遅延構築 (lazy)。"""
     global _CONCIERGE_AGENT, _CONCIERGE_RUNNER
     if _CONCIERGE_AGENT is None:
         from agents.concierge.main import ConciergeAgent
@@ -1561,6 +1572,7 @@ def _get_concierge_agent() -> Any:
         _CONCIERGE_AGENT = ConciergeAgent(
             project_id=BQ_PROJECT,
             runner=_CONCIERGE_RUNNER,
+            memory=_get_concierge_memory(),
         )
         logger.info("concierge.initialized project=%s", BQ_PROJECT)
     return _CONCIERGE_AGENT
@@ -1604,3 +1616,62 @@ async def post_concierge(payload: dict) -> dict:
     )
 
     return response.model_dump(mode="json")
+
+
+# ============================================================================
+# GET /v1/concierge/history/{user_id} — 会話履歴取得 (Plan L+LL)
+# ============================================================================
+# Concierge との過去対話を取得。認可は `x-user-id` header と path user_id の
+# 一致チェック (demo 環境簡易認可)。production では IAM 認証に置換予定。
+# ============================================================================
+
+
+@app.get("/v1/concierge/history/{user_id}")
+async def get_concierge_history(
+    user_id: str,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=100),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict:
+    """ユーザーの Concierge 会話履歴を最新順で取得 (Plan L+LL)。
+
+    Authorization:
+        path の `user_id` と header `x-user-id` が一致しないと 403。
+        demo 環境簡易認可、production では IAM bearer token に置換予定。
+    """
+    if x_user_id is None or x_user_id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="x-user-id header must match path user_id (demo 認可)",
+        )
+
+    response.headers["Cache-Control"] = "private, max-age=0, no-cache"
+
+    memory = _get_concierge_memory()
+    try:
+        records = memory.recall_recent(user_id=user_id, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("concierge.history_failed user_id=%s err=%s", user_id, exc)
+        raise HTTPException(status_code=500, detail=f"history fetch failed: {exc!s}") from exc
+
+    logger.info(
+        "concierge.history.done user_id=%s n_records=%d",
+        user_id,
+        len(records),
+    )
+
+    # HistoryRecord (dataclass) を dict に変換 (embedding は除外、サイズ節約)
+    items = []
+    for r in records:
+        items.append(
+            {
+                "doc_id": r.doc_id,
+                "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                "message": r.message,
+                "short_summary": r.short_summary,
+                "candidates_codes": r.candidates_codes,
+                "matched_interests": r.matched_interests,
+            }
+        )
+
+    return {"user_id": user_id, "items": items, "total": len(items)}

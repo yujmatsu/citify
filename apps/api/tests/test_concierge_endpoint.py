@@ -224,3 +224,125 @@ def test_post_concierge_includes_ethical_violations_in_response(
     body = response.json()
     assert body["ethical_violations"] == ["絶対に.{0,3}(賛成|反対)"]
     assert "倫理ガイドライン" in body["reply"]
+
+
+# ============================================================================
+# GET /v1/concierge/history/{user_id} (Plan L+LL)
+# ============================================================================
+
+
+def _make_mock_memory_with_records(records_list: list[dict]) -> MagicMock:
+    """ConversationMemory mock。recall_recent が指定 record を返す。"""
+    from datetime import UTC, datetime
+
+    from agents.concierge.memory import HistoryRecord
+
+    records = [
+        HistoryRecord(
+            doc_id=r["doc_id"],
+            user_id=r["user_id"],
+            timestamp=r.get("timestamp", datetime(2026, 5, 29, 12, 0, tzinfo=UTC)),
+            message=r["message"],
+            reply=r.get("reply", ""),
+            short_summary=r.get("short_summary", ""),
+            candidates_codes=r.get("candidates_codes", []),
+            matched_interests=r.get("matched_interests", []),
+        )
+        for r in records_list
+    ]
+    mock_memory = MagicMock()
+    mock_memory.recall_recent.return_value = records
+    return mock_memory
+
+
+def test_get_history_returns_records_with_correct_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """正しい x-user-id header で 200 + items 取得。"""
+    from apps.api import main as api_main
+
+    mock_memory = _make_mock_memory_with_records(
+        [
+            {
+                "doc_id": "user1__2026-05-29",
+                "user_id": "user1",
+                "message": "保育園充実な街は?",
+                "short_summary": "新宿区がおすすめ...",
+                "candidates_codes": ["13104"],
+                "matched_interests": ["住居", "子育て"],
+            }
+        ]
+    )
+    monkeypatch.setattr(api_main, "_get_concierge_memory", lambda: mock_memory)
+
+    client_instance = TestClient(api_main.app)
+    response = client_instance.get(
+        "/v1/concierge/history/user1",
+        headers={"x-user-id": "user1"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user_id"] == "user1"
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["message"] == "保育園充実な街は?"
+    assert body["items"][0]["matched_interests"] == ["住居", "子育て"]
+
+
+def test_get_history_403_on_user_id_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """x-user-id と path user_id 不一致なら 403 (認可)。"""
+    from apps.api import main as api_main
+
+    mock_memory = _make_mock_memory_with_records([])
+    monkeypatch.setattr(api_main, "_get_concierge_memory", lambda: mock_memory)
+
+    client_instance = TestClient(api_main.app)
+    response = client_instance.get(
+        "/v1/concierge/history/user1",
+        headers={"x-user-id": "attacker"},
+    )
+    assert response.status_code == 403
+    assert "demo 認可" in response.json()["detail"]
+
+
+def test_get_history_403_on_missing_auth_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    """x-user-id header 自体がない場合も 403。"""
+    from apps.api import main as api_main
+
+    mock_memory = _make_mock_memory_with_records([])
+    monkeypatch.setattr(api_main, "_get_concierge_memory", lambda: mock_memory)
+
+    client_instance = TestClient(api_main.app)
+    response = client_instance.get("/v1/concierge/history/user1")  # no x-user-id
+    assert response.status_code == 403
+
+
+def test_get_history_respects_limit_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    """?limit=5 で recall_recent(limit=5) が呼ばれる。"""
+    from apps.api import main as api_main
+
+    mock_memory = _make_mock_memory_with_records([])
+    monkeypatch.setattr(api_main, "_get_concierge_memory", lambda: mock_memory)
+
+    client_instance = TestClient(api_main.app)
+    response = client_instance.get(
+        "/v1/concierge/history/user1?limit=5",
+        headers={"x-user-id": "user1"},
+    )
+    assert response.status_code == 200
+    mock_memory.recall_recent.assert_called_with(user_id="user1", limit=5)
+
+
+def test_get_history_500_on_memory_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ConversationMemory が例外を投げたら 500。"""
+    from apps.api import main as api_main
+
+    mock_memory = MagicMock()
+    mock_memory.recall_recent.side_effect = RuntimeError("Firestore down")
+    monkeypatch.setattr(api_main, "_get_concierge_memory", lambda: mock_memory)
+
+    client_instance = TestClient(api_main.app)
+    response = client_instance.get(
+        "/v1/concierge/history/user1",
+        headers={"x-user-id": "user1"},
+    )
+    assert response.status_code == 500
+    assert "history fetch failed" in response.json()["detail"]

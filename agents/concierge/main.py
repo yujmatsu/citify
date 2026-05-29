@@ -74,6 +74,7 @@ class ConciergeAgent:
         thinking_budget: int = DEFAULT_THINKING_BUDGET,
         agent: Agent | None = None,
         runner: _RunnerProto | None = None,
+        memory: Any | None = None,
     ) -> None:
         self.project_id = project_id
         self.location = location
@@ -84,6 +85,8 @@ class ConciergeAgent:
         self.thinking_budget = thinking_budget
         self._agent = agent
         self._runner = runner
+        # Plan L+LL: ConversationMemory (Firestore + embedding) を optional 注入
+        self._memory = memory
 
     def _format_persona(self, request: ConciergeRequest) -> str:
         """persona の自然言語要約を組み立て (system prompt の persona_desc 用)。"""
@@ -169,6 +172,19 @@ class ConciergeAgent:
             duration_ms,
             ethical_violations,
         )
+
+        # Plan L+LL: 倫理 OK の場合のみ Firestore に履歴保存 (fire-and-forget)
+        if self._memory is not None and not ethical_violations:
+            try:
+                self._memory.save_turn(
+                    user_id=request.persona.user_id,
+                    message=request.message,
+                    reply=reply,
+                    candidates=candidates,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # save 失敗してもユーザー応答は返す (graceful)
+                logger.warning("concierge.memory_save_failed err=%s", exc)
 
         return ConciergeResponse(
             reply=reply,
