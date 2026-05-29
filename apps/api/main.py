@@ -1675,3 +1675,215 @@ async def get_concierge_history(
         )
 
     return {"user_id": user_id, "items": items, "total": len(items)}
+
+
+# ============================================================================
+# GET /v1/heatmap — 全国ヒートマップ Agent (Plan X)
+# ============================================================================
+# HeatmapAdvisor がペルソナを踏まえて指標を選定、47 都道府県の median + 県別 TOP3 を返す。
+# BQ コスト最小化のため scan は municipality_stats のみ、TTL=1h cache を流用。
+# ============================================================================
+
+
+_HEATMAP_CACHE = _TTLCache(maxsize=256, ttl_sec=600.0)  # 10 分 TTL
+
+
+_HEATMAP_ADVISOR: Any = None
+
+
+def _get_heatmap_advisor() -> Any:
+    """HeatmapAdvisor を遅延初期化 (テストで monkeypatch 可能)。"""
+    global _HEATMAP_ADVISOR
+    if _HEATMAP_ADVISOR is None:
+        from agents.heatmap_advisor import HeatmapAdvisor
+
+        _HEATMAP_ADVISOR = HeatmapAdvisor(project_id=os.getenv("GCP_PROJECT_ID") or None)
+    return _HEATMAP_ADVISOR
+
+
+@app.get("/v1/heatmap")
+async def get_heatmap(
+    response: Response,
+    user_id: str = Query(default="anon", description="ペルソナ ID"),
+    age_group: str = Query(default="25-29", description="年代 (18-24/25-29/30-39/40-49/50+)"),
+    interests: str = Query(default="", description="カンマ区切り interest 軸"),
+    focus_interest: str = Query(..., description="ヒートマップでフォーカスする 1 軸"),
+    free_form_context: str = Query(default="", max_length=500),
+) -> dict:
+    """全国ヒートマップ: HeatmapAdvisor 選定指標 + 47 県集計 + 県別 TOP3 (Plan X)。
+
+    Flow:
+        1. HeatmapAdvisor.suggest_metric(persona) で metric_column + direction
+        2. BQ で 47 都道府県の中央値集計 (集計行 XX000 / 00000 除外)
+        3. BQ で県別 TOP3 自治体
+        4. PrefValue × 47 + PrefTop × 47 を返す
+
+    Authorization: なし (集計値は公開、UI 表示用)。
+    """
+    from agents.heatmap_advisor.schema import PersonaContext
+
+    response.headers["Cache-Control"] = (
+        "public, max-age=600, s-maxage=600, stale-while-revalidate=3600"
+    )
+
+    cache_key = ("heatmap", user_id, age_group, interests, focus_interest, free_form_context)
+    cached = _HEATMAP_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info("heatmap.cache_hit user_id=%s focus=%s", user_id, focus_interest)
+        return cached
+
+    # Step 1: HeatmapAdvisor で指標選定
+    try:
+        persona = PersonaContext(
+            user_id=user_id,
+            age_group=age_group,  # type: ignore[arg-type]
+            interests=[i.strip() for i in interests.split(",") if i.strip()],  # type: ignore[arg-type]
+            focus_interest=focus_interest,  # type: ignore[arg-type]
+            free_form_context=free_form_context,
+        )
+    except Exception as exc:  # noqa: BLE001 — Pydantic validation
+        raise HTTPException(status_code=422, detail=f"Invalid persona: {exc!s}") from exc
+
+    advisor = _get_heatmap_advisor()
+    advice = advisor.suggest_metric(persona)
+
+    # Step 2-3: BQ query
+    try:
+        prefecture_values, top_municipalities = _fetch_heatmap_bq(
+            metric_column=advice.metric_column,
+            direction=advice.direction,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("heatmap.bq_failed err=%s", exc)
+        raise HTTPException(status_code=500, detail=f"BQ heatmap query failed: {exc!s}") from exc
+
+    result = {
+        "advice": advice.model_dump(),
+        "prefecture_values": prefecture_values,
+        "top_municipalities": top_municipalities,
+    }
+    _HEATMAP_CACHE.set(cache_key, result)
+    logger.info(
+        "heatmap.done user_id=%s focus=%s metric=%s source=%s n_pref=%d",
+        user_id,
+        focus_interest,
+        advice.metric_column,
+        advice.source,
+        len(prefecture_values),
+    )
+    return result
+
+
+def _fetch_heatmap_bq(metric_column: str, direction: str) -> tuple[list[dict], list[dict]]:
+    """47 都道府県集計 + 県別 TOP3 を BQ から取得 (Plan X)。
+
+    重要 (Reviewer Critical #1): 集計行 (XX000) と国会 (00000) を除外しないと
+    47 県の median が個別自治体と二重計上され破綻する。
+    """
+    # SQL injection 防止: metric_column を許可リストで検証 (BQ identifier は param 化できないため)
+    from agents.heatmap_advisor.main import FALLBACK_METRIC_BY_INTEREST
+    from google.cloud import bigquery
+
+    allowed_columns = {spec.column for spec in FALLBACK_METRIC_BY_INTEREST.values()} | {
+        # LLM が選びうる全 metric を明示的に許可
+        "used_apartment_median_price_man_yen",
+        "used_apartment_median_unit_price_yen",
+        "childcare_facility_count",
+        "medical_facility_count",
+        "emergency_shelter_count",
+        "population_change_2025_2050_pct",
+        "youth_share_pct",
+        "elderly_share_pct",
+        "birth_rate_per_1000",
+    }
+    if metric_column not in allowed_columns:
+        raise ValueError(f"metric_column not in allowlist: {metric_column!r}")
+    if direction not in ("lower_is_better", "higher_is_better"):
+        raise ValueError(f"invalid direction: {direction!r}")
+
+    # 集計 sort 方向 (lower_is_better なら ASC で 1 位、higher_is_better なら DESC)
+    sort_order = "ASC" if direction == "lower_is_better" else "DESC"
+
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
+
+    # 47 都道府県中央値 (集計行 XX000 + 国会 00000 を除外)
+    sql_pref = f"""
+        WITH muni AS (
+          SELECT
+            SUBSTR(municipality_code, 1, 2) AS prefecture_code,
+            {metric_column} AS metric_value
+          FROM `{table_fqn}`
+          WHERE {metric_column} IS NOT NULL
+            AND municipality_code NOT LIKE '%000'
+            AND municipality_code != '00000'
+        )
+        SELECT
+          prefecture_code,
+          APPROX_QUANTILES(metric_value, 100)[OFFSET(50)] AS metric_median,
+          COUNT(*) AS muni_count
+        FROM muni
+        GROUP BY prefecture_code
+        ORDER BY metric_median {sort_order}
+    """  # noqa: S608
+
+    # 県別 TOP3 (集計行除外、ROW_NUMBER で県内ランク付け)
+    sql_top = f"""
+        SELECT prefecture_code, municipality_code, metric_value
+        FROM (
+          SELECT
+            SUBSTR(municipality_code, 1, 2) AS prefecture_code,
+            municipality_code,
+            {metric_column} AS metric_value,
+            ROW_NUMBER() OVER (
+              PARTITION BY SUBSTR(municipality_code, 1, 2)
+              ORDER BY {metric_column} {sort_order}
+            ) AS rk
+          FROM `{table_fqn}`
+          WHERE {metric_column} IS NOT NULL
+            AND municipality_code NOT LIKE '%000'
+            AND municipality_code != '00000'
+        )
+        WHERE rk <= 3
+        ORDER BY prefecture_code, rk
+    """  # noqa: S608
+
+    rows_pref = list(
+        client.query(sql_pref, job_config=bigquery.QueryJobConfig()).result(timeout=20)
+    )
+    rows_top = list(client.query(sql_top, job_config=bigquery.QueryJobConfig()).result(timeout=20))
+
+    # 県集計に rank を付与 (sort_order ですでに昇順、enumerate)
+    prefecture_values: list[dict] = []
+    for rk, row in enumerate(rows_pref, start=1):
+        pref_code = row.get("prefecture_code", "") or ""
+        pref_full_code = f"{pref_code}000"
+        prefecture_values.append(
+            {
+                "prefecture_code": pref_code,
+                "prefecture_name": _MUNI_NAME_MAP.get(pref_full_code, f"県{pref_code}"),
+                "metric_median": float(row.get("metric_median") or 0.0),
+                "muni_count": int(row.get("muni_count") or 0),
+                "rank": rk,
+            }
+        )
+
+    # 県別 TOP3 を prefecture_code でグループ化
+    top_by_pref: dict[str, list[dict]] = {}
+    for row in rows_top:
+        pref_code = row.get("prefecture_code", "") or ""
+        muni_code = row.get("municipality_code", "") or ""
+        top_by_pref.setdefault(pref_code, []).append(
+            {
+                "municipality_code": muni_code,
+                "municipality_name": _MUNI_NAME_MAP.get(muni_code, f"自治体{muni_code}"),
+                "metric_value": float(row.get("metric_value") or 0.0),
+            }
+        )
+
+    top_municipalities = [
+        {"prefecture_code": pref_code, "municipalities": top_by_pref.get(pref_code, [])}
+        for pref_code in sorted(top_by_pref.keys())
+    ]
+
+    return prefecture_values, top_municipalities
