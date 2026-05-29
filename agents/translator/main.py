@@ -14,7 +14,7 @@ from typing import Any, Protocol
 from agents._shared.forbidden import FORBIDDEN_PATTERNS
 
 from .prompts.system import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
-from .schema import TranslateInput, TranslatorOutput
+from .schema import TranslateInput, TranslatorOutput, TranslatorWithCritique
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,9 @@ DEFAULT_TEMPERATURE = 0.3  # 翻訳は再現性重視、低めに
 DEFAULT_MAX_OUTPUT_TOKENS = 2048
 DEFAULT_THINKING_BUDGET = 0  # 翻訳に深い推論不要、token 節約 + 速度向上
 MAX_RETRIES = 3
+
+# Plan D: Self-critique loop の default threshold
+DEFAULT_CRITIQUE_THRESHOLD = 70
 
 # 倫理ガードレール: 出力に含まれてはいけないキーワード (post-validation)
 # Plan E で agents/_shared/forbidden.py に集約済 (再 export で後方互換維持)
@@ -168,6 +171,125 @@ class TranslatorAgent:
                 exc,
             )
             return TranslatorOutput.empty(f"Gemini レスポンス parse 失敗: {exc.__class__.__name__}")
+
+    # ========================================================================
+    # Plan D: Self-critique loop
+    # ========================================================================
+
+    def translate_with_critique(
+        self,
+        input: TranslateInput,
+        critic: Any,
+        threshold: int = DEFAULT_CRITIQUE_THRESHOLD,
+    ) -> TranslatorWithCritique:
+        """Self-critique 1-round loop で品質スコア付き翻訳を返す (Plan D)。
+
+        Flow:
+            1. translate() で初回 draft 生成 (倫理リトライ 3 回まで含む)
+            2. critic.critique(draft) で 4 軸スコア取得
+            3. critique.passed なら revision_count=0 で return
+            4. !passed なら _revise(draft, feedback) で 1 度修正 → 再 critique
+            5. 結果を return (cost cap のため revise 後の合否は問わない)
+
+        Args:
+            input: 翻訳元 input
+            critic: CriticAgent インスタンス (DI で受け取り、テスト可能性確保)
+            threshold: passed 判定の overall_score 下限
+
+        Returns:
+            TranslatorWithCritique (translation + critique + revision_count + initial_score)
+        """
+        draft = self.translate(input)
+
+        # 空 draft (倫理 give-up や入力空) は critic 側で skip 処理されるため、そのまま渡す
+        initial_critique = critic.critique(draft, input, threshold=threshold)
+        initial_score = initial_critique.overall_score
+
+        if initial_critique.passed:
+            logger.info(
+                "translator.critique_passed_first speech_id=%s score=%d",
+                input.speech_id,
+                initial_score,
+            )
+            return TranslatorWithCritique(
+                translation=draft,
+                critique=initial_critique,
+                revision_count=0,
+                initial_score=initial_score,
+            )
+
+        # passed=False → 1 度だけ revise (cost cap)
+        # ただし draft が empty (notes が 'empty_reason:' で始まる) の場合は revise 不可、return
+        if draft.notes.startswith("empty_reason:"):
+            logger.warning(
+                "translator.critique_skip_revise_for_empty speech_id=%s",
+                input.speech_id,
+            )
+            return TranslatorWithCritique(
+                translation=draft,
+                critique=initial_critique,
+                revision_count=0,
+                initial_score=initial_score,
+            )
+
+        logger.info(
+            "translator.critique_revise speech_id=%s initial=%d feedback=%r",
+            input.speech_id,
+            initial_score,
+            initial_critique.feedback[:120],
+        )
+
+        revised = self._revise(input, draft, initial_critique.feedback)
+        final_critique = critic.critique(revised, input, threshold=threshold)
+
+        return TranslatorWithCritique(
+            translation=revised,
+            critique=final_critique,
+            revision_count=1,
+            initial_score=initial_score,
+        )
+
+    def _revise(
+        self,
+        input: TranslateInput,
+        draft: TranslatorOutput,
+        feedback: str,
+    ) -> TranslatorOutput:
+        """draft + critic feedback を元に翻訳を 1 度書き直す。"""
+        client = self._ensure_client()
+        original_prompt = build_user_prompt(
+            content_text=input.content_text,
+            speaker_position=input.speaker_position,
+            meeting_context=input.meeting_context,
+            age_group=input.age_group,
+        )
+
+        summary_lines = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(draft.summary))
+        revise_prompt = f"""{original_prompt}
+
+# 前回の翻訳結果 (Critic から修正指示あり)
+タイトル: {draft.title}
+3 行サマリ:
+{summary_lines}
+採用トーン: {draft.tone}
+
+# Critic からの改善 feedback
+{feedback[:500]}
+
+# 指示
+上記 feedback を踏まえ、より高品質な翻訳に書き直してください。
+JSON schema は前回と同じ TranslatorOutput を厳守してください。
+"""
+        revised = self._call_gemini(client, revise_prompt)
+        logger.info(
+            "translator.revise.done speech_id=%s title_before=%r title_after=%r",
+            input.speech_id,
+            draft.title[:40],
+            revised.title[:40],
+        )
+        return revised
+
+    # ========================================================================
 
     def _validate_ethics(self, output: TranslatorOutput, input: TranslateInput) -> list[str]:
         """出力の倫理チェック。問題があれば説明文字列のリストを返す。"""

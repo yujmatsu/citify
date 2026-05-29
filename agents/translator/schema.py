@@ -10,9 +10,12 @@ combined payload で、翻訳結果 + 原典 speech メタを保持する。
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from agents.critic.schema import CritiqueResult
 
 # ペルソナ年代区分 (FEATURES.md A-1 準拠、Phase Y で 5 区分に拡張)
 AgeGroup = Literal["18-24", "25-29", "30-39", "40-49", "50+"]
@@ -79,6 +82,27 @@ class TranslatorOutput(BaseModel):
         )
 
 
+class TranslatorWithCritique(BaseModel):
+    """Self-critique 付き翻訳結果 (Plan D)。
+
+    `TranslatorAgent.translate_with_critique()` の戻り値。
+    Critic スコアと revision 履歴を含み、demo で「改善幅」可視化可能。
+    """
+
+    translation: TranslatorOutput = Field(description="最終翻訳結果 (revise 後 or 初回 draft)")
+    # 遅延 import 回避のため CritiqueResult を文字列 forward ref で
+    critique: CritiqueResult = Field(description="Critic 評価結果")
+    revision_count: int = Field(
+        default=0, ge=0, le=1, description="revise 回数 (0=draft 即合格, 1=1度 revise)"
+    )
+    initial_score: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="revise 前の overall_score (改善幅 demo 用)",
+    )
+
+
 class TranslatedSpeech(BaseModel):
     """翻訳済 speech (worker → relevance への publish payload)。
 
@@ -102,3 +126,13 @@ class TranslatedSpeech(BaseModel):
 
     # 翻訳結果
     translation: TranslatorOutput = Field(description="Gemini 翻訳出力")
+
+
+# Pydantic v2 forward ref 解決 (CritiqueResult を runtime に bind)
+def _rebuild_with_critique_models() -> None:
+    from agents.critic.schema import CritiqueResult  # noqa: F401
+
+    TranslatorWithCritique.model_rebuild()
+
+
+_rebuild_with_critique_models()
