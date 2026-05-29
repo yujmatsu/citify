@@ -241,6 +241,30 @@
 
 ---
 
+### A-18. 議論タイムライン Agent(Plan N)
+
+**説明**:ユーザーが選んだテーマ(interest 軸 + 自治体 or 全国 + 期間)について、議論変遷を時系列イベント 5-10 件 + 全体ナラティブとして Agent が物語化。Citify のキラー UX「議題が点ではなく流れで見える」を実現、ハッカソン審査基準②「ストーリー性」を強化。
+
+**受け入れ条件**:
+- `agents/timeline/` 独立 Agent (HeatmapAdvisor と同パターン、Concierge tool 再利用なし)
+- Chain-of-Thought prompt:候補 30 件を時系列グルーピング → 5-10 マイルストーン抽出 → headline 40 字 + detail 80 字 + overall_summary 240 字
+- LLM 失敗時 / 倫理 leak 検出時 / source_speech_id 捏造で 3 件未満時は rule_based fallback (raw 上位 5 speeches を date 順)
+- 倫理ガード:`POLITICAL_PERSON_PATTERNS` (議員/首相/総理/大臣/知事/市長/氏 + 主要 10 政党) を Timeline 専用追加、`_ROLE_ONLY_PREFIXES` で「総理大臣」等の generic 役職名は除外。BQ SELECT から `speaker` 列除外で二重防御 (Reviewer Critical #1)
+- LLM パラメータ:max_output_tokens=2048 / thinking_budget=512 (Reviewer Critical #2、token 見積もり明示)
+- source_speech_id 捏造防止:candidate 集合外の event 削除、削除後 3 件未満なら fallback (Reviewer High #4)
+- `GET /v1/timeline?theme_interest=...&user_id=...&municipality_code=...&days=...` endpoint
+- BQ query:`@interest IN UNNEST(matched_interests)` + `municipality_code != '00000' AND NOT LIKE '%000'` + ScalarQueryParameter 化 + 10 軸 allowlist
+- Frontend `/timeline` page:Interest selector + 自治体コード入力 + 期間 (30/90/365) 切替、NarrativeBanner + 縦タイムライン UI、event クリックで `/feed/[speech_id]` 遷移
+- speech 詳細 (`/feed/[speech_id]`) に Plan N nav カードで「🕰 議論の流れを見る」を関連議題 (RAG) と並列配置 (Reviewer High #3 UI 動線差別化)
+- 15 unit test + 8 endpoint test、既存 234 + 23 = 257 passed
+- 工数 18h (3 日想定通り)
+
+**依存**:Plan A(scored_speeches_latest)、Plan E と独立、Plan X HeatmapAdvisor と独立並列
+
+**Drop 判断**:このまま実装(短期 3 日で完了、ハッカソン審査②ストーリー性への寄与大)
+
+---
+
 ### A-17. 全国ヒートマップ Agent(Plan X)
 
 **説明**:ペルソナ(年代/関心軸/自由記述)を踏まえて 47 都道府県を比較する「最も示唆的な統計指標」を `HeatmapAdvisor` Agent が自動選定し、タイルマップで Chloropleth 表示。タイルクリックで県内 TOP3 自治体を表示。Plan A の客観統計(Reinfolib + 国勢調査)を「全国規模」で活用する Agent。ハッカソン審査基準②「ストーリー性」+ ④「実用性」を強化。

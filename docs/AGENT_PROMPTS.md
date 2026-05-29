@@ -318,6 +318,111 @@ agents/heatmap_advisor/
 
 ---
 
+### 0.9 議論タイムライン Agent (Plan N 実装済)
+
+theme_interest + 自治体 + 期間で議論変遷を 5-10 マイルストーンに圧縮 + ナラティブ生成する独立 Agent。ハッカソン審査基準②「ストーリー性」を強化。
+
+```python
+# 利用例
+from agents.timeline import TimelineAgent, TimelineRequest, CandidateSpeech
+
+agent = TimelineAgent(project_id="citify-dev")
+candidates = [...]  # BQ scored_speeches_latest から取得 (speaker は除外、Reviewer Critical #1)
+request = TimelineRequest(
+    user_id="demo",
+    theme_interest="住居",
+    municipality_code="13104",  # None=全国
+    days=90,
+)
+narrative = agent.narrate(candidates, request, period_start, period_end)
+# narrative.theme_label / period_start / period_end / overall_summary / events[] / source
+```
+
+#### 動作フロー
+
+```
+1. BQ scored_speeches から候補 30 件取得:
+   WHERE @interest IN UNNEST(matched_interests)
+     AND meeting_date BETWEEN @start AND @end
+     AND municipality_code != '00000' AND NOT LIKE '%000'  (集計行除外、Plan X と一貫)
+2. 候補 < 3 件 → 「データ不足」empty で early return
+3. TimelineAgent.narrate() で LLM call (Gemini Flash + Chain-of-Thought)
+4. Post-validation:
+   - source_speech_id が candidate 集合外 → event 削除 (捏造防止)
+   - overall_summary / event.headline / event.detail に政治家名/政党名 leak 検出 → fallback
+   - valid_events < 3 件 → rule_based fallback (raw 上位 5 speeches を date 順)
+5. TimelineNarrative を返す (source="llm" / "rule_based")
+```
+
+#### 倫理ガード強化 (Plan N 独自、Translator/Concierge と独立)
+
+`FORBIDDEN_PATTERNS` (forbidden.py) には政治家名 regex がないため、Timeline 専用 helper を追加:
+
+```python
+POLITICAL_PERSON_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"[一-鿿]{2,4}(議員|首相|総理|大臣|長官|知事|市長|町長|村長|区長)"),
+    re.compile(r"[一-鿿]{2,4}(氏|さん)"),
+    re.compile(r"(自民党|立憲民主党|公明党|国民民主党|共産党|維新の会|社民党|れいわ|参政党|N国|無所属)"),
+]
+
+# 「総理大臣」「副市長」等の generic 役職名そのものは除外 (false positive 抑制)
+_ROLE_ONLY_PREFIXES = ("総理", "副総", "首相", "首相副", "国務", "厚生", ...)
+```
+
+**二重防御** (Reviewer Critical #1):
+- BQ SELECT から `speaker` カラム除外 (実名を LLM context に渡さない)
+- LLM 出力後に `_detect_political_leak()` で post-validation
+
+#### LLM パラメータ
+
+```python
+DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MAX_OUTPUT_TOKENS = 2048   # narrative 240 + events 10 × ~150 ≈ 1800
+DEFAULT_THINKING_BUDGET = 512      # CoT グルーピング + 重要度判定用
+```
+
+**Token 見積もり** (Reviewer Critical #2):
+- Input: candidates 30 × ~120 token + system prompt 1K ≈ 5K
+- Output: narrative + events ≈ 1.7K
+
+#### Frontend (`/timeline`)
+
+- Interest selector (10 軸) + 自治体コード入力 + 期間 (30/90/365 日) で条件指定
+- NarrativeBanner: overall_summary を上部表示、source="llm"/"rule_based" で色区別
+- TimelineList: 縦タイムライン、各 event に importance ≥ 70 で大きい dot、event クリックで `/feed/[speech_id]` 遷移
+- speech 詳細 (`/feed/[speech_id]`) には Plan N nav カードで「🕰 議論の流れを見る」を表示、関連議題 (RAG) と並列配置 (Reviewer High #3: UX 動線差別化)
+
+#### モジュール構成
+
+```
+agents/timeline/
+├── __init__.py            # TimelineAgent / TimelineNarrative / TimelineEvent / TimelineRequest export
+├── main.py                # TimelineAgent + POLITICAL_PERSON_PATTERNS + _detect_political_leak
+├── schema.py              # CandidateSpeech (speaker 列なし) / TimelineEvent (event_date) / TimelineNarrative / TimelineRequest
+├── prompts/
+│   └── system.py          # TIMELINE_SYSTEM_PROMPT + build_timeline_user_prompt + format_candidate_line
+└── tests/
+    └── test_timeline.py   # 15 unit test
+```
+
+#### テスト数
+
+| ファイル | 件数 | カバー範囲 |
+|---|---|---|
+| `agents/timeline/tests/test_timeline.py` | 15 | LLM 成功 / データ不足 / LLM 失敗 / 政治家名 leak / 政党名 leak / source_id 捏造削除 / 縮退 fallback / Chain-of-Thought 設定 / role-only 除外 |
+| `apps/api/tests/test_timeline_endpoint.py` | 8 | 200 / rule_based 透過 / BQ 失敗 500 / 422 / SQL 集計行フィルタ / interest allowlist / param 化 |
+
+→ **計 23 件**、既存 234 + 23 = **257 passed**。
+
+#### 既存 endpoint との差別化 (Reviewer High #3)
+
+| endpoint | 入力 | 出力 | 用途 |
+|---|---|---|---|
+| `/v1/speeches/{id}/related` (既存) | 1 speech_id | semantic 近い 3 件 | "この発言の周辺、内容が似ている発言" (point in space) |
+| `/v1/timeline` (新規) | interest + 自治体 + 期間 | ナラティブ + イベント 5-10 件 | "この interest 軸の議論変遷" (time axis, narrative) |
+
+---
+
 ## 1. 収集 Agent (Collector)
 
 ### 1.1 役割
