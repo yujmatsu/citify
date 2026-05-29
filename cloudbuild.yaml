@@ -45,6 +45,8 @@ images:
 steps:
   # ---------------------------------------------------------------------------
   # 1. Docker ビルド (multi-stage、apps/api/Dockerfile)
+  # NOTE: Plan E (Concierge Agent) 以降、build context は repo root (.)。
+  #       agents/ と pkg/ を image に含めるため必須。
   # ---------------------------------------------------------------------------
   - id: build
     name: gcr.io/cloud-builders/docker
@@ -55,7 +57,7 @@ steps:
       - --cache-from=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
       - --build-arg=GIT_SHA=${BUILD_ID}
       - --file=apps/api/Dockerfile
-      - apps/api
+      - .
 
   # ---------------------------------------------------------------------------
   # 2. Artifact Registry へ明示 push (deploy より先に image を AR 上に置く)
