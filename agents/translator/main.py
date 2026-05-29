@@ -9,8 +9,9 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Protocol
+
+from agents._shared.forbidden import FORBIDDEN_PATTERNS
 
 from .prompts.system import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
 from .schema import TranslateInput, TranslatorOutput
@@ -27,12 +28,8 @@ DEFAULT_THINKING_BUDGET = 0  # 翻訳に深い推論不要、token 節約 + 速�
 MAX_RETRIES = 3
 
 # 倫理ガードレール: 出力に含まれてはいけないキーワード (post-validation)
-FORBIDDEN_PATTERNS = [
-    re.compile(r"処方"),
-    re.compile(r"投票.{0,5}推奨"),
-    re.compile(r"必ず投票"),
-    re.compile(r"絶対に.{0,3}(賛成|反対)"),
-]
+# Plan E で agents/_shared/forbidden.py に集約済 (再 export で後方互換維持)
+__all__ = ["FORBIDDEN_PATTERNS", "TranslatorAgent"]
 
 
 class _GenAIClientProto(Protocol):

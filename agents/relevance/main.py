@@ -9,8 +9,9 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Protocol
+
+from agents._shared.forbidden import FORBIDDEN_PATTERNS
 
 from .prompts.system import (
     PROMPT_VERSION,
@@ -35,13 +36,8 @@ DEFAULT_MAX_OUTPUT_TOKENS = 2048
 DEFAULT_THINKING_BUDGET = 0
 MAX_RETRIES = 3
 
-# A-5 と同じ禁止語 (倫理一貫性)
-FORBIDDEN_PATTERNS = [
-    re.compile(r"処方"),
-    re.compile(r"投票.{0,5}推奨"),
-    re.compile(r"必ず投票"),
-    re.compile(r"絶対に.{0,3}(賛成|反対)"),
-]
+# Plan E で agents/_shared/forbidden.py に集約済 (再 export で後方互換維持)
+__all__ = ["FORBIDDEN_PATTERNS", "RelevanceAgent"]
 
 
 class _GenAIClientProto(Protocol):
