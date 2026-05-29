@@ -207,6 +207,12 @@ def search_municipalities(
     constraint = args.constraints or ConstraintFilter()
     where, params_dict = _build_constraint_where(constraint)
 
+    # 移住先候補は市区町村レベルに限定。
+    # municipality_code が 'XX000' (都道府県全体) や '00000' (国会) の集計行は
+    # search 結果に含めない (UX 上「自治体」として実態がない)。
+    # 政令市親 (XX100/XX130/XX140/XX150) や東京特別区 (13101-13123) は含める。
+    where = f"({where}) AND municipality_code NOT LIKE '%000'"
+
     # まず constraint pass する自治体を全件取得 (1917 全自治体でも 350KB)、
     # in-memory で interests に対する match_score を計算
     sql = f"""

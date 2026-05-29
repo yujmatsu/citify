@@ -273,6 +273,40 @@ def test_search_municipalities_empty_rows_returns_empty() -> None:
     assert result == []
 
 
+def test_search_municipalities_sql_excludes_prefecture_totals() -> None:
+    """SQL に都道府県全体行 (XX000) を除外する WHERE 句が含まれる。
+
+    Phase 3 smoke test で reply に「神奈川県 (広域)」「北海道 (広域)」が混入する
+    UX 課題を解消するため。
+    """
+    client = _make_mock_bq_client([])
+    args = SearchMunicipalitiesArgs(age_group="25-29", interests=["住居"])
+    search_municipalities(args, bq_client=client)
+
+    # client.query() に渡された SQL を確認
+    sql_arg = client.query.call_args.args[0]
+    assert "municipality_code NOT LIKE '%000'" in sql_arg
+
+
+def test_search_municipalities_combined_filter_with_constraints() -> None:
+    """constraint と都道府県除外の両方を併用しても正しい WHERE になる。"""
+    client = _make_mock_bq_client([])
+    args = SearchMunicipalitiesArgs(
+        age_group="25-29",
+        interests=["住居"],
+        constraints=ConstraintFilter(max_avg_rent_man=5000.0),
+    )
+    search_municipalities(args, bq_client=client)
+
+    sql_arg = client.query.call_args.args[0]
+    # constraint 部分
+    assert "used_apartment_median_price_man_yen" in sql_arg
+    # 都道府県除外部分
+    assert "municipality_code NOT LIKE '%000'" in sql_arg
+    # AND で結合
+    assert " AND " in sql_arg
+
+
 # ============================================================================
 # compare_municipalities (BQ mock)
 # ============================================================================
