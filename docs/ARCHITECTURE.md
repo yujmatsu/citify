@@ -267,6 +267,57 @@ Translator / Relevance / Distributor の 3 agent に **ADK (Agent Development Ki
 
 worker.py (Pub/Sub subscriber) は引き続き既存 core logic を使用、Cloud Run Job image の rebuild なしで Plan C を導入できた。
 
+### 4.y Migration Concierge Agent (Plan E 実装済)
+
+Plan E で **街診断 Migration Concierge Agent** を追加。Plan C で築いた ADK wrapper を **sub-agents として活用** し、ハッカソン審査基準①「マルチエージェント必然性」を本物の親子階層で実装。
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 🟣 Concierge Agent (Plan E、ADK 親 Agent)               │
+│   POST /v1/concierge endpoint で受信、対話応答を返す    │
+│                                                          │
+│   tools=[ search_municipalities,                         │
+│           compare_municipalities,                        │
+│           fetch_city_dashboard,                          │
+│           fetch_city_speeches ]                          │
+│                                                          │
+│   sub_agents=[ ADKTranslatorAgent.as_agent(),            │
+│                ADKRelevanceAgent.as_agent() ]            │
+└────────────────────┬────────────────────────────────────┘
+                     │ orchestrate via
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ GenaiConciergeRunner (agents/concierge/runner.py)        │
+│   google.genai function calling で 4 tool を反復実行     │
+│   (ADK Runner ではなく Plan C 実証済の genai 直叩き)     │
+└────────────────────┬────────────────────────────────────┘
+                     │ tool 呼び出し
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ Concierge tool 群 (agents/concierge/tools.py)            │
+│   - search_municipalities: BQ municipality_stats から    │
+│     match_score 計算 + TOP N 抽出                         │
+│     (interests hit × constraint pass × growth bonus)     │
+│   - compare_municipalities: 複数自治体の同 interest 議題 │
+│     を BQ scored_speeches_latest から横並びで取得          │
+│   - fetch_city_dashboard: stats + 関心軸別議題数         │
+│   - fetch_city_speeches: relevance 順上位議題            │
+└─────────────────────────────────────────────────────────┘
+```
+
+倫理ガード:
+- `agents/_shared/forbidden.py` に FORBIDDEN_PATTERNS を集約 (translator / relevance / concierge 3 agent から import)
+- Concierge reply に post-validation、違反検出時は安全な reply に差し替え
+
+Demo スクリプト:
+- `agents/demo_concierge.py`: 3 persona fixture (26 歳子育て / 介護 34 歳 / ワーママ 30 歳)
+- `python -m agents.demo_concierge --persona 2 --live` で live LLM 経由動作
+
+Frontend chat UI:
+- `apps/web/src/app/concierge/page.tsx`
+- Markdown rendering (`react-markdown`) + 候補 cards + tool_calls 折りたたみ
+- 「街ダッシュボードを見る」で既存 `/cities/{code}` ページへ遷移
+
 ---
 
 ## 5. データフロー

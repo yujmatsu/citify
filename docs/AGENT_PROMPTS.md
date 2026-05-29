@@ -98,6 +98,40 @@ tools = [
 
 3 段 orchestration の動作確認 demo: `python -m agents.demo_adk_chain` (mock) / `--live` (実 Gemini)。
 
+### 0.6 Migration Concierge Agent (Plan E 実装済)
+
+街診断 Migration Concierge は Plan C の ADK wrapper を **sub-agents として活用** する親 Agent ([docs/ARCHITECTURE.md §4.y](ARCHITECTURE.md) 参照)。
+
+```python
+# 親 Agent 構造 (agents/concierge/adk_agent.py)
+from agents.concierge.adk_agent import ADKConciergeAgent
+
+adk = ADKConciergeAgent(project_id="citify-dev")
+agent = adk.as_agent()
+
+# agent.tools     = [search_municipalities, compare_municipalities,
+#                    fetch_city_dashboard, fetch_city_speeches]
+# agent.sub_agents = [translator, relevance]
+```
+
+公開 endpoint:
+- `POST /v1/concierge`: `{message, persona}` → `{reply, tool_calls, candidates, ethical_violations}`
+
+ランタイム:
+- `GenaiConciergeRunner` (`agents/concierge/runner.py`) が google.genai 関数呼び出しで 4 tool を反復実行
+- ADK Agent 構造は親子階層の表現として保持 (ハッカソン審査基準①「マルチエージェント必然性」訴求)
+
+倫理ガード:
+- `agents/_shared/forbidden.py` の `FORBIDDEN_PATTERNS` を translator / relevance / concierge 3 agent で共有
+- Concierge reply に post-validation、違反検出時は安全な reply に差し替え
+
+Demo スクリプト:
+- `python -m agents.demo_concierge` (mock) / `--live --project-id citify-dev` (実 Gemini)
+- 3 persona fixture: 26 歳子育て / 介護 34 歳 (痛みのある persona、メイン demo) / ワーママ 30 歳
+
+Frontend:
+- `apps/web/src/app/concierge/page.tsx`: chat UI、3 サンプル質問、tool_calls 折りたたみ表示、`react-markdown` レンダリング
+
 ---
 
 ## 1. 収集 Agent (Collector)

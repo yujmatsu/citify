@@ -222,6 +222,25 @@
 
 ---
 
+### A-14. Migration Concierge Agent(Plan E、街診断 AI)
+
+**説明**:ユーザーが自然言語で自己紹介(年代 / 関心軸 / 制約 / 家族構成)すると、1,917 自治体から TOP5 候補 + トレードオフ表 + 議論されている政策を返す対話型 Agent。Plan C で築いた ADKTranslatorAgent / ADKRelevanceAgent を sub-agents として活用し、ハッカソン審査基準①「マルチエージェント必然性」を本物の ADK 親子階層で実装。
+
+**受け入れ条件**:
+- `POST /v1/concierge` endpoint が稼働(Cloud Run)
+- 4 tool が動作:`search_municipalities` / `compare_municipalities` / `fetch_city_dashboard` / `fetch_city_speeches`
+- ADK Agent.sub_agents=[translator, relevance] で親子階層成立
+- google.genai 関数呼び出しで反復実行(max_iterations=5)
+- 倫理ガード:`agents/_shared/forbidden.py` で 3 agent 共通の post-validation
+- Frontend chat UI(`/concierge`):Markdown rendering + 候補 cards + tool_calls 折りたたみ
+- 3 persona demo script(`agents/demo_concierge.py`):26 歳子育て / 介護 34 歳 / ワーママ 30 歳
+
+**依存**:Plan C(ADK 化)、A-2(自治体マスタ)、A-3 統計データ、A-5 翻訳 / A-6 影響度
+
+**Drop 判断**:このまま実装(バランス版 9 機能の主役、デモ動画の中核)
+
+---
+
 ## B. 差別化機能(Should)
 
 ### B-1. 「気になる / 関係なさそう」リアクション + 「みんなの反応」
