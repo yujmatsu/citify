@@ -26,7 +26,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response
@@ -1887,3 +1887,197 @@ def _fetch_heatmap_bq(metric_column: str, direction: str) -> tuple[list[dict], l
     ]
 
     return prefecture_values, top_municipalities
+
+
+# ============================================================================
+# GET /v1/timeline — 議論タイムライン Agent (Plan N)
+# ============================================================================
+# TimelineAgent が theme_interest + 自治体 + 期間で候補 speeches を集約し、
+# 5-10 個の重要イベントで議論変遷を物語化。
+# ============================================================================
+
+
+_TIMELINE_CACHE = _TTLCache(maxsize=256, ttl_sec=600.0)  # 10 分 TTL
+
+_TIMELINE_AGENT: Any = None
+
+
+def _get_timeline_agent() -> Any:
+    """TimelineAgent 遅延初期化 (テスト monkeypatch 可能)。"""
+    global _TIMELINE_AGENT
+    if _TIMELINE_AGENT is None:
+        from agents.timeline import TimelineAgent
+
+        _TIMELINE_AGENT = TimelineAgent(project_id=os.getenv("GCP_PROJECT_ID") or None)
+    return _TIMELINE_AGENT
+
+
+@app.get("/v1/timeline")
+async def get_timeline(
+    response: Response,
+    theme_interest: str = Query(..., description="フォーカスする interest 軸 (10 軸のいずれか)"),
+    user_id: str = Query(default="anon"),
+    municipality_code: str | None = Query(
+        default=None, description="None=全国、5桁 code で 1 自治体"
+    ),
+    days: int = Query(default=90, ge=7, le=365),
+) -> dict:
+    """議論タイムライン (Plan N): theme + 自治体 + 期間で候補 speeches → LLM ナラティブ。
+
+    Flow:
+        1. BQ scored_speeches_latest から候補取得 (集計行除外、UNNEST matched_interests、ORDER BY meeting_date)
+        2. TimelineAgent.narrate で物語化 (or rule-based fallback)
+        3. TimelineNarrative を返す
+    """
+    from datetime import timedelta
+
+    from agents.timeline.schema import TimelineRequest
+
+    response.headers["Cache-Control"] = (
+        "public, max-age=600, s-maxage=600, stale-while-revalidate=3600"
+    )
+
+    cache_key = ("timeline", user_id, theme_interest, municipality_code or "all", days)
+    cached = _TIMELINE_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info("timeline.cache_hit user_id=%s interest=%s", user_id, theme_interest)
+        return cached
+
+    # Pydantic validation
+    try:
+        request = TimelineRequest(
+            user_id=user_id,
+            theme_interest=theme_interest,  # type: ignore[arg-type]
+            municipality_code=municipality_code,
+            days=days,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Invalid timeline request: {exc!s}") from exc
+
+    # 期間計算 (today - days, today)
+    period_end = datetime.now(UTC).date()
+    period_start = period_end - timedelta(days=days)
+
+    # Step 1: BQ candidate fetch
+    try:
+        candidates = _fetch_timeline_candidates(
+            user_id=user_id,
+            theme_interest=theme_interest,
+            municipality_code=municipality_code,
+            period_start=period_start,
+            period_end=period_end,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("timeline.bq_failed user_id=%s err=%s", user_id, exc)
+        raise HTTPException(status_code=500, detail=f"BQ timeline query failed: {exc!s}") from exc
+
+    # Step 2: LLM narrative (or fallback)
+    agent = _get_timeline_agent()
+    narrative = agent.narrate(
+        candidates,
+        request,
+        period_start=period_start,
+        period_end=period_end,
+    )
+
+    result = {
+        "narrative": narrative.model_dump(mode="json"),
+        "candidate_count": len(candidates),
+    }
+    _TIMELINE_CACHE.set(cache_key, result)
+    logger.info(
+        "timeline.done user_id=%s interest=%s n_candidates=%d source=%s n_events=%d",
+        user_id,
+        theme_interest,
+        len(candidates),
+        narrative.source,
+        len(narrative.events),
+    )
+    return result
+
+
+def _fetch_timeline_candidates(
+    user_id: str,
+    theme_interest: str,
+    municipality_code: str | None,
+    period_start: date,
+    period_end: date,
+) -> list:
+    """BQ から candidate speeches を取得 (集計行除外、UNNEST matched_interests)。
+
+    Reviewer Critical #1: speaker (実名) は SELECT に含めない (二重防御)。
+    speaker_position のみ送る。
+    """
+    from agents.timeline.schema import CandidateSpeech
+    from google.cloud import bigquery
+
+    # 10 関心軸 allowlist (SQL injection 防止、ただしここでは param 化するので必須ではない)
+    allowed_interests = {
+        "住居",
+        "雇用",
+        "結婚",
+        "子育て",
+        "税",
+        "起業",
+        "防災",
+        "医療",
+        "教育",
+        "移住",
+    }
+    if theme_interest not in allowed_interests:
+        raise ValueError(f"theme_interest not in 10-axis allowlist: {theme_interest!r}")
+
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
+
+    # speaker は意図的に除外 (Reviewer Critical #1)
+    sql = f"""
+        SELECT
+          speech_id, title, summary, meeting_date,
+          municipality_code, name_of_meeting, speaker_position,
+          matched_interests, relevance_score
+        FROM `{table_fqn}`
+        WHERE user_id = @user_id
+          AND meeting_date BETWEEN @start_date AND @end_date
+          AND @interest IN UNNEST(matched_interests)
+          AND (@muni IS NULL OR municipality_code = @muni)
+          AND municipality_code != '00000'
+          AND municipality_code NOT LIKE '%000'
+        ORDER BY meeting_date ASC, relevance_score DESC
+        LIMIT 30
+    """  # noqa: S608
+
+    params = [
+        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        bigquery.ScalarQueryParameter("start_date", "DATE", period_start.isoformat()),
+        bigquery.ScalarQueryParameter("end_date", "DATE", period_end.isoformat()),
+        bigquery.ScalarQueryParameter("interest", "STRING", theme_interest),
+        bigquery.ScalarQueryParameter("muni", "STRING", municipality_code),
+    ]
+
+    rows = list(
+        client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result(
+            timeout=15
+        )
+    )
+
+    candidates = []
+    for r in rows:
+        summary_list = list(r.get("summary") or [])
+        first_line = summary_list[0] if summary_list else ""
+        muni_code = r.get("municipality_code", "") or ""
+        candidates.append(
+            CandidateSpeech(
+                speech_id=r.get("speech_id", ""),
+                title=r.get("title") or "",
+                summary_first_line=str(first_line)[:120],
+                meeting_date=r.get("meeting_date"),
+                municipality_code=muni_code,
+                municipality_name=_MUNI_NAME_MAP.get(muni_code, f"自治体{muni_code}"),
+                speaker_position=r.get("speaker_position"),
+                matched_interests=list(r.get("matched_interests") or []),
+                relevance_score=int(r.get("relevance_score") or 0),
+            )
+        )
+
+    return candidates
