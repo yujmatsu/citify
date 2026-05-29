@@ -32,6 +32,8 @@ dependencies = [
     "google-cloud-bigquery>=3.25",
     "google-cloud-storage>=2.18",
     "google-cloud-aiplatform>=1.71",
+    # ADK (Agent Development Kit) — マルチエージェント協調基盤 (Plan C)
+    "google-adk>=2.1,<3.0",
     "google-cloud-pubsub>=2.27",
     "google-cloud-firestore>=2.18",
 
