@@ -2081,3 +2081,185 @@ def _fetch_timeline_candidates(
         )
 
     return candidates
+
+
+# ============================================================================
+# GET /v1/forecast — 議題件数トレンド予測 Agent (Plan Z)
+# ============================================================================
+# ForecastEngine (純計算) + ForecastNarrator (LLM) で月別件数 → 3 か月予測 + 介入的説明。
+# Reviewer High #2: confidence 3 段階 (high/medium/low、slope 標準誤差 + CV ベース)
+# Reviewer High #1: 47 都道府県名 + 主要市区町村名 leak チェック (Frontend disclaimer 必須)
+# ============================================================================
+
+
+_FORECAST_CACHE = _TTLCache(maxsize=256, ttl_sec=600.0)
+
+_FORECAST_NARRATOR: Any = None
+
+
+def _get_forecast_narrator() -> Any:
+    """ForecastNarrator 遅延初期化 (テスト monkeypatch 可能)。"""
+    global _FORECAST_NARRATOR
+    if _FORECAST_NARRATOR is None:
+        from agents.forecast import ForecastNarrator
+
+        _FORECAST_NARRATOR = ForecastNarrator(project_id=os.getenv("GCP_PROJECT_ID") or None)
+    return _FORECAST_NARRATOR
+
+
+@app.get("/v1/forecast")
+async def get_forecast(
+    response: Response,
+    theme_interest: str = Query(..., description="フォーカスする interest 軸 (10 軸のいずれか)"),
+    user_id: str = Query(default="anon"),
+    age_group: str = Query(default="25-29"),
+    municipality_code: str | None = Query(default=None, description="None=全国"),
+    history_months: int = Query(default=12, ge=3, le=24),
+) -> dict:
+    """議題件数トレンド予測 (Plan Z): 月別集計 → 線形外挿 3 か月予測 + LLM ナラティブ。"""
+    from datetime import timedelta
+
+    from agents.forecast import ForecastEngine
+    from agents.forecast.schema import PersonaContext
+
+    response.headers["Cache-Control"] = (
+        "public, max-age=600, s-maxage=600, stale-while-revalidate=3600"
+    )
+
+    cache_key = (
+        "forecast",
+        user_id,
+        theme_interest,
+        municipality_code or "all",
+        history_months,
+        age_group,
+    )
+    cached = _FORECAST_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info("forecast.cache_hit user_id=%s interest=%s", user_id, theme_interest)
+        return cached
+
+    # 入力検証
+    try:
+        persona = PersonaContext(
+            user_id=user_id,
+            age_group=age_group,  # type: ignore[arg-type]
+            interests=[theme_interest],  # type: ignore[arg-type]
+            focus_interest=theme_interest,  # type: ignore[arg-type]
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Invalid forecast request: {exc!s}") from exc
+
+    # 期間計算 (history_months ヶ月分)
+    today = datetime.now(UTC).date()
+    period_end = today
+    period_start = today - timedelta(days=history_months * 31)
+
+    # Step 1: BQ から月別件数
+    try:
+        monthly_counts = _fetch_forecast_monthly_counts(
+            user_id=user_id,
+            theme_interest=theme_interest,
+            municipality_code=municipality_code,
+            period_start=period_start,
+            period_end=period_end,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("forecast.bq_failed err=%s", exc)
+        raise HTTPException(status_code=500, detail=f"BQ forecast query failed: {exc!s}") from exc
+
+    # Step 2: Engine (純計算)
+    engine = ForecastEngine()
+    series = engine.forecast_series(monthly_counts, horizon=3)
+
+    # Step 3: Narrator (LLM)
+    municipality_label = (
+        _MUNI_NAME_MAP.get(municipality_code, f"自治体{municipality_code}")
+        if municipality_code
+        else "全国"
+    )
+    narrator = _get_forecast_narrator()
+    narrative = narrator.narrate(series, persona, municipality_label=municipality_label)
+
+    result = {
+        "series": series.model_dump(mode="json"),
+        "narrative": narrative.model_dump(mode="json"),
+    }
+    _FORECAST_CACHE.set(cache_key, result)
+    logger.info(
+        "forecast.done user_id=%s interest=%s trend=%s confidence=%s source=%s",
+        user_id,
+        theme_interest,
+        series.trend_classification,
+        series.confidence,
+        narrative.source,
+    )
+    return result
+
+
+def _fetch_forecast_monthly_counts(
+    user_id: str,
+    theme_interest: str,
+    municipality_code: str | None,
+    period_start: date,
+    period_end: date,
+) -> list:
+    """BQ から月別 speech_count を取得 (集計行除外、NULL date 除外)。"""
+    from agents.forecast.schema import MonthCount
+    from google.cloud import bigquery
+
+    allowed_interests = {
+        "住居",
+        "雇用",
+        "結婚",
+        "子育て",
+        "税",
+        "起業",
+        "防災",
+        "医療",
+        "教育",
+        "移住",
+    }
+    if theme_interest not in allowed_interests:
+        raise ValueError(f"theme_interest not in 10-axis allowlist: {theme_interest!r}")
+
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
+
+    sql = f"""
+        SELECT
+          FORMAT_DATE("%Y-%m", meeting_date) AS year_month,
+          COUNT(DISTINCT speech_id) AS speech_count
+        FROM `{table_fqn}`
+        WHERE user_id = @user_id
+          AND meeting_date IS NOT NULL
+          AND meeting_date BETWEEN @start_date AND @end_date
+          AND @interest IN UNNEST(matched_interests)
+          AND (@muni IS NULL OR municipality_code = @muni)
+          AND municipality_code != '00000'
+          AND municipality_code NOT LIKE '%000'
+        GROUP BY year_month
+        ORDER BY year_month ASC
+    """  # noqa: S608
+
+    params = [
+        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        bigquery.ScalarQueryParameter("start_date", "DATE", period_start.isoformat()),
+        bigquery.ScalarQueryParameter("end_date", "DATE", period_end.isoformat()),
+        bigquery.ScalarQueryParameter("interest", "STRING", theme_interest),
+        bigquery.ScalarQueryParameter("muni", "STRING", municipality_code),
+    ]
+
+    rows = list(
+        client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result(
+            timeout=15
+        )
+    )
+
+    return [
+        MonthCount(
+            year_month=r.get("year_month", ""),
+            speech_count=float(r.get("speech_count") or 0),
+        )
+        for r in rows
+    ]
