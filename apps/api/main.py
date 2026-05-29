@@ -1534,3 +1534,73 @@ async def get_reaction_summary(speech_id: str) -> ReactionSummary:
         total = max(0, total)
 
     return ReactionSummary(speech_id=speech_id, counts=counts, total=total)
+
+
+# ============================================================================
+# /v1/concierge — 街診断 Migration Concierge Agent (Plan E)
+# ============================================================================
+# ユーザーの自然言語相談 + persona から、合う自治体 TOP5 を提案する対話型 Agent。
+# 内部で google.genai 関数呼び出しを使い、4 つの BQ tool を反復実行する。
+# ADK Agent 構造 (translator/relevance を sub-agents として保持) は
+# ADKConciergeAgent.as_agent() で表現済 (ハッカソン審査基準①「マルチエージェント必然性」)。
+# ============================================================================
+
+# Concierge は module-level lazy init (初回 POST 受信時に構築)、process 内 reuse
+_CONCIERGE_AGENT: Any = None
+_CONCIERGE_RUNNER: Any = None
+
+
+def _get_concierge_agent() -> Any:
+    """ConciergeAgent + GenaiConciergeRunner を遅延構築 (lazy import + lazy init)。"""
+    global _CONCIERGE_AGENT, _CONCIERGE_RUNNER
+    if _CONCIERGE_AGENT is None:
+        from agents.concierge.main import ConciergeAgent
+        from agents.concierge.runner import GenaiConciergeRunner
+
+        _CONCIERGE_RUNNER = GenaiConciergeRunner(project_id=BQ_PROJECT)
+        _CONCIERGE_AGENT = ConciergeAgent(
+            project_id=BQ_PROJECT,
+            runner=_CONCIERGE_RUNNER,
+        )
+        logger.info("concierge.initialized project=%s", BQ_PROJECT)
+    return _CONCIERGE_AGENT
+
+
+@app.post("/v1/concierge")
+async def post_concierge(payload: dict) -> dict:
+    """街診断 Migration Concierge Agent endpoint (Plan E)。
+
+    Request body:
+        {"message": "26歳、リモートワーク...", "persona": {"user_id": "...", "age_group": "25-29", ...}}
+
+    Response body:
+        {"reply": "...", "tool_calls": [...], "candidates": [...], "ethical_violations": []}
+
+    NOTE: request/response の Pydantic 検証は `ConciergeRequest` / `ConciergeResponse` で
+    実施する。FastAPI 直接の response_model= は使わず、internal で validate して dict 返却
+    (agents パッケージ依存を main.py の type hint から外し、import エラー時の起動失敗を回避)。
+    """
+    # 遅延 import (起動高速化 + Plan E が壊れても /health は生きる)
+    from agents.concierge.schema import ConciergeRequest
+
+    try:
+        request = ConciergeRequest.model_validate(payload)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Invalid request body: {exc!s}") from exc
+
+    agent = _get_concierge_agent()
+    try:
+        response = agent.respond(request)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("concierge.endpoint_failed err=%s", exc)
+        raise HTTPException(status_code=500, detail=f"Concierge failed: {exc!s}") from exc
+
+    logger.info(
+        "concierge.endpoint.done user_id=%s n_tools=%d n_candidates=%d violations=%s",
+        request.persona.user_id,
+        len(response.tool_calls),
+        len(response.candidates),
+        response.ethical_violations,
+    )
+
+    return response.model_dump(mode="json")
