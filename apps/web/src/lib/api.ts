@@ -352,3 +352,81 @@ export async function fetchCityDashboard(
     CityDashboardResponseSchema,
   );
 }
+
+// ============================================================================
+// Concierge (Plan E) — 街診断 Migration Concierge Agent
+// ============================================================================
+
+/** ToolCallLog: Concierge が呼んだ tool の履歴 (UI で折りたたみ表示)。 */
+export const ToolCallLogSchema = z.object({
+  name: z.string(),
+  args: z.record(z.string(), z.unknown()).default({}),
+  output_preview: z.string().default(""),
+  duration_ms: z.number().int().nonnegative().default(0),
+});
+
+export type ToolCallLog = z.infer<typeof ToolCallLogSchema>;
+
+/** MunicipalityCandidate: search_municipalities が返す候補 1 件 (UI card 用)。 */
+export const MunicipalityCandidateSchema = z.object({
+  municipality_code: z.string(),
+  name: z.string(),
+  prefecture: z.string(),
+  match_score: z.number().min(0).max(100),
+  population_total: z.number().int().nullable().optional(),
+  youth_share_pct: z.number().nullable().optional(),
+  used_apartment_median_price_man_yen: z.number().nullable().optional(),
+  childcare_facility_count: z.number().int().nullable().optional(),
+  medical_facility_count: z.number().int().nullable().optional(),
+  population_change_2025_2050_pct: z.number().nullable().optional(),
+  matched_interests: z.array(z.string()).default([]),
+  summary_text: z.string().default(""),
+});
+
+export type MunicipalityCandidate = z.infer<typeof MunicipalityCandidateSchema>;
+
+/** Concierge レスポンス (POST /v1/concierge の戻り値)。 */
+export const ConciergeResponseSchema = z.object({
+  reply: z.string(),
+  tool_calls: z.array(ToolCallLogSchema).default([]),
+  candidates: z.array(MunicipalityCandidateSchema).default([]),
+  ethical_violations: z.array(z.string()).default([]),
+});
+
+export type ConciergeResponse = z.infer<typeof ConciergeResponseSchema>;
+
+/** Concierge リクエスト (POST /v1/concierge の body)。 */
+export type ConciergeRequest = {
+  message: string;
+  persona: {
+    user_id: string;
+    age_group: string;
+    interests?: string[];
+    municipality_codes?: string[];
+    free_form_context?: string;
+  };
+};
+
+/**
+ * Concierge Agent に相談 (Plan E)。実 Gemini Flash 経由で 5-20 秒かかる。
+ * 単発相談 UX: conversation memory なし、各 call は独立。
+ */
+export async function postConcierge(
+  request: ConciergeRequest,
+): Promise<ConciergeResponse> {
+  const res = await fetch(`${API_BASE}/v1/concierge`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(request),
+    cache: "no-store", // Concierge は毎回新規 LLM call
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return ConciergeResponseSchema.parse(data);
+}
