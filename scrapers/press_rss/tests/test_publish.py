@@ -58,7 +58,8 @@ def test_payload_basic_fields() -> None:
 
     assert payload["speech_id"] == "press:13000:abc-1"
     assert payload["tenant_id"] == "13000"  # 5 桁コード直接
-    assert payload["council_id"] == "press"
+    # council_id は item.id (= "abc-1") の sha256[:8] を含む (同日複数記事の speech_id 衝突回避)
+    assert payload["council_id"] == "press-65397a5f"
     assert payload["schedule_id"] == "2026-04-15"
     assert payload["meeting_date"] == "2026-04-15"
     assert payload["name_of_meeting"] == "お知らせ"
@@ -142,7 +143,7 @@ def test_publish_envelope_structure_and_attributes() -> None:
     # attributes
     assert kwargs["source"] == SOURCE
     assert kwargs["tenant_id"] == "13000"
-    assert kwargs["council_id"] == "press"
+    assert kwargs["council_id"] == "press-65397a5f"  # sha256("abc-1")[:8] (Phase G-1 fix)
     assert kwargs["schedule_id"] == "2026-04-15"
     # payload
     envelope = json.loads(args[1].decode("utf-8"))

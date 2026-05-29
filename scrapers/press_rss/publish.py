@@ -14,6 +14,7 @@ envelope に詰めて translator → relevance → bq_sink パイプラインに
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -48,7 +49,10 @@ def press_item_to_speech_payload(item: PressItem) -> dict[str, Any]:
         # Speech (kaigiroku 互換) フィールド
         "speech_id": speech_id,
         "tenant_id": item.municipality_code,  # 5 桁コード直接 (pkg.municipality_map で resolve)
-        "council_id": "press",
+        # NOTE: council_id に item.id の 8 文字 sha256 を混ぜることで、Translator worker の
+        # 「speech_id = tenant:council:schedule:order」合成ロジック ([agents/translator/worker.py:57])
+        # で同日複数記事が同じ speech_id に衝突するのを回避する (Phase G-1 fix)。
+        "council_id": f"press-{hashlib.sha256(item.id.encode()).hexdigest()[:8]}",
         "schedule_id": meeting_date_str,
         "meeting_date": meeting_date_str,
         "name_of_meeting": item.category or "プレスリリース",
