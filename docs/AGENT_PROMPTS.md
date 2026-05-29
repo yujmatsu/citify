@@ -69,6 +69,35 @@ POLITICIAN_NAMES_BLOCKLIST = [
 | ストーリー | Gemini 2.5 Pro + Veo 3 + Imagen 3 | 表現力 |
 | 配信 | Gemini 2.5 Flash | ランキング |
 
+### 0.5 ADK Wrapper Layer (Plan C 実装済)
+
+Translator / Relevance / Distributor の 3 agent は **`agents/{name}/adk_agent.py` で ADK wrapper を実装済** ([docs/ARCHITECTURE.md §4.x](ARCHITECTURE.md) 参照)。
+
+```python
+# E (Concierge) 等の親 Agent から subcall する場合
+from agents.translator.adk_agent import ADKTranslatorAgent
+from agents.relevance.adk_agent import ADKRelevanceAgent
+
+adk_translator = ADKTranslatorAgent(project_id="citify-dev")
+adk_relevance = ADKRelevanceAgent(project_id="citify-dev")
+
+# ADK FunctionTool として渡せる (Concierge.tools=[...] に追加)
+tools = [
+    adk_translator.as_tool(),  # translate_speech
+    adk_relevance.as_tool(),   # score_speech_multi_persona (production default)
+]
+```
+
+公開関数:
+- `ADKTranslatorAgent.translate_speech(input: TranslateInput) -> TranslatorOutput`
+- `ADKRelevanceAgent.score_speech_single(input: RelevanceInput) -> RelevanceOutput`
+- `ADKRelevanceAgent.score_speech_multi_persona(input, personas) -> list[PersonaRelevanceOutput]`
+- `ADKDistributorAgent.generate_feed(candidates: list[FeedCandidate]) -> list[FeedItem]`
+
+各 wrapper は既存 core logic ([main.py](../agents/)) を薄くラップしているだけで、worker.py (Cloud Run Job) は引き続き既存 logic を直接使用 (image rebuild 不要)。
+
+3 段 orchestration の動作確認 demo: `python -m agents.demo_adk_chain` (mock) / `--live` (実 Gemini)。
+
 ---
 
 ## 1. 収集 Agent (Collector)

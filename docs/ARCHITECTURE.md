@@ -232,6 +232,41 @@ sequenceDiagram
 | **ストーリー Storyteller** | 日次バッチ | 上位議題 | Veo動画+Imagenサムネ | Veo 3 + Imagen 3 |
 | **配信 Distributor** | ユーザー毎・要求時 | スコア済み議題群 | 優先順位ソート済リスト | Gemini Flash |
 
+### 4.x ADK Wrapper Layer (Plan C 実装済)
+
+Translator / Relevance / Distributor の 3 agent に **ADK (Agent Development Kit) wrapper** を追加実装済 ([agents/{name}/adk_agent.py](../agents/)):
+
+```
+┌─────────────────────────────────────────────────┐
+│ ADK Agent Layer (E: Concierge から subcall 用)   │
+│   ┌─────────────────┐  ┌─────────────────┐      │
+│   │ ADKTranslator   │  │ ADKRelevance    │  ... │
+│   │ .as_tool()      │  │ .as_tools()     │      │
+│   │ .as_agent()     │  │ .as_agent()     │      │
+│   └────────┬────────┘  └────────┬────────┘      │
+└─────────────┼─────────────────────┼──────────────┘
+              │ delegates to        │
+┌─────────────▼─────────────────────▼──────────────┐
+│ Existing Core Logic (変更なし、98 tests 全 pass) │
+│   TranslatorAgent.translate()                    │
+│   RelevanceAgent.score() / score_multi()         │
+│   DistributorAgent.generate_feed()               │
+│   ↓ Vertex AI (google.genai SDK 直叩き)          │
+│   Gemini 2.5 Flash (Translator/Relevance)        │
+└──────────────────────────────────────────────────┘
+```
+
+設計判断:
+- 既存 core logic はそのまま保持 (薄い wrapper パターン)
+- ADK は **lazy import** (`as_tool()` 内で `from google.adk.tools import FunctionTool`)
+  → ADK 未 install 環境でも `adk_agent.py` の import 自体は成功
+- `as_tool()`: 他 Agent (E: Concierge 等) から subcall 用の FunctionTool
+- `as_agent()`: 単独 Agent (Runner で実行可能、demo 用)
+- 串刺し demo: [agents/demo_adk_chain.py](../agents/demo_adk_chain.py)
+  (`python -m agents.demo_adk_chain` で 5 ペルソナ × 3 段 chain 実行可能)
+
+worker.py (Pub/Sub subscriber) は引き続き既存 core logic を使用、Cloud Run Job image の rebuild なしで Plan C を導入できた。
+
 ---
 
 ## 5. データフロー
