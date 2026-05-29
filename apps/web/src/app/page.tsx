@@ -48,6 +48,12 @@ export default function Home() {
             </Link>
             <div className="flex flex-wrap justify-center gap-4 text-sm text-zinc-500">
               <Link
+                href="/concierge"
+                className="font-medium text-blue-700 underline hover:text-blue-900 dark:text-blue-300 dark:hover:text-blue-200"
+              >
+                🤖 街診断 Concierge
+              </Link>
+              <Link
                 href="/compare"
                 className="font-medium text-emerald-700 underline hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-200"
               >
