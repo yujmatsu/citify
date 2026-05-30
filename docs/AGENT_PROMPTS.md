@@ -689,6 +689,129 @@ agents/scraper_doctor/
 
 ---
 
+### 0.12 Reasoning Transparency Agent (Plan PP 実装済、Meta-Reasoner)
+
+各 Agent (Concierge / Translator / Critic / Heatmap / Timeline / Forecast / Doctor) の `reasoning` を**第三者観測者視点で再構成 + counterfactual 付与**する Meta-Agent。Reflexion (Shinn 2023) / Self-Refine (Madaan 2023) / Chain-of-Verification (Dhuliawala 2023) 系の文献的支持があり、ハッカソン審査基準①「マルチエージェント必然性」を補強。
+
+#### 文献根拠 (Reviewer High #2 反映)
+
+- **Reflexion** (Shinn et al., 2023): Agent が自身の reasoning を別の Agent (Verifier) で再評価し改善する loop
+- **Self-Refine** (Madaan et al., 2023): 同一 model でも reasoning に対する meta-critique で精度が向上
+- **Chain-of-Verification** (CoVe、Dhuliawala et al., 2023): 出力に対し独立した検証 Agent を走らせて hallucination 削減
+
+Plan PP は CoVe 系の **第三者観測 Meta-Agent**。
+
+#### 既存 Agent reasoning vs Meta-Reasoner 役割境界 (Reviewer Medium #6)
+
+| 出所 | 性質 | 目的 |
+|---|---|---|
+| **既存 Agent の `reasoning` フィールド** | Agent 内部の **自己説明ログ** (一人称) | LLM が「自分はこう判断した」と一人称で記述 |
+| **MetaReasoningAgent の出力** | **第三者観測者視点** (`plain_summary` + `counterfactuals` + `caveats`) | ユーザーに「Agent が何を見てそう結論したか」「もし違ったら」「限界は何か」を提示 |
+
+→ **2 回 LLM 呼ぶ価値**: 内部ログを ユーザー教育に変換 (counterfactual / caveat は元 Agent が出さない情報)。
+
+```python
+# 利用例
+from agents.reasoner import MetaReasoningAgent, ReasoningInspectInput
+
+reasoner = MetaReasoningAgent(project_id="citify-dev")
+result = reasoner.explain(ReasoningInspectInput(
+    agent_name="forecast",  # 7 種から
+    raw_reasoning="過去 6 か月で件数が安定して増加、月あたり 2 件のペース。",
+    agent_output_summary="住居議題は緩やかに増加 (trend: increasing, slope: 1.8)",
+    persona_context="25-29 / 住居軸",
+))
+# result.plain_summary           — 250-300 字、平易化要約
+# result.influencing_factors[]   — 3-5 個、判断に影響した要素
+# result.counterfactuals[]       — 2-3 個、「もし X が違ったら」
+# result.caveats[]               — 1-3 個、限界 / 不確実性
+# result.confidence / source
+```
+
+#### 3 層倫理ガード (連鎖防止)
+
+| 層 | チェック対象 | フィールド | 検出時の動作 |
+|---|---|---|---|
+| 1 | **入力 leak 連鎖防止** (Reviewer High #1) | `raw_reasoning` / `agent_output_summary` / `persona_context` | LLM call せず rule_based fallback (連鎖前断) |
+| 2 | **LLM 出力 leak** (Reviewer Medium #4) | `plain_summary` / `influencing_factors[]` / `counterfactuals[]` / `caveats[]` | rule_based fallback (leaked 文字列はユーザー向け文に残らない) |
+| 3 | **AgentName 制限** | Pydantic Literal | 7 種 (concierge/translator/critic/heatmap_advisor/timeline/forecast/scraper_doctor) のみ allowlist |
+
+leak 判定は **Plan Z の `_detect_any_leak`** を流用 (47 都道府県 + 主要市区町村 + 政治家・政党)。
+
+#### LLM パラメータ
+
+```python
+DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MAX_OUTPUT_TOKENS = 1536    # 6 フィールド埋め
+DEFAULT_THINKING_BUDGET = 512       # CoT、forecast の 256 から増 (Reviewer Medium #5)
+```
+
+#### Rule-based fallback (LLM 失敗時)
+
+7 種 agent_name それぞれに専用テンプレ (`_RULE_BASED_TEMPLATES`):
+
+```python
+_RULE_BASED_TEMPLATES = {
+    "concierge": {
+        "factor": "ユーザーペルソナ + 自治体統計データ",
+        "counterfactual": "別の関心軸を選んだら...",
+    },
+    "translator": { ... },  # 7 種全カバー
+    ...
+}
+```
+
+#### 公開 endpoint
+
+- `GET /v1/reasoning/explain?agent_name=...&raw_reasoning=...&agent_output_summary=...&persona_context=...`
+- response: `ReasoningExplanation` (plain_summary / influencing_factors / counterfactuals / caveats / confidence / source)
+- **cache なし** (on-demand、ユーザーがボタンクリック時のみ)
+- 不正な agent_name は 422、Agent クラッシュは 500
+
+#### Frontend (`/components/reasoning-explainer.tsx`)
+
+- **再利用可能 component** `ReasoningExplainerButton`:任意の page に挿入可能
+- ボタンクリック → on-demand fetch → modal で表示
+- Modal sections:
+  - "📖 Agent はこう考えた" (plain_summary)
+  - "💡 判断に影響した要素" (influencing_factors)
+  - "🔄 もし違っていたら" (counterfactuals)
+  - "⚠️ 注意点 / 限界" (caveats)
+- Source badge (🤖 Meta-Reasoner / 📐 rule-based) + confidence 表示
+- MVP 挿入箇所: **Forecast page** の NarrativeBanner 下 (次セッションで Concierge / Heatmap / Timeline / Doctor にも挿入予定)
+
+#### モジュール構成
+
+```
+agents/reasoner/
+├── __init__.py            # MetaReasoningAgent / ReasoningExplanation / ReasoningInspectInput export
+├── main.py                # MetaReasoningAgent + _validate_input_leaks + _validate_output_leaks + _RULE_BASED_TEMPLATES (7 種)
+├── schema.py              # AgentName Literal (7 種) / ReasoningInspectInput / ReasoningExplanation
+├── prompts/
+│   └── system.py          # META_REASONING_SYSTEM_PROMPT + build_meta_user_prompt
+└── tests/
+    └── test_reasoner.py   # 16 unit test
+```
+
+#### テスト数
+
+| ファイル | 件数 | カバー範囲 |
+|---|---|---|
+| `agents/reasoner/tests/test_reasoner.py` | 16 | LLM 成功 / 失敗 + 入力 3 フィールド全 leak fallback + 出力 4 フィールド全 leak fallback + 7 種 agent_name 全カバー + plain_summary≠raw_reasoning + helper 関数 |
+| `apps/api/tests/test_reasoning_endpoint.py` | 6 | 200 / rule_based 透過 / 422 不正 agent / 500 Agent クラッシュ / raw_reasoning 必須 / persona_context optional |
+
+→ **計 22 件**、既存 344 + 22 = **366 passed**。
+
+#### Backward compatibility / Out of Scope
+
+- Concierge / Heatmap / Timeline / Doctor への挿入は次セッション (MVP は Forecast 1 箇所のみ)
+- Cache (on-demand なので必要時のみ)
+- Rate limiting / throttling (Reviewer Low #7: 別 Plan、production では IP/user 60s/10call 制限)
+- Reasoning 永続化 (Firestore 履歴表示は別 Plan)
+- Agent 同士の reasoning 比較 (cross-agent meta-analysis は別 Plan)
+
+---
+
 ## 1. 収集 Agent (Collector)
 
 ### 1.1 役割

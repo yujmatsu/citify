@@ -241,6 +241,31 @@
 
 ---
 
+### A-21. Reasoning Transparency Agent(Plan PP、Meta-Reasoner)
+
+**説明**:各 Agent (Concierge / Translator / Critic / Heatmap / Timeline / Forecast / Doctor の 7 種) の `reasoning` を **第三者観測者視点で再構成 + counterfactual 付与** する Meta-Agent。Reflexion (Shinn 2023) / Self-Refine (Madaan 2023) / Chain-of-Verification (Dhuliawala 2023) 系の文献的支持があり、ハッカソン審査基準①「マルチエージェント必然性」を補強(単なる 2 回 LLM 呼び出しではなく、内部ログ→ユーザー教育価値の変換)。
+
+**受け入れ条件**:
+- `agents/reasoner/` 独立モジュール:`MetaReasoningAgent`(Plan X/Z/F と一貫した独立 Agent 構造)
+- `AgentName` Literal で 7 種限定
+- 出力:`plain_summary`(250-300 字)+ `influencing_factors[]`(3-5)+ `counterfactuals[]`(2-3)+ `caveats[]`(1-3)+ `confidence` + `source`
+- **3 層倫理ガード**:
+  1. 入力 leak 連鎖防止(`raw_reasoning` / `agent_output_summary` / `persona_context` 全てに `_detect_any_leak`、Reviewer High #1)
+  2. 出力 leak 検出(`plain_summary` + 3 list 全要素に `_detect_any_leak`、Reviewer Medium #4)
+  3. `AgentName` Pydantic Literal で 7 種限定
+- LLM 失敗 / leak 時は agent 別 `_RULE_BASED_TEMPLATES`(7 種全カバー)で fallback
+- `thinking_budget=512`(6 フィールド埋めるため forecast 256 から増、Reviewer Medium #5)
+- `GET /v1/reasoning/explain` endpoint(cache なし、on-demand)
+- Frontend `ReasoningExplainerButton`再利用可能 component(Forecast page の NarrativeBanner 下に挿入、次セッションで Concierge / Heatmap / Timeline / Doctor にも挿入予定)
+- 22 unit/integration test、既存 344 + 22 = 366 passed
+- 工数 6h 実績(1 日想定通り)
+
+**依存**:Plan Z(`_detect_any_leak` 流用、47 県 + 主要市区 + 政治家/政党 3 層検出)、各既存 Agent の `reasoning` フィールド
+
+**Drop 判断**:このまま実装(短期 1 日、ハッカソン審査①マルチエージェント必然性に文献根拠付きで寄与)
+
+---
+
 ### A-20. Self-healing Scraper Agent(Plan F、ハッカソン主役)
 
 **説明**:スクレイパー失敗ログを 2 段階 Agent (`DiagnosticAgent` 8 種カテゴリ分類 + `RepairProposalAgent` 6 種 action 提案) で診断 + 修正提案。**自動 PR / commit は実装しない**(PROJECT.md §5 倫理境界、人間レビュー前提)。ハッカソン審査基準①「マルチエージェント必然性」の主役機能の 1 つで、Citify の運用ストーリー(「Agent が運用負荷を肩代わり」)を体現。
