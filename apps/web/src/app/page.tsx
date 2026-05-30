@@ -78,6 +78,12 @@ export default function Home() {
                 📈 議題件数の推移と予測
               </Link>
               <Link
+                href="/admin/scrapers"
+                className="font-medium text-sky-700 underline hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200"
+              >
+                🩺 Scraper Health (admin)
+              </Link>
+              <Link
                 href="/municipalities"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
               >

@@ -705,3 +705,107 @@ export async function fetchForecast(args: {
   const data = await res.json();
   return ForecastResponseSchema.parse(data);
 }
+
+// ============================================================================
+// Scraper Health (Plan F) — GET /v1/scraper-health
+// ============================================================================
+
+export const ScraperFailureLogSchema = z.object({
+  failure_id: z.string(),
+  timestamp: z.string(),
+  scraper: z.string(),
+  tenant_id: z.string().nullable(),
+  municipality_code: z.string().nullable(),
+  url: z.string().nullable(),
+  error_type: z.string(),
+  stack_trace: z.string(),
+  html_snippet: z.string().nullable().optional(),
+  html_signature: z.string().default(""),
+  duration_ms: z.number().int().nonnegative().nullable().optional(),
+});
+
+export type ScraperFailureLog = z.infer<typeof ScraperFailureLogSchema>;
+
+export const DiagnosticResultSchema = z.object({
+  error_category: z.enum([
+    "ssl_failure",
+    "auth_403",
+    "html_structure_change",
+    "robots_disallow",
+    "network_timeout",
+    "rate_limit",
+    "parser_logic",
+    "unknown",
+  ]),
+  root_cause_text: z.string(),
+  confidence: z.enum(["high", "medium", "low"]),
+  severity: z.enum(["critical", "high", "medium", "low"]),
+  source: z.enum(["llm", "rule_based"]),
+});
+
+export type DiagnosticResult = z.infer<typeof DiagnosticResultSchema>;
+
+export const RepairProposalSchema = z.object({
+  proposed_action: z.enum([
+    "user_agent_change",
+    "retry_strategy_adjust",
+    "parser_path_update",
+    "drop_tenant",
+    "robots_check",
+    "manual_review",
+  ]),
+  rationale: z.string(),
+  code_hint: z.string(),
+  risk_assessment: z.enum(["safe", "moderate", "risky"]),
+  requires_human_review: z.boolean(),
+  source: z.enum(["llm", "rule_based"]),
+});
+
+export type RepairProposal = z.infer<typeof RepairProposalSchema>;
+
+export const ScraperHealthEntrySchema = z.object({
+  failure: ScraperFailureLogSchema,
+  diagnostic: DiagnosticResultSchema,
+  proposal: RepairProposalSchema,
+});
+
+export type ScraperHealthEntry = z.infer<typeof ScraperHealthEntrySchema>;
+
+export const ScraperHealthResponseSchema = z.object({
+  period_start: z.string(),
+  period_end: z.string(),
+  total_failures: z.number().int().nonnegative(),
+  by_category: z.record(z.string(), z.number().int().nonnegative()),
+  by_scraper: z.record(z.string(), z.number().int().nonnegative()),
+  entries: z.array(ScraperHealthEntrySchema),
+  drop_candidates: z.array(z.string()),
+  disclaimer: z.string(),
+});
+
+export type ScraperHealthResponse = z.infer<typeof ScraperHealthResponseSchema>;
+
+/**
+ * Scraper Health (Plan F): 失敗ログ + Agent 診断 + 修正提案を取得。
+ * `use_sample=true` で sample seed を強制使用 (demo 用)。
+ */
+export async function fetchScraperHealth(args: {
+  days?: number;
+  limit?: number;
+  useSample?: boolean;
+} = {}): Promise<ScraperHealthResponse> {
+  const params = new URLSearchParams({
+    days: String(args.days ?? 7),
+    limit: String(args.limit ?? 50),
+    use_sample: args.useSample ? "true" : "false",
+  });
+  const res = await fetch(`${API_BASE}/v1/scraper-health?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return ScraperHealthResponseSchema.parse(data);
+}
