@@ -241,6 +241,30 @@
 
 ---
 
+### A-20. Self-healing Scraper Agent(Plan F、ハッカソン主役)
+
+**説明**:スクレイパー失敗ログを 2 段階 Agent (`DiagnosticAgent` 8 種カテゴリ分類 + `RepairProposalAgent` 6 種 action 提案) で診断 + 修正提案。**自動 PR / commit は実装しない**(PROJECT.md §5 倫理境界、人間レビュー前提)。ハッカソン審査基準①「マルチエージェント必然性」の主役機能の 1 つで、Citify の運用ストーリー(「Agent が運用負荷を肩代わり」)を体現。
+
+**受け入れ条件**:
+- `agents/scraper_doctor/` 独立モジュール:`DiagnosticAgent` + `RepairProposalAgent` + `FailureLogRepository` (Firestore) + `pii.py` (PII マスク)
+- **4 層倫理ガード**:
+  1. PII regex マスク (10 種、Reviewer Critical 予防):email / 電話 (固定 + 090/080/070) / 郵便番号 / IPv4 / Bearer token / Cookie / URL の api_key/token/secret
+  2. 政治家・政党名 leak (Plan N の `POLITICAL_PERSON_PATTERNS` 流用)
+  3. 47 県 + 主要市区町村名 43 件 leak (Plan Z の `_detect_geographic_leak` 流用、`PREFECTURE_NAMES_JA` + `MAJOR_MUNI_NAMES`)
+  4. `requires_human_review=True` schema 強制(LLM が False を返してもサーバー側で True 上書き、Auto-PR 構造防止)
+- `GET /v1/scraper-health?days=7&limit=50&use_sample=false` endpoint
+- Firestore `scraper_failures` collection で失敗ログ保存(`html_snippet` / `stack_trace` は保存時に PII マスク再適用、`html_signature` (tag-only sha256[:16]) で重複排除)
+- Sample seed (`infra/seed/scraper_failures_sample.json`、10 件)で Firestore 未投入時の graceful fallback、demo 用に実 error_type 反映(5 scraper × 2 件)
+- Frontend `/admin/scrapers` page:**常設 disclaimer banner**(Reviewer High #1)+ **簡易 admin ガード**(Reviewer Medium、`NEXT_PUBLIC_ADMIN_TOKEN` env + URL token 比較、production では IAM 認証に置換)+ Suspense ラップ(Next.js 16 要件)+ StatsSummary + DropCandidates + FailureCard(Diagnostic + Repair + stack_trace + code_hint コピー)
+- 60 unit/integration test、既存 284 + 60 = 344 passed
+- 工数 22-24h 実績(4-5 日想定 24-30h を圧縮)
+
+**依存**:Plan N(`POLITICAL_PERSON_PATTERNS` 流用)、Plan Z(`_detect_geographic_leak` + `MAJOR_MUNI_NAMES` 流用)、Firestore
+
+**Drop 判断**:このまま実装(ハッカソン審査主役機能、運用ストーリー演出に必須)
+
+---
+
 ### A-19. 議題件数トレンド予測 Agent(Plan Z、余裕枠 COULD)
 
 **説明**:月別議題件数を Engine が純計算 (移動平均 + 線形回帰 + 標準誤差) で 3 か月予測、Narrator が「上昇/下降/横ばい/急騰/急減」5 分類 + 介入的説明を生成。Plan X (空間軸) と Plan N (イベント時系列) に続く「数値時系列予測」軸、ハッカソン審査基準①「マルチエージェント必然性」(2 段階 Agent) + ④「実用性」を補強。

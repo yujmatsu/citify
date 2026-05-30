@@ -541,6 +541,154 @@ agents/forecast/
 
 ---
 
+### 0.11 Self-healing Scraper Agent (Plan F 実装済、ハッカソン主役)
+
+スクレイパー失敗ログを 2 段階 Agent (`DiagnosticAgent` + `RepairProposalAgent`) で診断 + 修正提案を生成。**自動 PR / 自動 commit は実装しない** (PROJECT.md §5 倫理境界、人間レビュー前提)。ハッカソン審査基準①「マルチエージェント必然性」の主役機能の 1 つで、運用負荷を Agent が肩代わりするストーリーを体現。
+
+```python
+# 利用例
+from agents.scraper_doctor import (
+    DiagnosticAgent,
+    RepairProposalAgent,
+    ScraperFailureLog,
+)
+
+diag = DiagnosticAgent(project_id="citify-dev")
+repair = RepairProposalAgent(project_id="citify-dev")
+
+failure = ScraperFailureLog(
+    failure_id="kaigiroku_net__2026-05-15__0001",
+    scraper="kaigiroku_net",
+    error_type="SSLError",
+    stack_trace="...",
+    html_snippet="...",  # PII マスク済
+    ...
+)
+diagnostic = diag.diagnose(failure)
+# .error_category / .root_cause_text / .confidence / .severity / .source
+
+proposal = repair.propose(diagnostic, failure)
+# .proposed_action / .rationale / .code_hint / .risk_assessment
+# .requires_human_review == True (構造的に強制)
+# .source ("llm" / "rule_based")
+```
+
+#### 2 段階構成 (Plan X / Z と一貫)
+
+```
+DiagnosticAgent
+  ├─ 入力: ScraperFailureLog (失敗ログ、PII マスク済)
+  └─ 出力: DiagnosticResult
+        ├─ error_category: 8 種類 (ssl_failure / auth_403 / html_structure_change / robots_disallow
+        │                          / network_timeout / rate_limit / parser_logic / unknown)
+        ├─ root_cause_text: 240 字
+        ├─ confidence / severity
+        └─ source ("llm" / "rule_based")
+
+RepairProposalAgent
+  ├─ 入力: DiagnosticResult + ScraperFailureLog
+  └─ 出力: RepairProposal
+        ├─ proposed_action: 6 種類 (user_agent_change / retry_strategy_adjust
+        │                            / parser_path_update / drop_tenant / robots_check / manual_review)
+        ├─ rationale (240 字) / code_hint (300 字、自然言語ヒント、実コードではない)
+        ├─ risk_assessment ("safe" / "moderate" / "risky")
+        ├─ **requires_human_review: bool = True (構造的に固定、LLM 出力にかかわらずサーバー側で True 強制)**
+        └─ source
+```
+
+#### 倫理ガード (4 層防御)
+
+1. **PII regex マスク** (`pii.py`、10+ パターン、Reviewer Critical 予防):
+   - email / 固定電話 / 携帯 (090/080/070) / 郵便番号 / IPv4 /
+     Authorization Bearer token / Cookie / session_id / URL の api_key/token/secret
+2. **政治家・政党名 leak** (`POLITICAL_PERSON_PATTERNS` from `agents/timeline/main.py`)
+3. **47 県 + 主要市区町村名 leak** (`_detect_geographic_leak` from `agents/forecast/main.py`、
+   `PREFECTURE_NAMES_JA` + `MAJOR_MUNI_NAMES` 43 件)
+4. **`requires_human_review=True` schema 強制** (LLM が False を返してもサーバー側で True 上書き):
+   - Auto-PR / Auto-commit の構造的な防止
+
+leak 検出時は両 Agent ともに `rule_based` fallback (leaked 文字列はユーザー向け文に残らない、ログのみ詳細記録)。
+
+#### Self-healing flow (人間レビュー前提)
+
+```
+1. Scraper 実行中に例外発生 → try/except でキャッチ (現状 MVP は sample seed 経由)
+2. ScraperFailureLog を Firestore `scraper_failures` collection に書き込み
+   - html_snippet / stack_trace は mask_pii() で PII を regex マスク
+   - html_signature (sha256[:16]) を tag-only skeleton で計算 (重複排除キー)
+3. GET /v1/scraper-health が呼ばれたタイミング (定期 batch、demo は手動 trigger)
+   - 過去 N 日の失敗を Firestore から取得 (空なら sample seed に fallback)
+   - dedupe_by_pattern (scraper + error_type + html_signature) で重複排除
+   - 各失敗を DiagnosticAgent + RepairProposalAgent に通す
+4. response.entries[] と drop_candidates[] を返す
+5. Frontend `/admin/scrapers` で表示
+6. **人間がレビューして手動で修正 commit** (Auto-PR は実装されない)
+```
+
+#### Sample seed (`infra/seed/scraper_failures_sample.json`)
+
+実 scraper の error_type を反映した 10 件 (5 scraper × 2 件、Reviewer Medium):
+- kaigiroku_net × 2 (SSL証明書失効 / HTML構造変更 AttributeError)
+- kokkai × 2 (HTTP 503 / HTTP 429 rate limit)
+- press_rss × 2 (feedparser ParserError / HTTP 404)
+- voices_asp × 2 (robots.txt Disallow / ReadTimeout)
+- reinfolib × 2 (API schema 変更 KeyError / HTTP 401 認証)
+
+#### 公開 endpoint
+
+- `GET /v1/scraper-health?days=7&limit=50&use_sample=false`
+- response: `{ period_start, period_end, total_failures, by_category, by_scraper, entries[], drop_candidates[], disclaimer }`
+- `_SCRAPER_HEALTH_CACHE` TTL=1 時間
+- Firestore に投入なし時は sample seed に graceful fallback
+
+#### Frontend (`/admin/scrapers`)
+
+- **Disclaimer banner 常設**: 「Agent は提案を生成するのみ、自動修正は適用されません」
+- **簡易 admin ガード** (Reviewer Medium): `NEXT_PUBLIC_ADMIN_TOKEN` env と URL `?token=...` を比較、
+  不一致なら restricted message (production では IAM 認証に置換予定)
+- **Suspense ラップ** (Next.js 16 要件、useSearchParams() を内部 component に閉じ込め)
+- StatsSummary (total / by_category / by_scraper)
+- DropCandidates (`drop_tenant` 提案された tenant_id 一覧)
+- FailureCard (折りたたみ、Diagnostic + Repair + stack_trace、code_hint コピーボタン)
+
+#### モジュール構成
+
+```
+agents/scraper_doctor/
+├── __init__.py            # 全シンボル export
+├── main.py                # DiagnosticAgent + RepairProposalAgent + _ERROR_TYPE_TO_CATEGORY + _CATEGORY_TO_DEFAULT_ACTION
+├── pii.py                 # PII_PATTERNS (10 種) + mask_pii()
+├── firestore_repo.py      # FailureLogRepository (save/fetch/sample seed) + compute_html_signature + dedupe_by_pattern
+├── schema.py              # ScraperFailureLog / DiagnosticResult / RepairProposal (requires_human_review=True) /
+│                          # ScraperHealthEntry / ScraperHealthResponse
+├── prompts/
+│   └── system.py          # DIAGNOSTIC_SYSTEM_PROMPT + REPAIR_SYSTEM_PROMPT + build_diagnostic_user_prompt + build_repair_user_prompt
+└── tests/
+    ├── test_pii.py        # 31 unit test (PII 10 パターン網羅 + 複合 stack trace + 誤検出回避)
+    ├── test_firestore_repo.py  # 9 unit test (compute_html_signature / save_failure / dedupe / sample seed loader)
+    └── test_doctor.py     # 13 unit test (Diagnostic LLM/失敗/leak / Repair LLM/失敗/leak / requires_human_review 強制 / マッピング完全性)
+```
+
+#### テスト数
+
+| ファイル | 件数 | カバー範囲 |
+|---|---|---|
+| `agents/scraper_doctor/tests/test_pii.py` | 31 | email / 電話 (固定/携帯) / 郵便番号 / IPv4 / Authorization / Cookie / URL token / 複合 stack trace / 誤検出回避 |
+| `agents/scraper_doctor/tests/test_firestore_repo.py` | 9 | html_signature 一貫性 / 異構造区別 / save 時 PII 再マスク / Firestore 失敗 graceful / dedupe by pattern / sample seed loader |
+| `agents/scraper_doctor/tests/test_doctor.py` | 13 | Diagnostic LLM 成功 / 失敗 fallback / political leak / prefecture leak + Repair LLM 成功 / requires_human_review 強制 / 失敗 fallback / rationale leak / code_hint leak + classify_error_type マッピング + category→action マッピング完全性 + schema default |
+| `apps/api/tests/test_scraper_health_endpoint.py` | 7 | 200 + 構造 / drop_candidates 抽出 / fetch 失敗 500 / use_sample / Agent クラッシュ skip / disclaimer / sample seed file 10 件 |
+
+→ **計 60 件**、既存 284 + 60 = **344 passed**。
+
+#### Backward compatibility / Out of Scope
+
+- **Auto-PR / Auto-commit 絶対禁止** (PROJECT.md §5、構造的に防止)
+- 既存 scraper コードへの try/except 自動挿入は別 Plan (MVP は sample seed のみ)
+- GitHub Issue / Slack 通知連携は別 Plan
+- BQ scraper_runs テーブル同期は別 Plan (failure_id 命名規約のみ互換性確保)
+
+---
+
 ## 1. 収集 Agent (Collector)
 
 ### 1.1 役割
