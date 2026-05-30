@@ -2405,3 +2405,68 @@ async def get_scraper_health(
         len(drop_candidates),
     )
     return result
+
+
+# ============================================================================
+# GET /v1/reasoning/explain — Reasoning Transparency Agent (Plan PP)
+# ============================================================================
+# 各 Agent (Concierge / Translator / Critic / Heatmap / Timeline / Forecast / Doctor)
+# の reasoning を第三者観測者視点で再構成 (Reflexion / CoVe pattern)。
+# on-demand: ユーザーがボタンクリック時のみ呼ばれる、cache なし。
+# ============================================================================
+
+_META_REASONER: Any = None
+
+
+def _get_meta_reasoner() -> Any:
+    global _META_REASONER
+    if _META_REASONER is None:
+        from agents.reasoner import MetaReasoningAgent
+
+        _META_REASONER = MetaReasoningAgent(project_id=os.getenv("GCP_PROJECT_ID") or None)
+    return _META_REASONER
+
+
+@app.get("/v1/reasoning/explain")
+async def get_reasoning_explain(
+    response: Response,
+    agent_name: str = Query(
+        ...,
+        description="対象 Agent 名 (7 種: concierge / translator / critic / heatmap_advisor / timeline / forecast / scraper_doctor)",
+    ),
+    raw_reasoning: str = Query(..., max_length=500, description="対象 Agent の reasoning"),
+    agent_output_summary: str = Query(..., max_length=300, description="対象 Agent 出力要約"),
+    persona_context: str | None = Query(default=None, max_length=200),
+) -> dict:
+    """Reasoning Transparency (Plan PP): 対象 Agent の reasoning を第三者視点で再構成。
+
+    on-demand: ユーザーが UI でボタンクリック時のみ呼ばれる、cache なし。
+    """
+    from agents.reasoner.schema import ReasoningInspectInput
+
+    response.headers["Cache-Control"] = "private, max-age=0, no-cache"
+
+    try:
+        inspect_input = ReasoningInspectInput(
+            agent_name=agent_name,  # type: ignore[arg-type]
+            raw_reasoning=raw_reasoning,
+            agent_output_summary=agent_output_summary,
+            persona_context=persona_context,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Invalid reasoning input: {exc!s}") from exc
+
+    reasoner = _get_meta_reasoner()
+    try:
+        explanation = reasoner.explain(inspect_input)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("reasoning.explain_failed agent=%s err=%s", agent_name, exc)
+        raise HTTPException(status_code=500, detail=f"reasoning explain failed: {exc!s}") from exc
+
+    logger.info(
+        "reasoning.explain.done agent=%s source=%s confidence=%s",
+        agent_name,
+        explanation.source,
+        explanation.confidence,
+    )
+    return explanation.model_dump(mode="json")
