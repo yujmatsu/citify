@@ -866,3 +866,83 @@ export async function fetchReasoningExplanation(args: {
   const data = await res.json();
   return ReasoningExplanationSchema.parse(data);
 }
+
+// ============================================================================
+// Cost Anomaly Hunter (Plan CC) — GET /v1/cost-health
+// ============================================================================
+
+export const CostAnomalySchema = z.object({
+  date: z.string(),
+  service: z.string(),
+  cost_jpy: z.number().nonnegative(),
+  baseline_avg_7d: z.number().nonnegative(),
+  baseline_stddev_7d: z.number().nonnegative(),
+  z_score: z.number(),
+  spike_ratio: z.number(),
+  anomaly_type: z.enum(["spike", "drift_up", "drift_down", "normal"]),
+  severity: z.enum(["critical", "high", "medium", "low"]),
+});
+
+export type CostAnomaly = z.infer<typeof CostAnomalySchema>;
+
+export const CostRootCauseProposalSchema = z.object({
+  root_cause_hypothesis: z.string(),
+  proposed_action: z.enum([
+    "scale_down",
+    "optimize_query",
+    "investigate_logs",
+    "rate_limit",
+    "manual_review",
+  ]),
+  rationale: z.string(),
+  monthly_savings_estimate_jpy: z.number().int().nonnegative().max(100_000),
+  risk_assessment: z.enum(["safe", "moderate", "risky"]),
+  requires_human_review: z.boolean(),
+  source: z.enum(["llm", "rule_based"]),
+});
+
+export type CostRootCauseProposal = z.infer<typeof CostRootCauseProposalSchema>;
+
+export const CostHealthEntrySchema = z.object({
+  anomaly: CostAnomalySchema,
+  proposal: CostRootCauseProposalSchema,
+});
+
+export type CostHealthEntry = z.infer<typeof CostHealthEntrySchema>;
+
+export const CostHealthResponseSchema = z.object({
+  period_start: z.string(),
+  period_end: z.string(),
+  total_anomalies: z.number().int().nonnegative(),
+  by_service: z.record(z.string(), z.number().int().nonnegative()),
+  by_severity: z.record(z.string(), z.number().int().nonnegative()),
+  estimated_total_savings_jpy: z.number().int().nonnegative(),
+  entries: z.array(CostHealthEntrySchema),
+  cross_service_pattern: z.string().nullable(),
+  disclaimer: z.string(),
+});
+
+export type CostHealthResponse = z.infer<typeof CostHealthResponseSchema>;
+
+/**
+ * Cost Anomaly Hunter (Plan CC): GCP cost data から異常検知 + 削減提案。
+ * 自動 cost 削減 action は実装されません (人間レビュー前提)。
+ */
+export async function fetchCostHealth(
+  args: { days?: number; limitEntries?: number } = {},
+): Promise<CostHealthResponse> {
+  const params = new URLSearchParams({
+    days: String(args.days ?? 30),
+    limit_entries: String(args.limitEntries ?? 20),
+  });
+  const res = await fetch(`${API_BASE}/v1/cost-health?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return CostHealthResponseSchema.parse(data);
+}

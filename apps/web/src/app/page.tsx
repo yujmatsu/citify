@@ -84,6 +84,12 @@ export default function Home() {
                 🩺 Scraper Health (admin)
               </Link>
               <Link
+                href="/admin/costs"
+                className="font-medium text-teal-700 underline hover:text-teal-900 dark:text-teal-300 dark:hover:text-teal-200"
+              >
+                💸 Cost Health (admin)
+              </Link>
+              <Link
                 href="/municipalities"
                 className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
               >
