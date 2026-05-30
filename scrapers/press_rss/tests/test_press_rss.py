@@ -9,6 +9,7 @@ import pytest
 
 from scrapers.press_rss.client import (
     PressRssClient,
+    _absolutize_url,
     _entry_id,
     _entry_to_press_item,
     _struct_time_to_dt,
@@ -224,3 +225,184 @@ def test_entry_to_press_item_fills_defaults():
     assert item.category == "お知らせ"
     assert item.municipality_code == "13103"
     assert item.pub_date is None  # 提供なし
+
+
+# ============================================================================
+# detail_url normalize (相対 URL → 絶対 URL)
+# ============================================================================
+
+
+def test_absolutize_url_relative_path():
+    """相対 path は base_url で絶対化される。"""
+    result = _absolutize_url("/news/1.html", "https://example.lg.jp/rss.xml")
+    assert result == "https://example.lg.jp/news/1.html"
+
+
+def test_absolutize_url_already_absolute_unchanged():
+    """既に絶対 URL ならそのまま返す。"""
+    result = _absolutize_url("https://other.com/news", "https://example.lg.jp/rss.xml")
+    assert result == "https://other.com/news"
+
+
+def test_absolutize_url_protocol_relative():
+    """`//host/path` のような protocol-relative も base のスキームで補完。"""
+    result = _absolutize_url("//other.host/news/2.html", "https://example.lg.jp/rss.xml")
+    assert result == "https://other.host/news/2.html"
+
+
+def test_absolutize_url_empty_returns_empty():
+    """空文字 → 空文字 (urljoin は base を返すので明示的に空に)。"""
+    assert _absolutize_url("", "https://example.lg.jp/rss.xml") == ""
+
+
+def test_absolutize_url_relative_dot_path():
+    """`./news/1.html` のような同一ディレクトリ参照も解決。"""
+    result = _absolutize_url("./news/1.html", "https://example.lg.jp/feed/rss.xml")
+    assert result == "https://example.lg.jp/feed/news/1.html"
+
+
+@pytest.mark.asyncio
+async def test_fetch_feed_normalizes_relative_links_in_publish_payload():
+    """RSS に相対 URL の <link> がある場合、PressItem.link は絶対 URL になる (detail_url normalize)。"""
+    relative_rss = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<rss version="2.0"><channel>'
+        b"<title>x</title><link>https://example.lg.jp/</link><description>x</description>"
+        b"<item>"
+        b"<title>news_with_relative_link</title>"
+        b"<link>/news/relative-path.html</link>"
+        b"<guid>news_1</guid>"
+        b"</item>"
+        b"</channel></rss>"
+    )
+    client = PressRssClient(rate_limit_sec=0.0, transport=_make_transport(relative_rss))
+    try:
+        items = await client.fetch_feed("https://example.lg.jp/rss.xml", municipality_code="13103")
+    finally:
+        await client.aclose()
+
+    assert len(items) == 1
+    assert items[0].link == "https://example.lg.jp/news/relative-path.html"
+    # source_url はそのまま absolute
+    assert items[0].source_url == "https://example.lg.jp/rss.xml"
+
+
+# ============================================================================
+# UA / SSL fallback (9 自治体 SSL/403 対応)
+# ============================================================================
+
+
+def test_user_agent_is_browser_compatible():
+    """User-Agent が `Mozilla/5.0` prefix で始まる (一部自治体 UA フィルタ対応)。"""
+    from scrapers.press_rss.client import USER_AGENT
+
+    assert USER_AGENT.startswith("Mozilla/5.0"), (
+        "東村山市 13213 のような UA フィルタ自治体に 403 されないよう、ブラウザ互換 prefix が必須"
+    )
+    assert "CitifyBot" in USER_AGENT  # bot 名乗りも維持
+
+
+def test_is_ssl_verification_error_detects_hostname_mismatch():
+    """`_is_ssl_verification_error` が hostname mismatch 文言を検出。"""
+    from scrapers.press_rss.client import _is_ssl_verification_error
+
+    # 実 publish-all で観測された文言
+    exc = httpx.ConnectError(
+        "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+        "Hostname mismatch, certificate is not valid for 'example.lg.jp'."
+    )
+    assert _is_ssl_verification_error(exc) is True
+
+
+def test_is_ssl_verification_error_detects_no_alt_certificate():
+    from scrapers.press_rss.client import _is_ssl_verification_error
+
+    exc = httpx.ConnectError("SSL: no alternative certificate subject name matches")
+    assert _is_ssl_verification_error(exc) is True
+
+
+def test_is_ssl_verification_error_returns_false_for_403():
+    """SSL 系判定が他エラー (403 等) を誤検出しない。"""
+    from scrapers.press_rss.client import _is_ssl_verification_error
+
+    exc = httpx.HTTPStatusError(
+        "Client error '403 Forbidden'",
+        request=httpx.Request("GET", "https://x/"),
+        response=httpx.Response(403),
+    )
+    assert _is_ssl_verification_error(exc) is False
+
+
+def test_is_ssl_verification_error_returns_false_for_timeout():
+    from scrapers.press_rss.client import _is_ssl_verification_error
+
+    exc = httpx.ConnectTimeout("timed out")
+    assert _is_ssl_verification_error(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_fetch_feed_falls_back_to_insecure_on_ssl_error(monkeypatch):
+    """SSL hostname mismatch エラー → verify=False の insecure client で 1 回 fallback して成功。"""
+    call_counts: dict[str, int] = {"primary": 0, "insecure": 0}
+
+    def primary_handler(request: httpx.Request) -> httpx.Response:
+        call_counts["primary"] += 1
+        # 実 publish-all で観測された SSL hostname mismatch 例外を投げる
+        raise httpx.ConnectError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+            "Hostname mismatch, certificate is not valid for 'example.lg.jp'.",
+        )
+
+    def insecure_handler(request: httpx.Request) -> httpx.Response:
+        call_counts["insecure"] += 1
+        return httpx.Response(
+            200,
+            content=FIXTURE_RSS_2,
+            headers={"content-type": "application/rss+xml"},
+        )
+
+    primary_transport = httpx.MockTransport(primary_handler)
+    insecure_transport = httpx.MockTransport(insecure_handler)
+
+    client = PressRssClient(rate_limit_sec=0.0, transport=primary_transport)
+    # insecure client を内部 attribute 経由で test 用の MockTransport にすり替え
+    client._insecure_client = httpx.AsyncClient(
+        headers=client._headers,
+        timeout=client.timeout_sec,
+        follow_redirects=True,
+        transport=insecure_transport,
+    )
+
+    try:
+        items = await client.fetch_feed(
+            "https://example.lg.jp/rss.xml", municipality_code="06203", max_items=2
+        )
+    finally:
+        await client.aclose()
+
+    # primary は 1 回 (SSL error)、insecure で 1 回成功
+    assert call_counts["primary"] == 1
+    assert call_counts["insecure"] == 1
+    assert len(items) == 2  # FIXTURE_RSS_2 の 2 item
+
+
+@pytest.mark.asyncio
+async def test_fetch_feed_does_not_fallback_for_non_ssl_error(monkeypatch):
+    """非 SSL エラー (e.g. 403) は insecure fallback されず通常 retry で 3 回試行して失敗。"""
+    call_counts: dict[str, int] = {"primary": 0}
+
+    def primary_handler(request: httpx.Request) -> httpx.Response:
+        call_counts["primary"] += 1
+        return httpx.Response(403)  # raise_for_status() で HTTPStatusError
+
+    client = PressRssClient(rate_limit_sec=0.0, transport=httpx.MockTransport(primary_handler))
+    try:
+        with pytest.raises(RuntimeError, match="after 3 retries"):
+            await client.fetch_feed(
+                "https://x.lg.jp/rss.xml", municipality_code="13213", max_items=2
+            )
+    finally:
+        await client.aclose()
+
+    # 通常 retry で 3 回試行 (insecure fallback 発動なし)
+    assert call_counts["primary"] == 3

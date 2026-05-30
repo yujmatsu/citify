@@ -12,6 +12,7 @@ import logging
 from datetime import UTC, datetime
 from time import struct_time
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin
 
 import httpx
 
@@ -22,10 +23,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "Citify-Hackathon/0.1 (+https://github.com/yujmatsu/citify)"
+# User-Agent はブラウザ互換形式 + Bot 明示 (一部自治体サイトが厳格な UA フィルタを持つため、
+# Mozilla 5.0 prefix がないと 403 を返す。例: 東村山市 13213)
+USER_AGENT = "Mozilla/5.0 (compatible; CitifyBot/0.1; +https://github.com/yujmatsu/citify)"
 DEFAULT_TIMEOUT_SEC = 30.0
 DEFAULT_RATE_LIMIT_SEC = 1.0
 MAX_RETRIES = 3
+
+# 自治体サイトの SSL 証明書が SAN 不備 / 共有 SSL で hostname mismatch なケースが多発。
+# このエラー文言を含む例外は 1 回限り verify=False で fallback する (warning ログ付き)。
+_SSL_VERIFY_ERROR_MARKERS = (
+    "CERTIFICATE_VERIFY_FAILED",
+    "Hostname mismatch",
+    "no alternative certificate",
+)
+
+
+def _is_ssl_verification_error(exc: Exception) -> bool:
+    """httpx の SSL verification 失敗を文字列ベースで判定。"""
+    s = str(exc)
+    return any(marker in s for marker in _SSL_VERIFY_ERROR_MARKERS)
 
 
 def _struct_time_to_dt(t: struct_time | None) -> datetime | None:
@@ -37,6 +54,25 @@ def _struct_time_to_dt(t: struct_time | None) -> datetime | None:
         return datetime(*t[:6], tzinfo=UTC)
     except (TypeError, ValueError):
         return None
+
+
+def _absolutize_url(maybe_relative: str, base_url: str) -> str:
+    """相対 URL を絶対 URL に変換。
+
+    feedparser は相対 URL (`/news/1.html`) を自動で絶対化しないため、
+    publish 前にここで正規化する。空文字や絶対 URL はそのまま返す。
+
+    Examples:
+        >>> _absolutize_url("/news/1.html", "https://example.lg.jp/rss.xml")
+        'https://example.lg.jp/news/1.html'
+        >>> _absolutize_url("https://other.com/x", "https://example.lg.jp/rss.xml")
+        'https://other.com/x'
+        >>> _absolutize_url("", "https://example.lg.jp/rss.xml")
+        ''
+    """
+    if not maybe_relative:
+        return ""
+    return urljoin(base_url, maybe_relative)
 
 
 def _entry_id(entry: dict, fallback_url: str) -> str:
@@ -74,11 +110,18 @@ def _entry_to_press_item(
     elif entry.get("category"):
         category = str(entry["category"])
 
+    # detail_url normalize: feedparser は相対 URL を自動絶対化しないため
+    # source_url (RSS feed の URL) をベースに urljoin する。
+    # 一部自治体 RSS で `/news/1.html` のような相対 link が観測されており、
+    # publish 時に絶対 URL でないと frontend クリック時に 404 になる。
+    raw_link = str(entry.get("link", ""))
+    absolute_link = _absolutize_url(raw_link, source_url)
+
     return PressItem(
         id=_entry_id(entry, source_url),
         municipality_code=municipality_code,
         title=str(entry.get("title", "(無題)")).strip(),
-        link=str(entry.get("link", "")),
+        link=absolute_link,
         description=(entry.get("summary") or entry.get("description") or None),
         pub_date=pub_dt,
         category=category,
@@ -111,24 +154,43 @@ class PressRssClient:
     ) -> None:
         self.timeout_sec = timeout_sec
         self.rate_limit_sec = rate_limit_sec
+        self._headers = {
+            "User-Agent": USER_AGENT,
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        }
+        self._transport = transport
         self._client = httpx.AsyncClient(
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "application/rss+xml, application/xml, text/xml, */*",
-            },
+            headers=self._headers,
             timeout=timeout_sec,
             follow_redirects=True,
             transport=transport,
         )
+        # SSL verify=False fallback 用 client (遅延初期化、自治体 SSL 不備対応専用)
+        self._insecure_client: httpx.AsyncClient | None = None
+
+    def _ensure_insecure_client(self) -> httpx.AsyncClient:
+        """SSL verify=False fallback 用 client を遅延初期化。"""
+        if self._insecure_client is None:
+            self._insecure_client = httpx.AsyncClient(
+                headers=self._headers,
+                timeout=self.timeout_sec,
+                follow_redirects=True,
+                transport=self._transport,
+                verify=False,
+            )
+        return self._insecure_client
 
     async def __aenter__(self) -> PressRssClient:
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
-        await self._client.aclose()
+        await self.aclose()
 
     async def aclose(self) -> None:
         await self._client.aclose()
+        if self._insecure_client is not None:
+            await self._insecure_client.aclose()
+            self._insecure_client = None
 
     async def fetch_feed(
         self,
@@ -176,9 +238,15 @@ class PressRssClient:
         return items
 
     async def _get_bytes(self, url: str) -> bytes:
-        """指定 URL を GET、retry 付きで bytes を返す。"""
+        """指定 URL を GET、retry 付きで bytes を返す。
+
+        SSL verification 失敗 (自治体サイトの SAN 不備等) の場合のみ、
+        1 回限り verify=False の insecure client で fallback (warning ログ付き)。
+        """
         delay = 1.0
         last_exc: Exception | None = None
+        tried_insecure_fallback = False
+
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 response = await self._client.get(url)
@@ -188,6 +256,30 @@ class PressRssClient:
                 return content
             except httpx.HTTPError as exc:
                 last_exc = exc
+
+                # SSL verification error は 1 回限り verify=False で fallback
+                if _is_ssl_verification_error(exc) and not tried_insecure_fallback:
+                    tried_insecure_fallback = True
+                    logger.warning(
+                        "press_rss.ssl_fallback url=%s exc=%s (verify=False で 1 回 retry)",
+                        url,
+                        exc,
+                    )
+                    try:
+                        insecure_client = self._ensure_insecure_client()
+                        response = await insecure_client.get(url)
+                        response.raise_for_status()
+                        content = response.content
+                        await asyncio.sleep(self.rate_limit_sec)
+                        return content
+                    except httpx.HTTPError as fb_exc:
+                        last_exc = fb_exc
+                        logger.warning(
+                            "press_rss.ssl_fallback_failed url=%s exc=%s",
+                            url,
+                            fb_exc,
+                        )
+
                 logger.warning(
                     "press_rss.retry attempt=%d/%d url=%s exc=%s",
                     attempt,

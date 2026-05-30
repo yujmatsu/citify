@@ -1344,7 +1344,7 @@ municipality_code,name,prefecture,kana,population,scraper_type,scraper_base_url,
 33000,岡山県,岡山県,オカヤマケン,,kaigiroku,https://ssp.kaigiroku.net/tenant/prefokayama,prefokayama,,,1,false,prefecture_aggregate; prefokayama (DiscussNet central; modern template; recon main),,,,,,,
 33100,岡山市,岡山県,オカヤマシ,,unknown,,,https://www.city.okayama.jp/rss/rss.xml,,3,false,,https://www.city.okayama.jp/,guess,確認済,2026-05-27T23:30:00,30,,2026-05-27T23:38:58
 33202,倉敷市,岡山県,クラシキシ,,unknown,,,https://kurasiki.net/?feed=rss2,,3,false,,https://kurasiki.net/,guess,確認済,2026-05-09T00:16:40,10,,2026-05-27T23:38:58
-33203,津山市,岡山県,ツヤマシ,,unknown,,,https://www.tuyama.jp/feed/,,3,false,,https://www.tuyama.jp/,guess,確認済,2026-03-27T04:08:46,10,,2026-05-27T23:39:00
+33203,津山市,岡山県,ツヤマシ,,unknown,,,,,3,false,,https://www.tuyama.jp/,guess,確認済,2026-03-27T04:08:46,10,,2026-05-27T23:39:00
 33204,玉野市,岡山県,タマノシ,,unknown,,,https://www.city.tamano.lg.jp/rss/10/list1.xml,,3,false,,https://www.city.tamano.lg.jp/,guess,確認済,2026-05-27T15:00:00,100,,2026-05-27T23:39:00
 33205,笠岡市,岡山県,カサオカシ,,unknown,,,https://www.city.kasaoka.okayama.jp/rss/10/list6.xml,,3,false,,https://www.city.kasaoka.okayama.jp/,guess,確認済,2026-04-23T15:00:00,3,,2026-05-27T23:39:01
 33207,井原市,岡山県,イバラシ,,unknown,,,https://www.city.ibara.okayama.jp/rss/10/list3.xml,,3,false,,https://www.city.ibara.okayama.jp/,guess,確認済,2026-05-21T23:30:00,2,,2026-05-27T23:39:02
