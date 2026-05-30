@@ -13,6 +13,7 @@ import {
   type MunicipalityCandidate,
   type ToolCallLog,
 } from "@/lib/api";
+import { ReasoningExplainerButton } from "@/components/reasoning-explainer";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
 
@@ -235,7 +236,11 @@ export default function ConciergePage() {
           )}
 
           {turns.map((turn, idx) => (
-            <TurnView key={`turn-${idx}-${turn.timestamp}`} turn={turn} />
+            <TurnView
+              key={`turn-${idx}-${turn.timestamp}`}
+              turn={turn}
+              persona={persona}
+            />
           ))}
         </div>
 
@@ -444,7 +449,13 @@ function HistoryModal({
 // 1 ターン分の表示
 // ============================================================================
 
-function TurnView({ turn }: { turn: ChatTurn }): React.ReactElement {
+function TurnView({
+  turn,
+  persona,
+}: {
+  turn: ChatTurn;
+  persona: Persona | null;
+}): React.ReactElement {
   if (turn.kind === "user") {
     return (
       <div className="flex justify-end">
@@ -539,6 +550,26 @@ function TurnView({ turn }: { turn: ChatTurn }): React.ReactElement {
               ⚠️ 倫理ガード作動: {response.ethical_violations.join(", ")}
             </div>
           )}
+
+        {/* Plan PP: Reasoning Transparency (Meta-Reasoner) — 倫理 OK の場合のみ表示 */}
+        {response.ethical_violations.length === 0 && response.reply && (
+          <div className="flex justify-end">
+            <ReasoningExplainerButton
+              agentName="concierge"
+              rawReasoning={response.reply.slice(0, 500)}
+              agentOutputSummary={`tool_calls=${response.tool_calls.length}, candidates=${response.candidates.length}${
+                response.candidates.length > 0
+                  ? ` (TOP: ${response.candidates[0].name})`
+                  : ""
+              }`}
+              personaContext={
+                persona
+                  ? `${persona.age_group}${persona.interests.length > 0 ? " / 関心軸: " + persona.interests.join(",") : ""}`
+                  : undefined
+              }
+            />
+          </div>
+        )}
       </div>
     </div>
   );

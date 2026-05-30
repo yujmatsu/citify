@@ -11,6 +11,7 @@ import {
   type PrefectureTopMuni,
   type PrefectureValue,
 } from "@/lib/api";
+import { ReasoningExplainerButton } from "@/components/reasoning-explainer";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
 
@@ -205,6 +206,18 @@ export default function HeatmapPage() {
                 ? "低いほど濃い青 (上位)"
                 : "高いほど濃い青 (上位)"}
             </p>
+          </div>
+        )}
+
+        {/* Plan PP: Reasoning Transparency (Meta-Reasoner) */}
+        {data?.advice && (
+          <div className="flex justify-end">
+            <ReasoningExplainerButton
+              agentName="heatmap_advisor"
+              rawReasoning={data.advice.reasoning}
+              agentOutputSummary={`${data.advice.metric_label_ja}${data.advice.unit ? ` (${data.advice.unit})` : ""} を ${data.advice.direction === "lower_is_better" ? "低いほど良い" : "高いほど良い"} 方向で選定`}
+              personaContext={data.advice.persona_summary}
+            />
           </div>
         )}
 

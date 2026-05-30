@@ -10,6 +10,7 @@ import {
   type TimelineEvent,
   type TimelineResponse,
 } from "@/lib/api";
+import { ReasoningExplainerButton } from "@/components/reasoning-explainer";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
 
@@ -190,6 +191,22 @@ export default function TimelinePage() {
             narrative={data.narrative}
             candidateCount={data.candidate_count}
           />
+        )}
+
+        {/* Plan PP: Reasoning Transparency (Meta-Reasoner) */}
+        {data?.narrative && data.narrative.events.length > 0 && (
+          <div className="flex justify-end">
+            <ReasoningExplainerButton
+              agentName="timeline"
+              rawReasoning={data.narrative.overall_summary}
+              agentOutputSummary={`${data.narrative.theme_label} (${data.narrative.period_start} 〜 ${data.narrative.period_end}): イベント ${data.narrative.events.length} 件`}
+              personaContext={
+                persona
+                  ? `${persona.age_group} / 関心軸: ${themeInterest}${municipalityCode ? ` / 自治体: ${municipalityCode}` : " / 全国"}`
+                  : undefined
+              }
+            />
+          </div>
         )}
 
         {/* Status */}

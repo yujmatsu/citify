@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
+import { ReasoningExplainerButton } from "@/components/reasoning-explainer";
 import {
   ApiError,
   fetchScraperHealth,
@@ -333,6 +334,14 @@ function FailureCard({
           <p className="mt-1 text-xs leading-relaxed text-blue-800 dark:text-blue-200">
             {diagnostic.root_cause_text}
           </p>
+          {/* Plan PP: Reasoning Transparency (Meta-Reasoner) */}
+          <div className="mt-2 flex justify-end">
+            <ReasoningExplainerButton
+              agentName="scraper_doctor"
+              rawReasoning={diagnostic.root_cause_text}
+              agentOutputSummary={`${failure.scraper} / ${failure.error_type} → category=${diagnostic.error_category}, severity=${diagnostic.severity}`}
+            />
+          </div>
         </div>
 
         {/* Repair proposal */}
