@@ -11,6 +11,7 @@ import {
   type ForecastResponse,
   type MonthCount,
 } from "@/lib/api";
+import { ReasoningExplainerButton } from "@/components/reasoning-explainer";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
 
@@ -199,6 +200,22 @@ export default function ForecastPage() {
             confidence={data.series.confidence}
             slope={data.series.slope}
           />
+        )}
+
+        {/* Plan PP: Reasoning Transparency Agent (Meta-Reasoner) */}
+        {data && (
+          <div className="flex justify-end">
+            <ReasoningExplainerButton
+              agentName="forecast"
+              rawReasoning={data.narrative.reasoning}
+              agentOutputSummary={`${data.narrative.headline} (trend: ${data.series.trend_classification}, slope: ${data.series.slope.toFixed(2)})`}
+              personaContext={
+                persona
+                  ? `${persona.age_group} / 関心軸: ${themeInterest}${persona.interests.length > 0 ? " / 登録: " + persona.interests.join(",") : ""}`
+                  : undefined
+              }
+            />
+          </div>
         )}
 
         {/* Status */}

@@ -809,3 +809,60 @@ export async function fetchScraperHealth(args: {
   const data = await res.json();
   return ScraperHealthResponseSchema.parse(data);
 }
+
+// ============================================================================
+// Reasoning Transparency (Plan PP) — GET /v1/reasoning/explain
+// ============================================================================
+
+export const AgentNameEnum = z.enum([
+  "concierge",
+  "translator",
+  "critic",
+  "heatmap_advisor",
+  "timeline",
+  "forecast",
+  "scraper_doctor",
+]);
+
+export type AgentName = z.infer<typeof AgentNameEnum>;
+
+export const ReasoningExplanationSchema = z.object({
+  plain_summary: z.string(),
+  influencing_factors: z.array(z.string()),
+  counterfactuals: z.array(z.string()),
+  caveats: z.array(z.string()),
+  confidence: z.enum(["high", "medium", "low"]),
+  source: z.enum(["llm", "rule_based"]),
+});
+
+export type ReasoningExplanation = z.infer<typeof ReasoningExplanationSchema>;
+
+/**
+ * Reasoning Transparency (Plan PP): 対象 Agent の reasoning を第三者視点で再構成。
+ * on-demand call (ユーザーがボタンクリック時のみ)、cache なし。
+ */
+export async function fetchReasoningExplanation(args: {
+  agentName: AgentName;
+  rawReasoning: string;
+  agentOutputSummary: string;
+  personaContext?: string;
+}): Promise<ReasoningExplanation> {
+  const params = new URLSearchParams({
+    agent_name: args.agentName,
+    raw_reasoning: args.rawReasoning,
+    agent_output_summary: args.agentOutputSummary,
+  });
+  if (args.personaContext) {
+    params.set("persona_context", args.personaContext);
+  }
+  const res = await fetch(`${API_BASE}/v1/reasoning/explain?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return ReasoningExplanationSchema.parse(data);
+}
