@@ -26,7 +26,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response
@@ -2470,3 +2470,131 @@ async def get_reasoning_explain(
         explanation.confidence,
     )
     return explanation.model_dump(mode="json")
+
+
+# ============================================================================
+# GET /v1/cost-health — Cost Anomaly Hunter Agent (Plan CC)
+# ============================================================================
+# CostAnomalyDetector (純計算) + CostRootCauseAgent (LLM) で GCP cost data から
+# 異常検知 + 根本原因診断 + 削減提案。自動 cost 削減 action は実装しない (人間レビュー前提)。
+# MVP: Firestore 連携なし、infra/seed/cost_observations_sample.json から相対日付で fetch。
+# ============================================================================
+
+
+_COST_HEALTH_CACHE = _TTLCache(maxsize=32, ttl_sec=600.0)  # 10 分 TTL
+
+_COST_DETECTOR: Any = None
+_COST_ROOT_CAUSE_AGENT: Any = None
+
+
+def _get_cost_detector() -> Any:
+    global _COST_DETECTOR
+    if _COST_DETECTOR is None:
+        from agents.cost_hunter import CostAnomalyDetector
+
+        _COST_DETECTOR = CostAnomalyDetector()
+    return _COST_DETECTOR
+
+
+def _get_cost_root_cause_agent() -> Any:
+    global _COST_ROOT_CAUSE_AGENT
+    if _COST_ROOT_CAUSE_AGENT is None:
+        from agents.cost_hunter import CostRootCauseAgent
+
+        _COST_ROOT_CAUSE_AGENT = CostRootCauseAgent(project_id=os.getenv("GCP_PROJECT_ID") or None)
+    return _COST_ROOT_CAUSE_AGENT
+
+
+@app.get("/v1/cost-health")
+async def get_cost_health(
+    response: Response,
+    days: int = Query(default=30, ge=7, le=90),
+    limit_entries: int = Query(default=20, ge=1, le=50),
+) -> dict:
+    """Cost Anomaly Hunter (Plan CC): sample seed → Detector → RootCauseAgent → 提案集約。
+
+    自動 cost 削減 action は実行しない (人間レビュー前提、PROJECT.md §5)。
+    """
+    from agents.cost_hunter import (
+        detect_cross_service_pattern,
+        load_sample_seed,
+    )
+    from agents.cost_hunter.schema import (
+        CostHealthEntry,
+        CostHealthResponse,
+    )
+
+    response.headers["Cache-Control"] = "private, max-age=0, no-cache"
+
+    cache_key = ("cost_health", days, limit_entries)
+    cached = _COST_HEALTH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Step 1: sample seed (将来 GCP Billing API 連携時に差し替え)
+    observations = load_sample_seed()
+
+    # Step 2: Detector で異常検知
+    detector = _get_cost_detector()
+    all_anomalies = detector.detect_anomalies(observations)
+
+    # 重要 (spike/drift) のみ抽出、severity 降順 + spike_ratio 降順で sort
+    significant = [a for a in all_anomalies if a.anomaly_type != "normal"]
+    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    significant.sort(
+        key=lambda a: (
+            severity_rank.get(a.severity, 99),
+            -a.spike_ratio,
+        )
+    )
+    significant = significant[:limit_entries]
+
+    # Step 3: RootCauseAgent で各異常に提案
+    root_cause_agent = _get_cost_root_cause_agent()
+    entries: list[CostHealthEntry] = []
+    estimated_total_savings = 0
+    by_service: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+
+    for anomaly in significant:
+        try:
+            proposal = root_cause_agent.propose(anomaly, trend_summary="")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "cost_health.proposal_failed service=%s err=%s",
+                anomaly.service,
+                exc,
+            )
+            continue
+
+        entries.append(CostHealthEntry(anomaly=anomaly, proposal=proposal))
+        estimated_total_savings += proposal.monthly_savings_estimate_jpy
+        by_service[anomaly.service] = by_service.get(anomaly.service, 0) + 1
+        by_severity[anomaly.severity] = by_severity.get(anomaly.severity, 0) + 1
+
+    # Step 4: 横断パターン (Reviewer Medium #4、Plan F 差別化)
+    cross_pattern = detect_cross_service_pattern(all_anomalies)
+
+    today = datetime.now(UTC).date()
+    response_obj = CostHealthResponse(
+        period_start=today - timedelta(days=days),
+        period_end=today,
+        total_anomalies=len(significant),
+        by_service=by_service,
+        by_severity=by_severity,
+        estimated_total_savings_jpy=estimated_total_savings,
+        entries=entries,
+        cross_service_pattern=cross_pattern,
+    )
+
+    result = response_obj.model_dump(mode="json")
+    _COST_HEALTH_CACHE.set(cache_key, result)
+    logger.info(
+        "cost_health.done days=%d n_anomalies=%d n_entries=%d estimated_savings=¥%d cross=%s",
+        days,
+        len(significant),
+        len(entries),
+        estimated_total_savings,
+        bool(cross_pattern),
+    )
+    return result
