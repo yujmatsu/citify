@@ -241,6 +241,32 @@
 
 ---
 
+### A-22. Cost Anomaly Hunter Agent(Plan CC、最後の余裕枠 COULD)
+
+**説明**:GCP リソース (BigQuery / Cloud Run / Firestore / Vertex AI 等) の日次 cost data から **異常スパイク検知 + 根本原因仮説 + 削減提案** を 2 段階 Agent で生成。Plan F (Scraper Doctor) と類似パターンの「運用負荷を Agent が肩代わり」演出 + cost ドメイン固有の **横断パターン認識** + **削減金額予測** で差別化。**自動 cost 削減 action は絶対実装しない**(PROJECT.md §5)。
+
+**受け入れ条件**:
+- `agents/cost_hunter/` 独立モジュール:`CostAnomalyDetector`(純計算、Plan Z forecast engine と一貫) + `CostRootCauseAgent`(LLM、Plan F と一貫)
+- 異常分類 4 種:`spike` / `drift_up` / `drift_down` / `normal`(Reviewer Medium #5、slope 符号で drift 方向区別)
+- 提案 action 5 種:`scale_down` / `optimize_query` / `investigate_logs` / `rate_limit` / `manual_review`
+- **3 層構造的安全性**:
+  1. `monthly_savings_estimate_jpy` schema `le=100_000` + server clamp(Reviewer Critical、LLM overshoot 二重防御)
+  2. `requires_human_review=True` schema 強制(Plan F と一貫)
+  3. `scale_down` + `vertex_ai`/`cloud_run` → 自動 `risky` 上書き(Reviewer High #3、ユーザー影響大誤提案防止)
+- 倫理ガード:Plan PP / F と同じ `_detect_any_leak` を rationale + hypothesis に適用、leak 時 rule_based fallback
+- `GET /v1/cost-health?days=30&limit_entries=20` endpoint
+- Sample seed(`infra/seed/cost_observations_sample.json`、30 日 × 4 services = 120 観測点、`days_ago` 相対日付で将来腐敗回避(Reviewer Low #6))
+- Plan F との差別化:**`detect_cross_service_pattern`**(同日複数 service spike で deploy 起因 rule-based 推定、Reviewer Medium #4)
+- Frontend `/admin/costs` page:**常設 disclaimer**(自動削減なし)+ **簡易 admin ガード** + Suspense ラップ + StatsSummary(**¥ savings 表示**) + CrossServicePattern banner + AnomalyCard
+- 34 unit/integration test、既存 366 + 34 = 400 passed
+- 工数 10-12h 実績(余裕枠 18h 想定の圧縮版)
+
+**依存**:Plan Z(純計算 engine パターン流用)、Plan F(2 段階 Agent + admin ガード + disclaimer)、Plan PP(`_detect_any_leak` 流用、3 層)
+
+**Drop 判断**:このまま実装(余裕枠 COULD で完了、バランス版 11 機能の最後を埋める)
+
+---
+
 ### A-21. Reasoning Transparency Agent(Plan PP、Meta-Reasoner)
 
 **説明**:各 Agent (Concierge / Translator / Critic / Heatmap / Timeline / Forecast / Doctor の 7 種) の `reasoning` を **第三者観測者視点で再構成 + counterfactual 付与** する Meta-Agent。Reflexion (Shinn 2023) / Self-Refine (Madaan 2023) / Chain-of-Verification (Dhuliawala 2023) 系の文献的支持があり、ハッカソン審査基準①「マルチエージェント必然性」を補強(単なる 2 回 LLM 呼び出しではなく、内部ログ→ユーザー教育価値の変換)。

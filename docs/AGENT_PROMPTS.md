@@ -812,6 +812,156 @@ agents/reasoner/
 
 ---
 
+### 0.13 Cost Anomaly Hunter Agent (Plan CC 実装済、最後の余裕枠)
+
+GCP リソース (BigQuery / Cloud Run / Firestore / Vertex AI 等) の日次 cost data から **異常スパイク検知** + 根本原因仮説 + 削減提案を 2 段階 Agent で生成。**自動 cost 削減 action は絶対実装しない** (PROJECT.md §5、Plan F と同じ倫理境界)。
+
+```python
+# 利用例
+from agents.cost_hunter import (
+    CostAnomalyDetector,
+    CostRootCauseAgent,
+    load_sample_seed,
+    detect_cross_service_pattern,
+)
+
+observations = load_sample_seed()  # MVP: sample seed、将来 GCP Billing API
+detector = CostAnomalyDetector()
+anomalies = detector.detect_anomalies(observations)
+# .anomaly_type: "spike" | "drift_up" | "drift_down" | "normal"
+# .severity / .z_score / .spike_ratio
+
+root_cause = CostRootCauseAgent(project_id="citify-dev")
+for anomaly in anomalies:
+    if anomaly.anomaly_type != "normal":
+        proposal = root_cause.propose(anomaly)
+        # .proposed_action / .rationale / .monthly_savings_estimate_jpy (≤ ¥100,000)
+        # .risk_assessment / .requires_human_review (=True 強制)
+
+# Plan F との差別化: 横断パターン認識
+cross = detect_cross_service_pattern(anomalies)
+# 同日に複数 service で spike → "deploy 起因の可能性" rule-based message
+```
+
+#### 2 段階構成 (Plan F / Plan Z と一貫)
+
+```
+CostAnomalyDetector (純計算、numpy なし)
+  ├─ 入力: list[CostObservation] (date × service × cost_jpy)
+  └─ 出力: list[CostAnomaly]
+        ├─ baseline_avg_7d / stddev (Plan Z forecast の純計算パターン流用)
+        ├─ z_score / spike_ratio
+        ├─ anomaly_type: "spike" | "drift_up" | "drift_down" | "normal" (Reviewer Medium #5、slope 符号で drift 方向区別)
+        └─ severity: 4 段階 (spike_ratio から)
+
+CostRootCauseAgent (Gemini Flash + Chain-of-Thought)
+  ├─ 入力: CostAnomaly + trend summary
+  └─ 出力: CostRootCauseProposal
+        ├─ root_cause_hypothesis (240 字) / rationale (240 字)
+        ├─ proposed_action: 5 種 (scale_down / optimize_query / investigate_logs / rate_limit / manual_review)
+        ├─ monthly_savings_estimate_jpy (schema le=100_000 + server clamp、Reviewer Critical 二重防御)
+        ├─ risk_assessment / **requires_human_review=True 強制**
+        └─ source ("llm" / "rule_based")
+```
+
+#### 構造的安全性 (3 層、Plan F と一貫)
+
+1. **`monthly_savings_estimate_jpy` 上限 cap** (Reviewer Critical):
+   - schema `Field(ge=0, le=100_000)` で LLM overshoot を構造防止
+   - server side `max(0, min(value, 100_000))` で二重 clamp
+2. **`requires_human_review=True` 強制**: LLM が False を返してもサーバー側で True 上書き (Plan F と同じ Auto-action 防止)
+3. **`scale_down` + `vertex_ai`/`cloud_run` → 自動 `risky` 上書き** (Reviewer High #3):
+   - ユーザー影響大の組合せは LLM が `safe` で返してもサーバー側で `risky` に強制
+   - 「LLM 利用全停止」「公開機能停止」のような誤提案リスクを構造的に防止
+
+#### 倫理ガード (Plan PP / F と一貫)
+
+- Plan Z の `_detect_any_leak` を `root_cause_hypothesis` + `rationale` に適用
+- leak 検出時は `rule_based` fallback (leaked 文字列ユーザー向けに残らない)
+- cost data 自体は通常 PII を含まないが、念のため 47 県 + 主要市区 + 政治家/政党を 3 層チェック
+
+#### Plan F との差別化 (Reviewer Medium #4)
+
+| 観点 | Plan F (Scraper Doctor) | Plan CC (Cost Hunter) |
+|---|---|---|
+| **入力 source** | Firestore failure log | GCP Billing-like cost time series |
+| **検知ロジック** | error_type → category 分類 | 純計算 (z-score + slope 符号 + spike_ratio) |
+| **横断パターン** | (なし) | **`detect_cross_service_pattern`**: 同日複数 service spike で deploy 起因推定 |
+| **削減見積もり** | (なし) | **`monthly_savings_estimate_jpy`**: 上限 ¥100,000 cap |
+| **risky 自動上書き** | (なし) | **`scale_down` + vertex_ai/cloud_run** → 強制 risky |
+
+→ Plan F と類似パターンを保ちつつ、cost ドメイン固有の **横断パターン認識** + **削減金額予測** + **ユーザー影響 service の特別扱い** で差別化。
+
+#### Sample seed (`infra/seed/cost_observations_sample.json`)
+
+30 日 × 4 services = 120 観測点、`days_ago` 相対日付指定 (Reviewer Low #6: 将来腐敗回避):
+- **bigquery**: 220-280 円 baseline、days_ago=10 で **2800 円 spike** (重い ANALYZE クエリ想定、~12x)
+- **cloud_run**: 100-140 円 baseline、days_ago=10 で **850 円 spike** (bigquery と同日 → cross_service_pattern 検出)
+- **firestore**: 安定 50 円 (normal/baseline 確認用、異常なし)
+- **vertex_ai**: 300 → 850 円 (徐々増、**drift_up** 検出、LLM 利用増想定)
+
+→ Detector が **少なくとも 2 spike + 1 drift_up** を確実に検知 (Reviewer High #2 保証)。
+
+#### LLM パラメータ
+
+```python
+DEFAULT_TEMPERATURE = 0.2  # 診断は再現性重視
+DEFAULT_MAX_OUTPUT_TOKENS = 1024
+DEFAULT_THINKING_BUDGET = 256
+```
+
+#### 公開 endpoint
+
+- `GET /v1/cost-health?days=30&limit_entries=20`
+- response: `{ period_start, period_end, total_anomalies, by_service, by_severity, estimated_total_savings_jpy, entries[], cross_service_pattern, disclaimer }`
+- `_COST_HEALTH_CACHE` TTL=10 分
+
+#### Frontend (`/admin/costs`)
+
+- **Suspense ラップ** (Next.js 16 要件、useSearchParams() を内部 component に閉じ込め)
+- **簡易 admin ガード** (`NEXT_PUBLIC_ADMIN_TOKEN` env + URL `?token=...`)
+- **常設 disclaimer banner** (自動削減なし明示)
+- StatsSummary: 異常件数 + **推定月次削減額 (Plan F にない金額表示)** + severity/service 別
+- **CrossServicePattern** banner (横断パターン検出時のみ、Plan F との差別化視覚化)
+- AnomalyCard 折りたたみ (RootCause hypothesis + Repair proposal + ¥ savings + 「提案をコピー」)
+
+#### モジュール構成
+
+```
+agents/cost_hunter/
+├── __init__.py            # 全シンボル export + load_sample_seed
+├── schema.py              # CostObservation / CostAnomaly / CostRootCauseProposal (le=100_000) / CostHealthEntry / CostHealthResponse (cross_service_pattern)
+├── detector.py            # CostAnomalyDetector + classify_severity + _slope_sign + detect_cross_service_pattern (Plan F 差別化)
+├── main.py                # CostRootCauseAgent + _enforce_safety_constraints (3 層構造防止) + _default_action_for (rule_based)
+├── seed_loader.py         # load_sample_seed (days_ago → today - N 変換、Reviewer Low #6)
+├── prompts/
+│   └── system.py          # ROOT_CAUSE_SYSTEM_PROMPT + build_root_cause_user_prompt
+└── tests/
+    ├── test_detector.py   # 15 unit test
+    └── test_root_cause.py # 12 unit test
+```
+
+#### テスト数
+
+| ファイル | 件数 | カバー範囲 |
+|---|---|---|
+| `agents/cost_hunter/tests/test_detector.py` | 15 | 正常 / spike (3σ保証) / drift_up / drift_down / data 不足 / severity 境界 / zero stddev/baseline ガード / slope_sign / cross_service_pattern 検出/非検出 / BASELINE_WINDOW |
+| `agents/cost_hunter/tests/test_root_cause.py` | 12 | LLM 成功 / 失敗 fallback / leak fallback / savings schema 上限 / server clamp / scale_down+vertex_ai→risky / +cloud_run→risky / +bigquery=moderate 据置 / requires_human_review 強制 / schema default / service 別 action マッピング |
+| `apps/api/tests/test_cost_health_endpoint.py` | 7 | 200 + 構造 / cross_service_pattern 検出 / agent クラッシュ skip / disclaimer / savings 合計 / seed 相対日付 / 不在 graceful |
+
+→ **計 34 件**、既存 366 + 34 = **400 passed**。
+
+#### Backward compatibility / Out of Scope
+
+- **Auto cost 削減 action 絶対禁止** (PROJECT.md §5、Plan F と同じ倫理境界)
+- 実 GCP Billing API 連携 (BigQuery export 経由) は別 Plan、MVP は sample seed
+- 予算 alert / 通知連携 (Slack / メール) は別 Plan
+- 複数 GCP project 横断分析 (1 project のみ)
+- 月次 forecast (Plan Z の forecast engine を流用すれば将来可能)
+- ADK 化
+
+---
+
 ## 1. 収集 Agent (Collector)
 
 ### 1.1 役割
