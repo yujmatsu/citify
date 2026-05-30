@@ -49,7 +49,7 @@
     "stack_trace": "Traceback (most recent call last):\n  File \"scrapers/press_rss/client.py\", line 185, in _get_bytes\n    response.raise_for_status()\nhttpx.HTTPStatusError: Client error '404 Not Found' for url 'https://www.city.saga.lg.jp/rss/rss.xml'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
     "html_snippet": "<html><body><h1>404 - File or directory not found.</h1></body></html>",
     "duration_ms": 2800,
-    "_note": "2026-05-30 の publish-all で新規発見。RSS URL が廃止/移転された可能性。要 manual 調査 + municipality_master.csv 更新。"
+    "_note": "2026-05-30 の publish-all で新規発見。調査の結果、佐賀市は ~2026-05-29 のサイトリニューアルで RSS フィードを完全廃止 (新着は news_list.html の HTML のみ)。移転先 RSS は存在せず、municipality_master.csv の press_rss_url を空化して drop 済 (津山市 33203 と同じ対応)。"
   },
   {
     "failure_id": "press_rss__2026-05-28T22:36:21__0005",

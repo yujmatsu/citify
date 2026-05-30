@@ -1574,7 +1574,7 @@ municipality_code,name,prefecture,kana,population,scraper_type,scraper_base_url,
 40646,上毛町,福岡県,コウゲマチ,,unknown,,,,,3,false,,https://www.town.koge.lg.jp/,guess,失敗,,,RSSフィードを発見できず(26候補試行),2026-05-27T23:43:13
 40647,築上町,福岡県,チクジョウマチ,,unknown,,,,,3,false,,https://www.town.chikujo.fukuoka.jp/,guess,失敗,,,RSSフィードを発見できず(29候補試行),2026-05-27T23:43:13
 41000,佐賀県,佐賀県,サガケン,,unknown,,,,,3,false,prefecture_aggregate,,,,,,,
-41201,佐賀市,佐賀県,サガシ,,unknown,,,https://www.city.saga.lg.jp/rss/rss.xml,,3,false,,https://www.city.saga.lg.jp/,guess,確認済,2026-05-27T09:31:09,20,,2026-05-27T23:43:15
+41201,佐賀市,佐賀県,サガシ,,unknown,,,,,3,false,2026-05-30サイトリニューアルでRSS廃止 旧/rss/rss.xmlは404 新着はnews_list.htmlのみ,https://www.city.saga.lg.jp/,guess,RSS廃止,2026-05-27T09:31:09,0,HTTP404-site-renewal-2026-05-29-RSS-decommissioned,2026-05-30T00:00:00
 41202,唐津市,佐賀県,カラツシ,,unknown,,,,,3,false,,http://www.karatu.jp/,guess,失敗,,,RSSフィードを発見できず(26候補試行),2026-05-27T23:43:18
 41203,鳥栖市,佐賀県,トスシ,,unknown,,,https://www.city.tosu.lg.jp/rss/10/list3.xml,,3,false,,https://www.city.tosu.lg.jp/,guess,確認済,2026-05-19T23:30:00,5,,2026-05-27T23:43:18
 41204,多久市,佐賀県,タクシ,,unknown,,,https://www.city.taku.lg.jp/rss/10/list1.xml,,3,false,,https://www.city.taku.lg.jp/,guess,確認済,2026-05-27T15:00:00,50,,2026-05-27T23:43:20
