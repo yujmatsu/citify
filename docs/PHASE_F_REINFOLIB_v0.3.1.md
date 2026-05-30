@@ -505,5 +505,37 @@ v0.3 Reviewer の中・低指摘で本仕様書本体に反映していない項
 
 ### 既知の課題 (フォローアップ)
 
-- **population_2025/2050 の異常値**: 13104 (新宿区) で `population_2025_estimated=21,905,800` 等、実人口を大きく超える値。XKT013 250m メッシュ集計のバウンディングボックスが広すぎる fetch/normalize 由来の問題 (本 MERGE は CSV を忠実に反映)。**Phase F v4 fetch-all 側で要修正** (このまま UI 表示するとハリボテ感が増すため)
+- ~~**population_2025/2050 の異常値**~~ → **v0.4.1 (TASK-POPFIX) で対応済**。下記参照。
 - 未 MATCH ~185 コードの新規 INSERT は e-Stat 行整合確認の上で別タスク
+
+---
+
+## v0.4.1 — population 異常値の NULL化 + e-Stat 採用 (2026-05-30、TASK-POPFIX)
+
+> v0.4 で MERGE した XKT013 由来の population が **全国 88% (1467/1662) で実人口の 2倍超** (最悪 14402 で 2870倍、新宿区で 2190万人) という異常値だったため、当該 3 列を NULL化し、人口は正確な **e-Stat を SSoT** に切り替えた。
+
+### 原因
+
+`scrapers/reinfolib/parsers/xkt013.py` が **z=11 の 3×3 タイル (~50km四方) の全メッシュを合算**しており、自治体ポリゴンで絞り込んでいないため、全国どこでも近隣自治体の人口を巻き込んで膨張。
+
+### 対応 (NULL化 + e-Stat 張り替え)
+
+| 対象 | 変更 |
+|---|---|
+| BQ `municipality_stats` | `population_2025_estimated` / `population_2050_estimated` / `population_change_2025_2050_pct` を全 1794 行 NULL化 (1662 → 0)。e-Stat 列 (`population_total` 1787 / `population_change_pct` 1782) は不変 |
+| `load_reinfolib_stats.py` | 上記 3 列を schema/parse/MERGE/dry-run から恒久除外 (再 MERGE で異常値が戻らない durability) |
+| `heatmap_advisor` (main.py / prompts/system.py) | 「税」「移住」軸を `population_change_2025_2050_pct` → e-Stat `population_change_pct` (人口増減率、直近国勢調査) に張り替え |
+| `apps/api/main.py` heatmap allowlist | 同上の column 名を張り替え (ValueError 防止) |
+| `concierge` (tools.py / schema.py) | 成長フィルタ・表示・candidate を `population_change_pct` に張り替え。`MunicipalityCandidate` フィールドをリネーム |
+| `demo_concierge.py` / `apps/web/src/lib/api.ts` | candidate フィールド名を追従 |
+| city ダッシュボード「2050年予測人口」カード | API が NULL を返すため **自動非表示** (改修不要)。総人口は e-Stat 継続表示 |
+
+### 検証
+
+- BQ: 3 列とも非 null 0 件、e-Stat 列不変
+- backend regression: POPFIX 由来の失敗 0 件、heatmap/concierge/load テスト全 pass
+- frontend: `tsc --noEmit` 型エラーなし
+
+### フォローアップ (別タスク)
+
+- **XKT013 を SHICODE 絞り込みに修正 + 2020-2050 人口推移グラフ** (`PT00_2020`〜`PT00_2050` の 5 年刻みを正しく自治体集計 → Plan Z の `ForecastChart` SVG 再利用)。将来予測を正しく復活させ「あなたの街は 2050 年に何 % 減るか」を可視化する

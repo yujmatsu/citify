@@ -67,9 +67,9 @@ def test_interest_hits_医療_returns_true_when_medical_positive() -> None:
 def test_interest_hits_proxy_interests_use_population_growth() -> None:
     """結婚/雇用/税/起業/移住 は population_change で proxy 判定。"""
     # -5% growth (within -10%) → hit
-    assert _interest_hits("結婚", {"population_change_2025_2050_pct": -5.0}) is True
+    assert _interest_hits("結婚", {"population_change_pct": -5.0}) is True
     # -20% growth → not hit
-    assert _interest_hits("雇用", {"population_change_2025_2050_pct": -20.0}) is False
+    assert _interest_hits("雇用", {"population_change_pct": -20.0}) is False
 
 
 def test_interest_match_score_distinct_thresholds() -> None:
@@ -86,7 +86,7 @@ def test_calc_match_score_full_house() -> None:
     row = {
         "used_apartment_median_price_man_yen": 4000,
         "childcare_facility_count": 50,
-        "population_change_2025_2050_pct": 5.0,
+        "population_change_pct": 5.0,
     }
     total, matched = _calc_match_score(["住居", "子育て"], row, constraint_pass=True)
     # 40 (2 hits) + 25 (constraint) + 10 (positive growth) + 15 (base) = 90
@@ -98,7 +98,7 @@ def test_calc_match_score_no_hit_no_constraint_returns_base_only() -> None:
     row = {
         "used_apartment_median_price_man_yen": None,
         "childcare_facility_count": 0,
-        "population_change_2025_2050_pct": None,
+        "population_change_pct": None,
     }
     total, matched = _calc_match_score(["住居"], row, constraint_pass=False)
     # 0 (no hit) + 0 (no constraint) + 0 (no growth bonus) + 15 (base) = 15
@@ -142,7 +142,7 @@ def test_build_constraint_where_multiple_clauses_combined() -> None:
     # 3 clauses 全てが含まれる (順序問わず)
     assert "childcare_facility_count >= @min_childcare" in where
     assert "medical_facility_count >= @min_medical" in where
-    assert "population_change_2025_2050_pct > 0" in where
+    assert "population_change_pct > 0" in where
     # 結果 params に 2 個 (growth は SQL 内 hard-code、param 不要)
     assert "min_childcare" in params
     assert "min_medical" in params
@@ -160,7 +160,7 @@ def test_format_summary_with_all_fields() -> None:
         "used_apartment_median_price_man_yen": 4200,
         "childcare_facility_count": 45,
         "medical_facility_count": 220,
-        "population_change_2025_2050_pct": -12.3,
+        "population_change_pct": -12.3,
     }
     text = _format_summary(row)
     assert "150,000 人" in text
@@ -211,7 +211,7 @@ def test_search_municipalities_returns_sorted_by_match_score() -> None:
             "used_apartment_median_price_man_yen": 6000,
             "childcare_facility_count": 80,
             "medical_facility_count": 500,
-            "population_change_2025_2050_pct": -8.5,
+            "population_change_pct": -8.5,
             "emergency_shelter_count": 100,
             "kindergarten_count": 30,
         },
@@ -224,7 +224,7 @@ def test_search_municipalities_returns_sorted_by_match_score() -> None:
             "used_apartment_median_price_man_yen": 3500,
             "childcare_facility_count": 120,
             "medical_facility_count": 600,
-            "population_change_2025_2050_pct": 2.0,
+            "population_change_pct": 2.0,
             "emergency_shelter_count": 150,
             "kindergarten_count": 40,
         },
@@ -404,7 +404,7 @@ def test_fetch_city_dashboard_returns_stats_and_topics() -> None:
         "childcare_facility_count": 80,
         "medical_facility_count": 500,
         "emergency_shelter_count": 100,
-        "population_change_2025_2050_pct": -8.5,
+        "population_change_pct": -8.5,
     }
     # 2nd query: speeches with matched_interests for topic count
     speech_rows = [

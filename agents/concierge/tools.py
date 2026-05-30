@@ -80,9 +80,7 @@ def _build_constraint_where(c: ConstraintFilter) -> tuple[str, dict[str, Any]]:
         clauses.append("population_total <= @max_pop")
         params["max_pop"] = ("INT64", c.max_population)
     if c.require_positive_population_growth:
-        clauses.append(
-            "(population_change_2025_2050_pct IS NOT NULL AND population_change_2025_2050_pct > 0)"
-        )
+        clauses.append("(population_change_pct IS NOT NULL AND population_change_pct > 0)")
     if c.prefecture_codes:
         clauses.append("SUBSTR(municipality_code, 1, 2) IN UNNEST(@prefs)")
         params["prefs"] = ("STRING", c.prefecture_codes)
@@ -119,7 +117,7 @@ def _interest_hits(interest: Interest, row: dict[str, Any]) -> bool:
         return (row.get("emergency_shelter_count") or 0) > 0
     # 結婚 / 雇用 / 税 / 起業 / 移住 は stats で直接判定不可、人口変動で proxy
     if interest in ("結婚", "雇用", "税", "起業", "移住"):
-        growth = row.get("population_change_2025_2050_pct")
+        growth = row.get("population_change_pct")
         return growth is not None and growth > -10  # -10% 以内なら住みやすいと proxy 判定
     return False
 
@@ -139,7 +137,7 @@ def _calc_match_score(
     interest_score = _interest_match_score(matched)
     constraint_score = 25.0 if constraint_pass else 0.0
 
-    growth = row.get("population_change_2025_2050_pct")
+    growth = row.get("population_change_pct")
     growth_bonus = 10.0 if (growth is not None and growth > 0) else 0.0
 
     base = 15.0
@@ -163,7 +161,7 @@ def _row_to_candidate(
         used_apartment_median_price_man_yen=row.get("used_apartment_median_price_man_yen"),
         childcare_facility_count=row.get("childcare_facility_count"),
         medical_facility_count=row.get("medical_facility_count"),
-        population_change_2025_2050_pct=row.get("population_change_2025_2050_pct"),
+        population_change_pct=row.get("population_change_pct"),
         matched_interests=matched_interests,
         summary_text=_format_summary(row),
     )
@@ -182,9 +180,9 @@ def _format_summary(row: dict[str, Any]) -> str:
         parts.append(f"保育施設 {row['childcare_facility_count']} 件")
     if row.get("medical_facility_count") is not None:
         parts.append(f"医療機関 {row['medical_facility_count']} 件")
-    if row.get("population_change_2025_2050_pct") is not None:
-        growth = row["population_change_2025_2050_pct"]
-        parts.append(f"2050 人口変動 {growth:+.1f}%")
+    if row.get("population_change_pct") is not None:
+        growth = row["population_change_pct"]
+        parts.append(f"人口増減率 {growth:+.1f}%")
     return " / ".join(parts)
 
 
@@ -223,8 +221,7 @@ def search_municipalities(
             childcare_facility_count, kindergarten_count, nursery_count,
             medical_facility_count, medical_hospital_count, medical_clinic_count,
             emergency_shelter_count,
-            population_change_2025_2050_pct,
-            population_2025_estimated, population_2050_estimated
+            population_change_pct
         FROM `{table_fqn}`
         WHERE {where}
     """  # noqa: S608
@@ -429,7 +426,7 @@ def fetch_city_dashboard(
                     "childcare_facility_count",
                     "medical_facility_count",
                     "emergency_shelter_count",
-                    "population_change_2025_2050_pct",
+                    "population_change_pct",
                 )
                 and v is not None
             }

@@ -81,7 +81,7 @@ class MunicipalityCandidate(BaseModel):
     used_apartment_median_price_man_yen: float | None = None
     childcare_facility_count: int | None = None
     medical_facility_count: int | None = None
-    population_change_2025_2050_pct: float | None = None
+    population_change_pct: float | None = None  # e-Stat 直近国勢調査ベース (TASK-POPFIX)
     matched_interests: list[Interest] = Field(
         default_factory=list, description="どの interest 軸に hit したか"
     )

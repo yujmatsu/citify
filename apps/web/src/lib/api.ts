@@ -378,7 +378,7 @@ export const MunicipalityCandidateSchema = z.object({
   used_apartment_median_price_man_yen: z.number().nullable().optional(),
   childcare_facility_count: z.number().int().nullable().optional(),
   medical_facility_count: z.number().int().nullable().optional(),
-  population_change_2025_2050_pct: z.number().nullable().optional(),
+  population_change_pct: z.number().nullable().optional(),
   matched_interests: z.array(z.string()).default([]),
   summary_text: z.string().default(""),
 });

@@ -57,8 +57,8 @@ FALLBACK_METRIC_BY_INTEREST: dict[Interest, HeatmapMetricSpec] = {
         unit="件",
     ),
     "税": HeatmapMetricSpec(
-        column="population_change_2025_2050_pct",
-        label_ja="2050 年人口変動率",
+        column="population_change_pct",
+        label_ja="人口増減率 (直近国勢調査)",
         direction="higher_is_better",
         unit="%",
     ),
@@ -87,8 +87,8 @@ FALLBACK_METRIC_BY_INTEREST: dict[Interest, HeatmapMetricSpec] = {
         unit="件",
     ),
     "移住": HeatmapMetricSpec(
-        column="population_change_2025_2050_pct",
-        label_ja="2050 年人口変動率",
+        column="population_change_pct",
+        label_ja="人口増減率 (直近国勢調査)",
         direction="higher_is_better",
         unit="%",
     ),

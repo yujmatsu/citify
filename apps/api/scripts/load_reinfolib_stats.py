@@ -125,12 +125,10 @@ def load_normalized_csv(csv_path: Path) -> list[dict[str, object]]:
                     "emergency_shelter_official_link": _parse_str(
                         raw.get("emergency_shelter_official_link")
                     ),
-                    # Phase F v3: XKT013/XKT010/XKT007 (CSV にカラムがあれば値、なければ None)
-                    "population_2025_estimated": _parse_int(raw.get("population_2025_estimated")),
-                    "population_2050_estimated": _parse_int(raw.get("population_2050_estimated")),
-                    "population_change_2025_2050_pct": _parse_float(
-                        raw.get("population_change_2025_2050_pct")
-                    ),
+                    # Phase F v3: XKT010/XKT007 (CSV にカラムがあれば値、なければ None)
+                    # NOTE: XKT013 由来の population_2025/2050/change は TASK-POPFIX (2026-05-30) で
+                    # 除外。z=11 50km四方メッシュ合算が全国 88% で実人口の 2倍超 (最悪 2870倍) の
+                    # 異常値になるため。人口は e-Stat (population_total / population_change_pct) を SSoT 化。
                     "medical_facility_count": _parse_int(raw.get("medical_facility_count")),
                     "medical_hospital_count": _parse_int(raw.get("medical_hospital_count")),
                     "medical_clinic_count": _parse_int(raw.get("medical_clinic_count")),
@@ -166,10 +164,7 @@ def write_to_bq(
         bigquery.SchemaField("used_apartment_avg_building_age", "FLOAT", mode="NULLABLE"),
         bigquery.SchemaField("emergency_shelter_count", "INTEGER", mode="NULLABLE"),
         bigquery.SchemaField("emergency_shelter_official_link", "STRING", mode="NULLABLE"),
-        # Phase F v3
-        bigquery.SchemaField("population_2025_estimated", "INTEGER", mode="NULLABLE"),
-        bigquery.SchemaField("population_2050_estimated", "INTEGER", mode="NULLABLE"),
-        bigquery.SchemaField("population_change_2025_2050_pct", "FLOAT", mode="NULLABLE"),
+        # Phase F v3 (XKT013 population は TASK-POPFIX で除外。e-Stat を SSoT 化)
         bigquery.SchemaField("medical_facility_count", "INTEGER", mode="NULLABLE"),
         bigquery.SchemaField("medical_hospital_count", "INTEGER", mode="NULLABLE"),
         bigquery.SchemaField("medical_clinic_count", "INTEGER", mode="NULLABLE"),
@@ -209,9 +204,6 @@ def write_to_bq(
       used_apartment_avg_building_age = S.used_apartment_avg_building_age,
       emergency_shelter_count = S.emergency_shelter_count,
       emergency_shelter_official_link = S.emergency_shelter_official_link,
-      population_2025_estimated = S.population_2025_estimated,
-      population_2050_estimated = S.population_2050_estimated,
-      population_change_2025_2050_pct = S.population_change_2025_2050_pct,
       medical_facility_count = S.medical_facility_count,
       medical_hospital_count = S.medical_hospital_count,
       medical_clinic_count = S.medical_clinic_count,
@@ -272,8 +264,6 @@ def main() -> int:
         check_cols = (
             "used_apartment_median_price_man_yen",
             "emergency_shelter_count",
-            "population_2025_estimated",
-            "population_2050_estimated",
             "medical_facility_count",
             "childcare_facility_count",
             "kindergarten_count",

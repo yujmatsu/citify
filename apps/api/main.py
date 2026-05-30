@@ -1791,7 +1791,7 @@ def _fetch_heatmap_bq(metric_column: str, direction: str) -> tuple[list[dict], l
         "childcare_facility_count",
         "medical_facility_count",
         "emergency_shelter_count",
-        "population_change_2025_2050_pct",
+        "population_change_pct",
         "youth_share_pct",
         "elderly_share_pct",
         "birth_rate_per_1000",

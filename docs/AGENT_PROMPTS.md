@@ -263,7 +263,7 @@ LLM call の例外 or 倫理 leak 検出時は `FALLBACK_METRIC_BY_INTEREST` 固
 | 医療 | `medical_facility_count` | higher_is_better |
 | 防災 | `emergency_shelter_count` | higher_is_better |
 | 雇用/結婚/起業 | `youth_share_pct` | higher_is_better |
-| 税/移住 | `population_change_2025_2050_pct` | higher_is_better |
+| 税/移住 | `population_change_pct` (e-Stat 直近国勢調査、TASK-POPFIX で XKT013 から張替) | higher_is_better |
 | 教育 | `childcare_facility_count` | higher_is_better |
 
 reasoning に `"(rule-based) "` prefix を付与し UI で source 区別可能。

@@ -160,15 +160,15 @@ def test_all_fallback_directions_valid() -> None:
 
 
 # ============================================================================
-# 7) population_change_2025_2050_pct は higher_is_better (Reviewer Low #7 検証)
+# 7) population_change_pct は higher_is_better (Reviewer Low #7 検証)
 # ============================================================================
 
 
 def test_population_change_direction_is_higher_is_better() -> None:
     """人口維持/増加 (positive %) が好ましいので higher_is_better。"""
-    # 「移住」軸では population_change を使う想定
+    # 「移住」軸では e-Stat population_change_pct を使う (TASK-POPFIX で XKT013 から張替)
     spec = FALLBACK_METRIC_BY_INTEREST["移住"]
-    assert spec.column == "population_change_2025_2050_pct"
+    assert spec.column == "population_change_pct"
     assert spec.direction == "higher_is_better"
 
 

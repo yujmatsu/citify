@@ -53,9 +53,10 @@ def test_load_single_csv_parses_types(tmp_path: Path) -> None:
     assert r["municipality_code"] == "13104"
     assert r["used_apartment_median_price_man_yen"] == 5800  # int
     assert r["used_apartment_avg_building_age"] == 18.5  # float
-    assert r["population_change_2025_2050_pct"] == -13.3
     assert r["emergency_shelter_official_link"] == "https://hz.example/13104"  # str
     assert r["medical_facility_count"] == 500
+    # XKT013 population 列は TASK-POPFIX で除外済
+    assert "population_change_2025_2050_pct" not in r
 
 
 # ============================================================================
@@ -77,8 +78,12 @@ def test_load_csv_empty_and_nan_become_none(tmp_path: Path) -> None:
     assert r["childcare_facility_count"] is None
     assert r["kindergarten_count"] is None
     assert r["nursery_count"] is None
-    # 値ありは保持
-    assert r["population_2025_estimated"] == 1066013
+    # 値ありは保持 (emergency_shelter)
+    assert r["emergency_shelter_count"] == 498
+    # XKT013 population 列は TASK-POPFIX で除外済 (dict に存在しない)
+    assert "population_2025_estimated" not in r
+    assert "population_2050_estimated" not in r
+    assert "population_change_2025_2050_pct" not in r
 
 
 # ============================================================================
