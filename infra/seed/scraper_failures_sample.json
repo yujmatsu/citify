@@ -1,0 +1,122 @@
+[
+  {
+    "failure_id": "kaigiroku_net__2026-05-15T03:00:00__0001",
+    "timestamp": "2026-05-15T03:00:00",
+    "scraper": "kaigiroku_net",
+    "tenant_id": "city-yamagata",
+    "municipality_code": "06201",
+    "url": "https://discussnet.kaigiroku.net/g/yamagata/council/",
+    "error_type": "SSLError",
+    "stack_trace": "Traceback (most recent call last):\n  File \"scrapers/kaigiroku_net/client.py\", line 187, in fetch\n    response = self._session.get(url, timeout=30, verify=True)\nrequests.exceptions.SSLError: HTTPSConnectionPool(host='discussnet.kaigiroku.net', port=443): Max retries exceeded with url: /g/yamagata/council/ (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1006)')))",
+    "html_snippet": null,
+    "duration_ms": 12500
+  },
+  {
+    "failure_id": "kaigiroku_net__2026-05-16T03:00:00__0002",
+    "timestamp": "2026-05-16T03:00:00",
+    "scraper": "kaigiroku_net",
+    "tenant_id": "prefokayama",
+    "municipality_code": "33000",
+    "url": "https://www.gikai-okayama.jp/council/list",
+    "error_type": "AttributeError",
+    "stack_trace": "Traceback (most recent call last):\n  File \"scrapers/kaigiroku_net/client.py\", line 512, in parse_speech\n    text = speech_div.find('span', class_='speech-text').get_text()\nAttributeError: 'NoneType' object has no attribute 'get_text'",
+    "html_snippet": "<div class='council-page'><table><tr><td>New layout introduced 2026-05</td></tr></table><article>...</article></div>",
+    "duration_ms": 4200
+  },
+  {
+    "failure_id": "kokkai__2026-05-17T03:00:00__0003",
+    "timestamp": "2026-05-17T03:00:00",
+    "scraper": "kokkai",
+    "tenant_id": null,
+    "municipality_code": "00000",
+    "url": "https://kokkai.ndl.go.jp/api/speech",
+    "error_type": "HTTPError 503",
+    "stack_trace": "requests.exceptions.HTTPError: 503 Server Error: Service Unavailable for url: https://kokkai.ndl.go.jp/api/speech?sessionFrom=215&maximumRecords=100",
+    "html_snippet": null,
+    "duration_ms": 8000
+  },
+  {
+    "failure_id": "kokkai__2026-05-18T03:00:00__0004",
+    "timestamp": "2026-05-18T03:00:00",
+    "scraper": "kokkai",
+    "tenant_id": null,
+    "municipality_code": "00000",
+    "url": "https://kokkai.ndl.go.jp/api/speech",
+    "error_type": "HTTPError 429",
+    "stack_trace": "requests.exceptions.HTTPError: 429 Too Many Requests: Rate limit exceeded (max 60 req/min)",
+    "html_snippet": null,
+    "duration_ms": 1500
+  },
+  {
+    "failure_id": "press_rss__2026-05-19T03:00:00__0005",
+    "timestamp": "2026-05-19T03:00:00",
+    "scraper": "press_rss",
+    "tenant_id": "city-someplace",
+    "municipality_code": "14130",
+    "url": "https://example-city.lg.jp/news/rss.xml",
+    "error_type": "ParserError",
+    "stack_trace": "Traceback (most recent call last):\n  File \"scrapers/press_rss/parser.py\", line 88, in parse_feed\n    feed = feedparser.parse(content)\nfeedparser.exceptions.ParserError: not well-formed (invalid token): line 12, column 8",
+    "html_snippet": "<rss version='2.0'><channel><title>News</title><item>unclosed tag",
+    "duration_ms": 3000
+  },
+  {
+    "failure_id": "press_rss__2026-05-20T03:00:00__0006",
+    "timestamp": "2026-05-20T03:00:00",
+    "scraper": "press_rss",
+    "tenant_id": "city-otherplace",
+    "municipality_code": "20000",
+    "url": "https://example2.lg.jp/news/feed",
+    "error_type": "HTTPError 404",
+    "stack_trace": "requests.exceptions.HTTPError: 404 Not Found - feed URL moved or deleted",
+    "html_snippet": null,
+    "duration_ms": 800
+  },
+  {
+    "failure_id": "voices_asp__2026-05-21T03:00:00__0007",
+    "timestamp": "2026-05-21T03:00:00",
+    "scraper": "voices_asp",
+    "tenant_id": "city-some-asp",
+    "municipality_code": "08220",
+    "url": "https://voices.example.lg.jp/Pages/AdminViewer",
+    "error_type": "RobotsDisallowed",
+    "stack_trace": "scrapers/voices_asp/client.py: robots.txt explicitly disallows /Pages/AdminViewer",
+    "html_snippet": null,
+    "duration_ms": 100
+  },
+  {
+    "failure_id": "voices_asp__2026-05-22T03:00:00__0008",
+    "timestamp": "2026-05-22T03:00:00",
+    "scraper": "voices_asp",
+    "tenant_id": "city-timeout",
+    "municipality_code": "23100",
+    "url": "https://voices.timeout-example.lg.jp/",
+    "error_type": "ReadTimeout",
+    "stack_trace": "requests.exceptions.ReadTimeout: HTTPSConnectionPool: Read timed out (read timeout=30)",
+    "html_snippet": null,
+    "duration_ms": 30000
+  },
+  {
+    "failure_id": "reinfolib__2026-05-23T03:00:00__0009",
+    "timestamp": "2026-05-23T03:00:00",
+    "scraper": "reinfolib",
+    "tenant_id": null,
+    "municipality_code": "13104",
+    "url": "https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001",
+    "error_type": "KeyError",
+    "stack_trace": "Traceback (most recent call last):\n  File \"scrapers/reinfolib/parser.py\", line 145, in extract_price\n    price = row['Price']\nKeyError: 'Price' (API response schema changed: 'transactionPrice' is the new field)",
+    "html_snippet": "{\"results\": [{\"transactionPrice\": 5500, \"districtName\": \"...\"}]}",
+    "duration_ms": 2000
+  },
+  {
+    "failure_id": "reinfolib__2026-05-24T03:00:00__0010",
+    "timestamp": "2026-05-24T03:00:00",
+    "scraper": "reinfolib",
+    "tenant_id": null,
+    "municipality_code": null,
+    "url": "https://www.reinfolib.mlit.go.jp/ex-api/external/XKT010",
+    "error_type": "HTTPError 401",
+    "stack_trace": "requests.exceptions.HTTPError: 401 Unauthorized: API key expired or invalid",
+    "html_snippet": "{\"error\": \"Unauthorized\"}",
+    "duration_ms": 500
+  }
+]

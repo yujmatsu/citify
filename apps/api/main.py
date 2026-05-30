@@ -2263,3 +2263,145 @@ def _fetch_forecast_monthly_counts(
         )
         for r in rows
     ]
+
+
+# ============================================================================
+# GET /v1/scraper-health — Self-healing Scraper Agent (Plan F)
+# ============================================================================
+# DiagnosticAgent + RepairProposalAgent で失敗ログを診断 + 修正提案。
+# 自動 PR/commit は **実装しない** (人間レビュー前提、PROJECT.md §5 倫理境界)。
+# MVP: Firestore 失敗ログがなければ sample seed (infra/seed/scraper_failures_sample.json) を使用。
+# ============================================================================
+
+
+_SCRAPER_HEALTH_CACHE = _TTLCache(maxsize=64, ttl_sec=3600.0)  # 1 時間 TTL
+
+_DIAGNOSTIC_AGENT: Any = None
+_REPAIR_AGENT: Any = None
+_FAILURE_REPO: Any = None
+
+
+def _get_diagnostic_agent() -> Any:
+    global _DIAGNOSTIC_AGENT
+    if _DIAGNOSTIC_AGENT is None:
+        from agents.scraper_doctor import DiagnosticAgent
+
+        _DIAGNOSTIC_AGENT = DiagnosticAgent(project_id=os.getenv("GCP_PROJECT_ID") or None)
+    return _DIAGNOSTIC_AGENT
+
+
+def _get_repair_agent() -> Any:
+    global _REPAIR_AGENT
+    if _REPAIR_AGENT is None:
+        from agents.scraper_doctor import RepairProposalAgent
+
+        _REPAIR_AGENT = RepairProposalAgent(project_id=os.getenv("GCP_PROJECT_ID") or None)
+    return _REPAIR_AGENT
+
+
+def _get_failure_repo() -> Any:
+    global _FAILURE_REPO
+    if _FAILURE_REPO is None:
+        from agents.scraper_doctor.firestore_repo import FailureLogRepository
+
+        _FAILURE_REPO = FailureLogRepository()
+    return _FAILURE_REPO
+
+
+@app.get("/v1/scraper-health")
+async def get_scraper_health(
+    response: Response,
+    days: int = Query(default=7, ge=1, le=30),
+    limit: int = Query(default=50, ge=1, le=100),
+    use_sample: bool = Query(default=False, description="True なら sample seed を使用 (demo 用)"),
+) -> dict:
+    """Self-healing Scraper Agent endpoint (Plan F)。
+
+    Firestore から失敗ログを取得 → 重複排除 → DiagnosticAgent + RepairProposalAgent で診断+提案。
+    自動修正は実行しない (人間レビュー前提)。
+    """
+    from datetime import timedelta
+
+    from agents.scraper_doctor.firestore_repo import dedupe_by_pattern
+    from agents.scraper_doctor.schema import (
+        ScraperHealthEntry,
+        ScraperHealthResponse,
+    )
+
+    response.headers["Cache-Control"] = "private, max-age=0, no-cache"
+
+    cache_key = ("scraper_health", days, limit, use_sample)
+    cached = _SCRAPER_HEALTH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Step 1: 失敗ログを取得
+    repo = _get_failure_repo()
+    try:
+        if use_sample:
+            failures = repo.load_sample_seed()
+        else:
+            failures = repo.fetch_recent(days=days, limit=limit)
+            # Firestore に何もなければ sample seed に fallback (MVP / demo 用)
+            if not failures:
+                logger.info("scraper_health.no_firestore_data falling_back_to_sample")
+                failures = repo.load_sample_seed()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("scraper_health.fetch_failed err=%s", exc)
+        raise HTTPException(status_code=500, detail=f"failure fetch failed: {exc!s}") from exc
+
+    # Step 2: 重複排除 (scraper + error_type + html_signature)
+    deduped = dedupe_by_pattern(failures)
+
+    # Step 3: 各失敗を Agent 2 段階で処理 (Diagnostic → Repair)
+    diagnostic_agent = _get_diagnostic_agent()
+    repair_agent = _get_repair_agent()
+    entries: list[ScraperHealthEntry] = []
+    by_category: dict[str, int] = {}
+    by_scraper: dict[str, int] = {}
+    drop_candidates: list[str] = []
+
+    for failure in deduped[:limit]:
+        try:
+            diagnostic = diagnostic_agent.diagnose(failure)
+            proposal = repair_agent.propose(diagnostic, failure)
+        except Exception as exc:  # noqa: BLE001
+            # Agent クラッシュ時もスキップで継続 (1 失敗で全体死しない)
+            logger.warning("scraper_health.agent_failed failure=%s err=%s", failure.failure_id, exc)
+            continue
+
+        entries.append(
+            ScraperHealthEntry(failure=failure, diagnostic=diagnostic, proposal=proposal)
+        )
+        by_category[diagnostic.error_category] = by_category.get(diagnostic.error_category, 0) + 1
+        by_scraper[failure.scraper] = by_scraper.get(failure.scraper, 0) + 1
+        if (
+            proposal.proposed_action == "drop_tenant"
+            and failure.tenant_id
+            and failure.tenant_id not in drop_candidates
+        ):
+            drop_candidates.append(failure.tenant_id)
+
+    period_end = datetime.now(UTC)
+    period_start = period_end - timedelta(days=days)
+
+    response_obj = ScraperHealthResponse(
+        period_start=period_start,
+        period_end=period_end,
+        total_failures=len(deduped),
+        by_category=by_category,
+        by_scraper=by_scraper,
+        entries=entries,
+        drop_candidates=drop_candidates,
+    )
+
+    result = response_obj.model_dump(mode="json")
+    _SCRAPER_HEALTH_CACHE.set(cache_key, result)
+    logger.info(
+        "scraper_health.done days=%d n_failures=%d n_entries=%d n_drop_candidates=%d",
+        days,
+        len(deduped),
+        len(entries),
+        len(drop_candidates),
+    )
+    return result
