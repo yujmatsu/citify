@@ -75,15 +75,39 @@ def _parse_str(value: str | None) -> str | None:
     return s if s else None
 
 
+def load_normalized_csvs(csv_paths: list[Path]) -> list[dict[str, object]]:
+    """複数 normalized CSV を読み結合。同一 municipality_code は後勝ち (warning 付き)。
+
+    Phase F v4: region 別 9 ファイル (reinfolib_normalized_*.csv) を 1 回の MERGE で
+    処理するために追加。事前調査では 9 region 間に重複コードはないが、念のため
+    後勝ち dedup + warning で保護する。
+    """
+    merged: dict[str, dict[str, object]] = {}
+    for path in csv_paths:
+        file_rows = load_normalized_csv(path)
+        for row in file_rows:
+            code = str(row["municipality_code"])
+            if code in merged:
+                logger.warning(
+                    "duplicate municipality_code=%s (後勝ちで上書き) file=%s", code, path
+                )
+            merged[code] = row
+        logger.info("parsed %d rows from %s", len(file_rows), path)
+    return list(merged.values())
+
+
 def load_normalized_csv(csv_path: Path) -> list[dict[str, object]]:
     """reinfolib_normalized.csv を読み、BQ 投入用 dict list を返す。"""
     rows: list[dict[str, object]] = []
     with csv_path.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for raw in reader:
-            code = (raw.get("municipality_code") or "").strip().zfill(5)
-            if not code:
+            # zfill は空チェックの後に。空文字を先に zfill すると "00000" (国会コード) に
+            # 化けて空行が混入するため、raw が空なら skip してから 5 桁ゼロ埋めする。
+            raw_code = (raw.get("municipality_code") or "").strip()
+            if not raw_code:
                 continue
+            code = raw_code.zfill(5)
             rows.append(
                 {
                     "municipality_code": code,
@@ -213,7 +237,9 @@ def main() -> int:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path("infra/seed/reinfolib_normalized.csv"),
+        nargs="+",
+        default=[Path("infra/seed/reinfolib_normalized.csv")],
+        help="1 つ以上の normalized CSV (複数指定で結合してから MERGE。region 別 9 ファイル等)",
     )
     parser.add_argument("--project", default="citify-dev")
     parser.add_argument("--dataset", default="citify_curated")
@@ -228,12 +254,13 @@ def main() -> int:
         stream=sys.stderr,
     )
 
-    if not args.input.exists():
-        logger.error("input CSV not found: %s", args.input)
+    missing = [p for p in args.input if not p.exists()]
+    if missing:
+        logger.error("input CSV not found: %s", missing)
         return 1
 
-    rows = load_normalized_csv(args.input)
-    logger.info("parsed %d rows from %s", len(rows), args.input)
+    rows = load_normalized_csvs(args.input)
+    logger.info("parsed %d total rows from %d file(s)", len(rows), len(args.input))
 
     if args.dry_run:
         import json
@@ -241,6 +268,21 @@ def main() -> int:
         for r in rows[:3]:
             print(json.dumps(r, ensure_ascii=False, indent=2))
         print(f"# (dry-run) total {len(rows)} rows ready to MERGE UPDATE")
+        # 派生列の非 None 件数を集計 (全 None 上書きで既存値を消さないことの定量確認)
+        check_cols = (
+            "used_apartment_median_price_man_yen",
+            "emergency_shelter_count",
+            "population_2025_estimated",
+            "population_2050_estimated",
+            "medical_facility_count",
+            "childcare_facility_count",
+            "kindergarten_count",
+            "nursery_count",
+        )
+        print("# 非 None 件数 (列が CSV に実在し値が入っている行数):")
+        for col in check_cols:
+            n = sum(1 for r in rows if r.get(col) is not None)
+            print(f"#   {col}: {n}/{len(rows)}")
         return 0
 
     if not rows:

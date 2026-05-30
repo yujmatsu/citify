@@ -471,3 +471,39 @@ v0.3 Reviewer の中・低指摘で本仕様書本体に反映していない項
   - scraper_type 別内訳 (press_rss 43 + voices_asp 1 + kaigiroku 1) を明示
   - 「Phase A publish-all 動作確認済 = press_rss 限定 43」と「Phase F スコープ = is_active=true 45」を区別
   - 残り Reviewer 中・低指摘 (P1-P6) を §13 Review Punchlist に集約 → 実装 PR で吸収
+
+---
+
+## v0.4 — 全国 1889 自治体への BQ MERGE (2026-05-30 実施、TASK-FV4MERGE)
+
+> v0.3.1 までの対象 **45 自治体** から、Phase F v4 fetch-all で取得した **全国 9 region 別 CSV (計 1889 自治体)** に拡張し、`municipality_stats` へ一括 MERGE。「議題 × 統計が揃った街ダッシュボード」を全国規模で実現し、デモのハリボテ感を除去。
+
+### 入力データ
+
+`infra/seed/reinfolib_normalized_{hokkaido_tohoku,kanto,koshinetsu,hokuriku,tokai,kinki,chugoku,shikoku,kyushu_okinawa}.csv` の 9 ファイル (18 列ヘッダー同一、計 1889 行、region 跨ぎ重複コードなし)。
+
+### スクリプト拡張 (`apps/api/scripts/load_reinfolib_stats.py`)
+
+- `--input` を `nargs="+"` 化し、9 region CSV を **1 回の MERGE** で処理 (新規スクリプトは作らず最小拡張)
+- `load_normalized_csvs(paths)` を追加: 複数 CSV を結合、同一 `municipality_code` は後勝ち (warning 付き)
+- `main()` の入力存在チェックを list 対応のループに修正
+- `--dry-run` に **派生 15 列の非 None 件数集計**を追加 (全 None 上書きによる既存値消失がないことの定量確認)
+- 潜在バグ修正: 空 `municipality_code` 行が `"".zfill(5)="00000"` (国会コード) に化けて混入する問題を、zfill を空チェック後に回すことで解消
+- unit test `apps/api/tests/test_load_reinfolib_stats.py` を新規追加 (6 件: 型変換 / None化 / zfill / 複数結合 / 後勝ち dedup / 空行 skip)
+
+### MERGE 実行結果 (2026-05-30)
+
+| 指標 | MERGE 前 | MERGE 後 |
+|---|---|---|
+| `total_rows` | 1794 | **1794** (UPDATE-only、INSERT/DELETE なし) |
+| `reinfolib_filled` (`reinfolib_loaded_at IS NOT NULL`) | 45 | **1707** |
+| `num_dml_affected_rows` | — | **1704** |
+
+- CSV 1889 のうち **1704 がテーブル (1794 行) と MATCH** し UPDATE。差分 ~185 コードは `municipality_stats` に行が存在せず未 MATCH (UPDATE-only の仕様どおり skip、新規 INSERT は別タスク)
+- 派生列の充足: emergency_shelter 1889/1889、population 1836、medical 1810、childcare 系 1693、apartment 価格 818
+- spot check: 13104 新宿 / 27100 大阪 / 47201 那覇 / 08000 茨城 / 01100 札幌 すべて reinfolib 値あり
+
+### 既知の課題 (フォローアップ)
+
+- **population_2025/2050 の異常値**: 13104 (新宿区) で `population_2025_estimated=21,905,800` 等、実人口を大きく超える値。XKT013 250m メッシュ集計のバウンディングボックスが広すぎる fetch/normalize 由来の問題 (本 MERGE は CSV を忠実に反映)。**Phase F v4 fetch-all 側で要修正** (このまま UI 表示するとハリボテ感が増すため)
+- 未 MATCH ~185 コードの新規 INSERT は e-Stat 行整合確認の上で別タスク
