@@ -222,18 +222,48 @@ def test_scraper_health_always_includes_disclaimer(monkeypatch: pytest.MonkeyPat
 
 
 def test_sample_seed_file_loads_10_failures() -> None:
-    """infra/seed/scraper_failures_sample.json から 10 件読める。"""
+    """infra/seed/scraper_failures_sample.json から 10 件読める。
+
+    2026-05-30 update: 5 scraper × 2 件 → press_rss 6 件実話 + 他 4 scraper 各 1 件 = 10 件
+    (今回の publish-all で観測した実 failure を sample seed に投入、demo 価値向上)。
+    """
     from agents.scraper_doctor.firestore_repo import FailureLogRepository
 
     repo = FailureLogRepository(firestore_client=MagicMock())
     failures = repo.load_sample_seed()
     assert len(failures) == 10
-    # 5 scraper × 2 件
+
     by_scraper: dict[str, int] = {}
     for f in failures:
         by_scraper[f.scraper] = by_scraper.get(f.scraper, 0) + 1
-    assert by_scraper.get("kaigiroku_net") == 2
-    assert by_scraper.get("kokkai") == 2
-    assert by_scraper.get("press_rss") == 2
-    assert by_scraper.get("voices_asp") == 2
-    assert by_scraper.get("reinfolib") == 2
+
+    # press_rss は実話 6 件 (SSL 3 / HTTP 403 1 / Timeout 1 / HTTP 404 1)
+    assert by_scraper.get("press_rss") == 6
+    # 他 4 scraper は demo 多様性確保のため各 1 件
+    assert by_scraper.get("kaigiroku_net") == 1
+    assert by_scraper.get("kokkai") == 1
+    assert by_scraper.get("voices_asp") == 1
+    assert by_scraper.get("reinfolib") == 1
+
+
+def test_sample_seed_file_includes_real_publish_all_failures() -> None:
+    """sample seed の press_rss 6 件は 2026-05-28 publish-all で観測された実 failure。
+
+    実 publish-all で観測した自治体コード + URL を含むことを確認 (demo 価値の証明)。
+    """
+    from agents.scraper_doctor.firestore_repo import FailureLogRepository
+
+    repo = FailureLogRepository(firestore_client=MagicMock())
+    failures = repo.load_sample_seed()
+
+    # 2026-05-28 publish-all で観測した 9 自治体 + 5-30 新規発見 1 自治体から 6 件選定
+    expected_real_munis = {
+        "06203",  # 鶴岡市 SSL
+        "13213",  # 東村山市 HTTP 403 (UA filter)
+        "33203",  # 津山市 ConnectTimeout
+        "41201",  # 佐賀市 HTTP 404 (5/30 新規発見)
+        "28226",  # 淡路市 SSL
+        "43211",  # 宇土市 SSL
+    }
+    actual_munis = {f.municipality_code for f in failures if f.scraper == "press_rss"}
+    assert actual_munis == expected_real_munis
