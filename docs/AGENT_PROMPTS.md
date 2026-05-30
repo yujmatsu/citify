@@ -1174,6 +1174,28 @@ UID: {{uid}}
 }
 ```
 
+### 3.5 スコアキャッシュ (TASK-CACHE 実装済)
+
+同じ `(speech_id, user_id)` の relevance スコアを **Firestore にキャッシュ** し、再採点時の Vertex AI Gemini 呼び出しを skip して quota + コストを節約する (publish-all 再実行 / persona 追加 / cron 定期実行で効果。2026-05-28 の 429 RESOURCE_EXHAUSTED 再発防止の保険)。
+
+| 項目 | 値 |
+|---|---|
+| モジュール | `agents/relevance/cache.py` (`RelevanceCacheRepository`) |
+| Firestore collection | `relevance_score_cache` |
+| doc ID | `{speech_id}__{user_id}` (`:` `/` を `_` にエスケープ) |
+| TTL | 7 日 (`expires_at` field、Firestore TTL policy 対象) |
+| prompt 変更時 | `PROMPT_VERSION` mismatch で自動 miss → 古い score を配信しない |
+| 有効化 | env `RELEVANCE_CACHE_ENABLED=true` または `--cache-enabled` (default 無効、後方互換) |
+
+**Worker フロー (3 phase、`make_handler` の `cache` 引数)**:
+1. `batch_get(speech_id, [user_ids])` で N persona を 1 往復 lookup (`client.get_all`、N+1 回避)
+2. cache miss の persona だけ `score_multi` で採点 → `batch_save` で書き戻し
+3. persona 順に publish (cache hit + 新規採点を統合)
+
+**graceful 設計**: 全 method は Firestore 障害時も例外を投げず `None / {} / False` を返す (cache 不調でも publish は継続)。倫理: cache されるのは relevance score のみ (政治家名/賛否は `RelevanceOutput` 側で既に除去済)。
+
+**Out of Scope**: Firestore TTL policy の Terraform 設定 (別 task)、cache hit rate モニタリング、Translator/Distributor の caching (cost 低)。テスト: `test_cache.py` 8 件 + `test_worker.py` cache 統合 2 件。
+
 ---
 
 ## 4. 翻訳 Agent (Translator)

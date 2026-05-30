@@ -31,10 +31,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 from pkg.pubsub import MessageEnvelope, PubSubPublisher, PubSubSubscriber
 
+from .cache import RelevanceCacheRepository
 from .main import DEFAULT_LOCATION, DEFAULT_MODEL, RelevanceAgent
 from .personas import DEFAULT_PERSONAS_PATH, load_personas
 from .schema import (
@@ -116,8 +118,14 @@ def make_handler(
     publisher: PubSubPublisher,
     output_topic: str,
     personas: list[UserPersona],
+    cache: RelevanceCacheRepository | None = None,
 ):
-    """1 envelope を N ペルソナ分採点 → N 件 ScoredSpeech publish する handler を生成。"""
+    """1 envelope を N ペルソナ分採点 → N 件 ScoredSpeech publish する handler を生成。
+
+    cache を渡すと (speech_id, user_id) の relevance score を Firestore キャッシュし、
+    再採点時は cache hit したペルソナ分の Gemini 呼び出しを skip する (quota 節約)。
+    cache=None (default) なら従来通り毎回全ペルソナ採点 (後方互換)。
+    """
 
     def handler(envelope: MessageEnvelope) -> None:
         if envelope.payload_type != "TranslatedSpeech":
@@ -130,9 +138,39 @@ def make_handler(
 
         # 入力 envelope はペルソナ独立、user_id 情報は不要なので personas[0] を仮にセット
         rel_input = _envelope_to_relevance_input(envelope, personas[0])
-        persona_outputs: list[PersonaRelevanceOutput] = agent.score_multi(rel_input, personas)
+        speech_id = rel_input.speech_id
 
-        for persona, p_out in zip(personas, persona_outputs, strict=True):
+        # Phase 1: cache lookup (設定済の場合のみ)
+        cached_outputs: dict[str, PersonaRelevanceOutput] = {}
+        if cache is not None:
+            cached_outputs = cache.batch_get(speech_id, [p.user_id for p in personas])
+            logger.info(
+                "worker.cache_lookup speech_id=%s hit=%d/%d",
+                speech_id,
+                len(cached_outputs),
+                len(personas),
+            )
+
+        # Phase 2: cache miss のペルソナだけ Gemini で採点 → cache に save
+        missing_personas = [p for p in personas if p.user_id not in cached_outputs]
+        if missing_personas:
+            new_outputs: list[PersonaRelevanceOutput] = agent.score_multi(
+                rel_input, missing_personas
+            )
+            if cache is not None:
+                cache.batch_save(
+                    speech_id,
+                    [
+                        (p.user_id, out)
+                        for p, out in zip(missing_personas, new_outputs, strict=True)
+                    ],
+                )
+            for p, out in zip(missing_personas, new_outputs, strict=True):
+                cached_outputs[p.user_id] = out
+
+        # Phase 3: ペルソナ順に publish
+        for persona in personas:
+            p_out = cached_outputs[persona.user_id]
             score: RelevanceOutput = p_out.to_relevance_output()
             # ScoredSpeech は per-user の input を必要とするため再構築
             per_user_input = rel_input.model_copy(update={"user": persona})
@@ -140,7 +178,7 @@ def make_handler(
 
             out_env = MessageEnvelope.wrap(SOURCE, scored)
             attrs = {
-                "speech_id": rel_input.speech_id,
+                "speech_id": speech_id,
                 "user_id": persona.user_id,
                 "municipality_code": rel_input.municipality_code,
                 "score": str(score.relevance_score),
@@ -148,7 +186,7 @@ def make_handler(
             publisher.publish_envelope(output_topic, out_env, attributes=attrs)
             logger.info(
                 "worker.scored_published speech_id=%s user=%s score=%d matched=%s",
-                rel_input.speech_id,
+                speech_id,
                 persona.user_id,
                 score.relevance_score,
                 ",".join(score.matched_interests) or "(none)",
@@ -165,20 +203,27 @@ def run_worker(
     location: str = DEFAULT_LOCATION,
     model: str = DEFAULT_MODEL,
     timeout_sec: float | None = None,
+    cache_enabled: bool = False,
 ) -> None:
-    """worker 起動 (N ペルソナ multi fan-out)。"""
+    """worker 起動 (N ペルソナ multi fan-out)。
+
+    cache_enabled=True なら Firestore relevance cache を有効化 (再採点時 quota 節約)。
+    """
     agent = RelevanceAgent(project_id=project_id, location=location, model=model)
     publisher = PubSubPublisher(project_id=project_id)
     subscriber = PubSubSubscriber(project_id=project_id)
 
-    handler = make_handler(agent, publisher, output_topic, personas)
+    cache = RelevanceCacheRepository() if cache_enabled else None
+
+    handler = make_handler(agent, publisher, output_topic, personas, cache=cache)
     logger.info(
-        "worker.start project=%s in_sub=%s out_topic=%s personas=%s timeout=%s",
+        "worker.start project=%s in_sub=%s out_topic=%s personas=%s timeout=%s cache=%s",
         project_id,
         input_subscription,
         output_topic,
         [p.user_id for p in personas],
         timeout_sec,
+        cache_enabled,
     )
     subscriber.run(subscription=input_subscription, handler=handler, timeout_sec=timeout_sec)
 
@@ -237,6 +282,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="N 秒後に停止 (None で永続実行)",
     )
+    parser.add_argument(
+        "--cache-enabled",
+        action="store_true",
+        help="Firestore relevance cache を有効化 (env RELEVANCE_CACHE_ENABLED=true でも可)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
 
@@ -270,6 +320,11 @@ def main() -> int:
     if not personas:
         raise SystemExit("no personas configured (check --personas-file or CLI flags)")
 
+    # cache は CLI flag または env var RELEVANCE_CACHE_ENABLED=true で有効化
+    cache_enabled = args.cache_enabled or (
+        os.getenv("RELEVANCE_CACHE_ENABLED", "").lower() in ("1", "true", "yes")
+    )
+
     run_worker(
         project_id=args.project_id,
         input_subscription=args.input_subscription,
@@ -278,6 +333,7 @@ def main() -> int:
         location=args.location,
         model=args.model,
         timeout_sec=args.timeout_sec,
+        cache_enabled=cache_enabled,
     )
     return 0
 

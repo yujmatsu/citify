@@ -242,3 +242,72 @@ def test_handler_propagates_score_failure_for_nack() -> None:
     with pytest.raises(RuntimeError, match="Gemini timeout"):
         handler(env)
     client.publish.assert_not_called()
+
+
+# ============================================================================
+# cache 統合 (TASK-CACHE)
+# ============================================================================
+
+
+def test_handler_cache_full_hit_skips_score_multi() -> None:
+    """全 persona が cache hit なら score_multi は呼ばれず、cache の値で publish。"""
+    personas = [_make_user("demo-18-24"), _make_user("demo-25-29")]
+    agent = _make_mock_agent_multi([])  # 呼ばれないはず
+    pub, client = _make_mock_publisher()
+
+    cache = MagicMock()
+    cache.batch_get.return_value = {
+        "demo-18-24": _make_persona_output("demo-18-24", score=60),
+        "demo-25-29": _make_persona_output("demo-25-29", score=80),
+    }
+    handler = make_handler(agent, pub, "citify-speech-scored", personas, cache=cache)
+
+    handler(_make_translated_envelope())
+
+    # cache 全 hit → LLM 呼ばれない、save も不要
+    agent.score_multi.assert_not_called()
+    cache.batch_save.assert_not_called()
+    # cache の値で N 件 publish
+    assert client.publish.call_count == 2
+    scores = [c.kwargs["score"] for c in client.publish.call_args_list]
+    assert scores == ["60", "80"]
+
+
+def test_handler_cache_partial_hit_scores_only_missing() -> None:
+    """一部 cache hit なら missing persona のみ score_multi、結果は cache に save。"""
+    personas = [
+        _make_user("demo-18-24"),
+        _make_user("demo-25-29"),
+        _make_user("demo-30-39"),
+    ]
+    # demo-25-29 のみ cache hit、残り 2 件を LLM 採点
+    agent = _make_mock_agent_multi(
+        [
+            _make_persona_output("demo-18-24", score=55),
+            _make_persona_output("demo-30-39", score=65),
+        ]
+    )
+    pub, client = _make_mock_publisher()
+
+    cache = MagicMock()
+    cache.batch_get.return_value = {
+        "demo-25-29": _make_persona_output("demo-25-29", score=90),
+    }
+    handler = make_handler(agent, pub, "citify-speech-scored", personas, cache=cache)
+
+    handler(_make_translated_envelope())
+
+    # score_multi は missing 2 persona のみで 1 回呼ばれる
+    agent.score_multi.assert_called_once()
+    _, persona_args = agent.score_multi.call_args[0]
+    assert [p.user_id for p in persona_args] == ["demo-18-24", "demo-30-39"]
+
+    # 新規採点分のみ cache に save
+    cache.batch_save.assert_called_once()
+    saved_speech_id, saved_pairs = cache.batch_save.call_args[0]
+    assert [uid for uid, _ in saved_pairs] == ["demo-18-24", "demo-30-39"]
+
+    # publish は persona 順 (cache hit + 新規) で 3 件、scores が正しい
+    assert client.publish.call_count == 3
+    by_user = {c.kwargs["user_id"]: c.kwargs["score"] for c in client.publish.call_args_list}
+    assert by_user == {"demo-18-24": "55", "demo-25-29": "90", "demo-30-39": "65"}
