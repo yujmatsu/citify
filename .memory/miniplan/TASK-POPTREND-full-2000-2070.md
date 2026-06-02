@@ -146,15 +146,61 @@ GET /v1/cities/{code}/population-trend
 
 --- **【Stage 2: 過去 census 延伸 (後続 v0.6)】** ---
 
-### Phase 2 (90分) — e-Stat historical loader + test
-7. [ ] load_estat_population_series.py 新規 (getStatsData ラッパー、source='census')
-8. [ ] 組替/境界マッピング + test (fixture ベース)
+### データソース (Phase 2-0 + 実ファイル da0614.xlsx 確認で確定、2026-05-31)
 
-### Phase 4b (データ投入、ユーザー実行) — e-Stat キー必要
-12. [ ] e-Stat 2000-2020 投入 (census)
-13b. [ ] 検証: 13104 等で 2000→2070 が連続、2020 census↔projection 接続が妥当
+- **採用表**: e-Stat 国勢調査「時系列データ」第6表「年齢(3区分),男女別人口 － 都道府県,市区町村」
+  - **都道府県ごとの Excel (.xlsx)、計 47 ファイル**。例: 神奈川県 = `da0614.xlsx` (infra/seed/ 配置済)。
+    時系列データは**現行境界に組替済**のため平成大合併の自前マージ不要
+  - **11 シート = 各年** (昭和55=1980 … 令和2=2020 + 2015/2020 は原数値/不詳補完値の2版)。
+    シート名で年を判定 (平成12年=2000 / 平成17年=2005 / 平成22年=2010)
+  - **Stage 2 は 平成12/17/22年 (2000/2005/2010) の3シートのみ**読む。2015/2020 は既存
+    municipality_stats を使うため読まない → **重複しない** (Reviewer High#1 解消)
+- **実ファイルで確認した列構造** (全シート共通):
+  - 列1(A)=年次西暦 ("2000年")、列3(C)=**自治体コード**、列4(D)=名称、**列5(E)=総数(総人口)** ✅ (Reviewer Medium#3 解消、総数列を直接使用)
+  - 年次は行方向 (long、横持ちでない)、データは row10 付近開始 (Reviewer Medium#4 解消)
+- **政令市 (Reviewer High#2 → 解決)**: xlsx に **親コード行 (14100 横浜市=総数3,307,136) が存在**。
+  municipality_master は政令市を**親コードのみ保持** (14100 あり / 14101 区なし) を確認済。
+  → **master コードでフィルタするだけで親の総数が取れる。区合算は不要**
+- **読み込み方式**: openpyxl は sandbox の SSL/truststore で install 不可。
+  → **xlsx を zipfile + XML で直接パース** (標準ライブラリのみ、依存追加なし。検証済)
+- **取得**: 都道府県別 47 xlsx を手動 DL → infra/seed/ に配置 (prep が glob で一括処理)
 
-### Phase 6b / 7b — グラフに過去側 (実線左延伸) 反映 + docs v0.6
+### Phase 2-3-pre (DL 確認、ユーザー手動) — prep 実装の前提を確定
+0. [ ] e-Stat 時系列表を DL し、(a) 政令市が親コードか区別か (b) 総数列の有無 (c) 年次が行/列か を確認
+   → この結果で Phase 2-1 の prep 実装詳細を確定 (推測 fixture を作らない)
+
+### Phase 2-1 (60分) — prep スクリプト + test (実 DL ヘッダ確認後)
+7. [ ] `apps/api/scripts/prep_estat_population_history.py` 新規
+   - cp932 階層ヘッダをパース (prep_estat_csv.py 流用、実 DL 構造に合わせる)
+   - municipality_master.csv の現行コードのみ採用、**総数列**から総人口を抽出
+   - **政令市が区別なら親コードに合算** (Reviewer High#2)
+   - long CSV (municipality_code, year, population) を 2000/2005/2010 で出力
+8. [ ] fixture test (実 DL 先頭から作成: 階層ヘッダ parse / 現行コードフィルタ / 政令市合算 / 不正値 skip)
+
+### Phase 2-2 (40分) — loader 統合 + test
+9. [ ] `load_population_series.py` に `--census-history-csv` オプション追加
+   - 既存 census (municipality_stats 2015/2020) + history CSV (2000/2005/2010) を source='census' で統合
+   - `(code, year)` の防御的 dedup (history は 2000-2010 限定なので実際は overlap しないとコメント明記、Reviewer High#1)
+   - dry-run 出力に history 件数 + 先頭5行を追加 (Reviewer Low#5)
+10. [ ] loader test 更新 (history 統合の dry-run/件数)
+
+### Phase 2-3 (データ投入、ユーザー手動)
+11. [ ] (2-3-pre で DL 済の) CSV を prep → load (WRITE_TRUNCATE 再投入) → series が 2000-2070 に
+12. [ ] 検証: 高知市 39201 の 2000 ≈ 実人口 (~33万)、**政令市 (浜松22130/相模原14150) と平成合併自治体**で過去 census が欠損しないか (Reviewer Low#6)、2000→2070 連続、census↔projection 接続が妥当
+
+### Phase 2-4 (20分) — docs + regression + commit
+14. [ ] docs v0.6 節 (過去延伸、組替表採用) + 全 regression + commit 提示
+
+### フロントエンド
+- **変更なし**: `PopulationTrendChart` は census 点を実線で自動描画 → X 軸が左に伸びるだけ
+
+### Stage 2 リスク
+| リスク | 対策 |
+|---|---|
+| 時系列表が 2000 を含まない (1980 起点でも年次が飛ぶ) | Phase 2-3 DL 時に確認。最悪 2005-2070 でも価値十分 |
+| 階層ヘッダ parse の複雑さ | prep_estat_csv.py 流用 + fixture test で担保 |
+| 2015/2020 が history と municipality_stats で二重 | 同一 (code,year) は組替 history 優先で 1 点に集約 |
+| 組替表でも一部新設合併自治体が欠損 | 欠損は census 点が減るだけ (projection 2025-2070 は別途あるので graph は成立) |
 
 ## 成果物
 - [ ] scrapers/reinfolib/parsers/xkt013.py (SHICODE 集計) + tests

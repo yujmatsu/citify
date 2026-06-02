@@ -551,6 +551,38 @@ v0.3 Reviewer の中・低指摘で本仕様書本体に反映していない項
 
 ---
 
+## v0.6 — 過去 census 2000-2010 延伸 (TASK-POPTREND Stage 2、2026-05-31)
+
+> 人口推移グラフを **2000 年まで延伸** し `2000 → 2020(実績) → 2070(推計)` の 70 年カーブを完成。
+
+### データソース (実ファイル確認済)
+
+- e-Stat 国勢調査「時系列データ」第6表「年齢(3区分),男女別人口 － 都道府県,市区町村」
+- **都道府県別 Excel 47 ファイル** (例 神奈川 `da0614.xlsx`)。時系列データは**現行境界に組替済**
+  → 平成大合併の自前マージ不要
+- 各 xlsx は 11 シート (1980-2020)。行 long で 列1=年次西暦 / 列3=コード / **列5=総数**
+- **政令市は親コード行 (14100 横浜市) が存在** → master コードで filter するだけ (区合算不要)。
+  検証: 横浜市 2000=3,426,651 (実人口一致)
+
+### 実装
+
+| 成果物 | 内容 |
+|---|---|
+| `apps/api/scripts/prep_estat_population_history.py` | 47 xlsx を zipfile+XML で直接パース (openpyxl 不使用)、2000/2005/2010 の総数を long CSV 出力 |
+| `load_population_series.py --census-history-csv` | history(2000-2010) を source='census' で統合。`(code,year)` 防御 dedup (2015/2020 と排他) |
+| tests | `test_prep_estat_population_history.py` 5 件 (純関数 + da0614.xlsx 統合)、全 pass |
+
+### データパイプライン (ユーザー手動)
+
+1. e-Stat から 47 都道府県の時系列 Excel を DL → `infra/seed/da06*.xlsx`
+2. `prep_estat_population_history.py` → `population_series_census_history.csv`
+3. `load_population_series.py --census-history-csv ...` で再投入 → series が 2000-2070 に
+
+### フロントエンド
+- **変更なし** (`PopulationTrendChart` が census 点を実線で自動描画、X 軸が左に伸びるだけ)
+
+---
+
 ## v0.4.1 — population 異常値の NULL化 + e-Stat 採用 (2026-05-30、TASK-POPFIX)
 
 > v0.4 で MERGE した XKT013 由来の population が **全国 88% (1467/1662) で実人口の 2倍超** (最悪 14402 で 2870倍、新宿区で 2190万人) という異常値だったため、当該 3 列を NULL化し、人口は正確な **e-Stat を SSoT** に切り替えた。
