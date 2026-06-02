@@ -510,6 +510,47 @@ v0.3 Reviewer の中・低指摘で本仕様書本体に反映していない項
 
 ---
 
+## v0.5 — 人口推移グラフ (TASK-POPTREND Stage 1、2026-05-31)
+
+> 「あなたの街は 2050 年に何 % 減るか」を可視化。XKT013 を **SHICODE 絞り込み**で正しく集計し、
+> 2025-2070 の将来推計カーブを city ダッシュボードに表示。e-Stat 実績 (2015/2020) を anchor に接続。
+
+### Phase 0 検証で確定した XKT013 の実態
+
+- PT00_YYYY は **2025〜2070 の 5 年刻み (10 点)**、HITOKU{year} は年次連動
+- メッシュは **SHICODE (5桁市区町村コード)** 属性を持つ → 自治体絞り込みで正確化 (新宿 357,971 ≈ 実34万)
+- **政令市はメッシュ SHICODE が区コード** (親 XX100 のメッシュ無し) → 区コード集合で合算
+- 広域自治体 (高山) は radius=1 で約 -1.7% 取りこぼし (減少率の形は不変) → radius=1 採用 + caveat
+
+### 実装 (Stage 1)
+
+| レイヤ | 成果物 |
+|---|---|
+| parser | `scrapers/reinfolib/parsers/xkt013.py` `aggregate_population_series(features, shicode|set)` (SHICODE zfill 正規化 / PT00・HITOKU 動的年次 / 政令市区コード合算) |
+| fetch | `scrapers/reinfolib/fetch_population_series.py` (全国 XKT013 → long CSV、空結果 WARNING) |
+| schema | BQ `municipality_population_series` (code, year, population, source) — Terraform 管理 |
+| loader | `apps/api/scripts/load_population_series.py` (census 2015/2020 + projection を WRITE_TRUNCATE) |
+| API | `GET /v1/cities/{code}/population-trend` (census→projection、同年は census 優先) |
+| frontend | `PopulationTrendChart` (実線=実績 / 破線=将来推計 SVG) + city ダッシュボード統合 + 出典明記 |
+
+### データパイプライン (キー必要、手動実行)
+
+1. `fetch_population_series` で全国 XKT013 取得 (~4.7h、radius=1)
+2. `terraform apply` で `municipality_population_series` 作成
+3. `load_population_series` で census + projection を投入
+
+### テスト
+- `scrapers/reinfolib/tests/test_xkt013.py` 7 件 + `apps/api/tests/test_population_trend_endpoint.py` 4 件 = 11 件、全 pass
+
+### 倫理 (PROJECT.md §5)
+- AI 生成ではない客観統計。出典 (総務省国勢調査 / 国交省将来推計人口 250m メッシュ) を UI に明記
+- メッシュは SHICODE 完全一致のみ採用 (按分しない)、「Citify 集計値」相当
+
+### Stage 2 (後続)
+- e-Stat 国勢調査 2000-2010 を census として過去側に延伸 (合併境界は組替表で吸収)
+
+---
+
 ## v0.4.1 — population 異常値の NULL化 + e-Stat 採用 (2026-05-30、TASK-POPFIX)
 
 > v0.4 で MERGE した XKT013 由来の population が **全国 88% (1467/1662) で実人口の 2倍超** (最悪 14402 で 2870倍、新宿区で 2190万人) という異常値だったため、当該 3 列を NULL化し、人口は正確な **e-Stat を SSoT** に切り替えた。

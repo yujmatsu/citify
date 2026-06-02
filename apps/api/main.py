@@ -576,6 +576,33 @@ class CityDashboardResponse(BaseModel):
     )
 
 
+class PopulationTrendPoint(BaseModel):
+    """人口推移の 1 点 (TASK-POPTREND)。"""
+
+    year: int = Field(description="年次 (2000..2070)")
+    population: int = Field(description="総人口")
+    source: str = Field(description="'census' (国勢調査実績) | 'projection' (XKT013 将来推計)")
+
+
+class PopulationTrendResponse(BaseModel):
+    """人口推移グラフ用レスポンス (census 実績 + XKT013 将来推計)。"""
+
+    municipality_code: str
+    series: list[PopulationTrendPoint] = Field(
+        default_factory=list, description="year 昇順の人口推移 (census→projection)"
+    )
+    latest_actual_year: int | None = Field(
+        default=None, description="census 実績の最新年 (実線/破線の境目)"
+    )
+    projection_start_year: int | None = Field(
+        default=None, description="projection の開始年 (破線の起点)"
+    )
+    source_note: str = Field(
+        default="出典: 総務省 国勢調査 (実績) / 国土交通省 将来推計人口 250m メッシュ (推計)",
+        description="出典明記 (倫理: AI 生成ではない客観統計)",
+    )
+
+
 def _prefecture_code_from_municipality(municipality_code: str) -> str | None:
     """5 桁自治体コードから所属都道府県コード (XX000) を導出。
 
@@ -684,6 +711,82 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
     )
     _STATS_CACHE.set(municipality_code, stats)
     return stats
+
+
+# 人口推移は 1 時間 TTL (国勢調査 + 将来推計、日次変動なし)
+_POPTREND_CACHE = _TTLCache(maxsize=2048, ttl_sec=3600.0)
+
+
+def _fetch_population_trend(municipality_code: str) -> PopulationTrendResponse:
+    """municipality_population_series から 1 自治体の人口推移を取得 (TASK-POPTREND)。
+
+    census (実績) → projection (将来推計) を year 昇順で返す。同一年に census と
+    projection が両方ある場合は census を優先 (実績値を採用)。データ未投入は空 series。
+    """
+    cached = _POPTREND_CACHE.get(municipality_code)
+    if isinstance(cached, PopulationTrendResponse):
+        return cached
+
+    from google.cloud import bigquery
+
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.municipality_population_series"
+    sql = f"""
+        SELECT year, population, source
+        FROM `{table_fqn}`
+        WHERE municipality_code = @muni
+        ORDER BY year ASC
+    """  # noqa: S608
+    params = [bigquery.ScalarQueryParameter("muni", "STRING", municipality_code)]
+    try:
+        rows = list(
+            client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result(
+                timeout=5
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("poptrend.bq_failed muni=%s err=%s", municipality_code, exc)
+        empty = PopulationTrendResponse(municipality_code=municipality_code)
+        _POPTREND_CACHE.set(municipality_code, empty)
+        return empty
+
+    # 同一年は census 優先で重複排除
+    by_year: dict[int, dict] = {}
+    for r in rows:
+        year = int(r["year"])
+        src = r["source"]
+        if year in by_year and by_year[year]["source"] == "census" and src != "census":
+            continue
+        by_year[year] = {"population": r["population"], "source": src}
+
+    points = [
+        PopulationTrendPoint(year=y, population=v["population"], source=v["source"])
+        for y, v in sorted(by_year.items())
+        if v["population"] is not None
+    ]
+    census_years = [p.year for p in points if p.source == "census"]
+    proj_years = [p.year for p in points if p.source == "projection"]
+    result = PopulationTrendResponse(
+        municipality_code=municipality_code,
+        series=points,
+        latest_actual_year=max(census_years) if census_years else None,
+        projection_start_year=min(proj_years) if proj_years else None,
+    )
+    _POPTREND_CACHE.set(municipality_code, result)
+    return result
+
+
+@app.get(
+    "/v1/cities/{municipality_code}/population-trend",
+    response_model=PopulationTrendResponse,
+)
+async def get_population_trend(
+    municipality_code: str,
+    response: Response,
+) -> PopulationTrendResponse:
+    """1 自治体の人口推移 (国勢調査実績 + XKT013 将来推計 2025-2070) を返す。"""
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return _fetch_population_trend(municipality_code)
 
 
 @app.get("/v1/cities/{municipality_code}", response_model=CityDashboardResponse)

@@ -464,6 +464,31 @@ resource "google_bigquery_table" "municipality_stats" {
 }
 
 # ---------------------------------------------------------------------------
+# BigQuery Table: municipality_population_series (TASK-POPTREND — 人口推移グラフ)
+# ---------------------------------------------------------------------------
+# 1 行 = 1 自治体 × 1 年次 の人口 (long format)。city ダッシュボードの人口推移グラフ用。
+#   - source='census'     : e-Stat 国勢調査の実績 (2015/2020、Stage 2 で 2000-2010 延伸)
+#   - source='projection' : XKT013 将来推計人口 250m メッシュを SHICODE 集計 (2025-2070)
+#   - 2870 倍バグ (50km box 全合算) を SHICODE 絞り込みで解消した正しい人口時系列
+resource "google_bigquery_table" "municipality_population_series" {
+  dataset_id          = google_bigquery_dataset.curated.dataset_id
+  table_id            = "municipality_population_series"
+  description         = "TASK-POPTREND 人口推移 (census 実績 + XKT013 将来推計) long format"
+  deletion_protection = false
+
+  schema = jsonencode([
+    { name = "municipality_code", type = "STRING", mode = "REQUIRED", description = "5 桁自治体コード" },
+    { name = "year", type = "INTEGER", mode = "REQUIRED", description = "年次 (2000..2070)" },
+    { name = "population", type = "INTEGER", mode = "NULLABLE", description = "総人口" },
+    { name = "source", type = "STRING", mode = "REQUIRED", description = "'census' (e-Stat実績) | 'projection' (XKT013将来推計)" },
+    { name = "loaded_at", type = "TIMESTAMP", mode = "NULLABLE", description = "BQ 投入時刻" },
+    { name = "source_url", type = "STRING", mode = "NULLABLE", description = "出典 URL (総務省国勢調査 / 国交省将来推計)" },
+  ])
+
+  labels = merge(local.common_labels, { purpose = "population_trend" })
+}
+
+# ---------------------------------------------------------------------------
 # GCS: RAG corpus 取り込み用 staging bucket (Phase D)
 # ---------------------------------------------------------------------------
 # Vertex AI RAG Engine は GCS から file を import するため、BQ から export した

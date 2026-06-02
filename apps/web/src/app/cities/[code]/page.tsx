@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { FeedCard } from "@/components/feed-card";
+import { PopulationTrendChart } from "@/components/population-trend-chart";
 import {
   fetchCityDashboard,
+  fetchPopulationTrend,
   type CityDashboardResponse,
   type MunicipalityStats,
+  type PopulationTrendResponse,
 } from "@/lib/api";
 import { interestImageUrl } from "@/lib/interest-images";
 import { loadPersona, type Persona } from "@/lib/persona";
@@ -105,6 +108,22 @@ function CityDashboardView({
     return Object.entries(data.interest_counts).sort((a, b) => b[1] - a[1]);
   }, [data.interest_counts]);
 
+  // 人口推移 (TASK-POPTREND) はダッシュボードと独立に取得 (失敗時は非表示)
+  const [trend, setTrend] = useState<PopulationTrendResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchPopulationTrend(data.municipality_code)
+      .then((t) => {
+        if (!cancelled) setTrend(t);
+      })
+      .catch(() => {
+        if (!cancelled) setTrend(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.municipality_code]);
+
   return (
     <main className="flex flex-1 flex-col px-6 pb-24 pt-6 sm:px-10 sm:py-10">
       <div className="mx-auto w-full max-w-2xl space-y-8">
@@ -154,6 +173,24 @@ function CityDashboardView({
 
         {/* 客観統計 (Phase D) */}
         {data.stats && <StatsCards stats={data.stats} />}
+
+        {/* 人口推移 (TASK-POPTREND: 国勢調査実績 + XKT013 将来推計 2025-2070) */}
+        {trend && trend.series.length >= 2 && (
+          <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-lg font-semibold">📉 人口推移</h2>
+              {trend.projection_start_year != null && (
+                <span className="text-xs text-zinc-500">
+                  {trend.projection_start_year}年〜は将来推計
+                </span>
+              )}
+            </div>
+            <PopulationTrendChart data={trend} />
+            <p className="text-[10px] leading-relaxed text-zinc-400">
+              {trend.source_note}
+            </p>
+          </section>
+        )}
 
         {/* 関心軸別カウント */}
         {sortedInterests.length > 0 && (

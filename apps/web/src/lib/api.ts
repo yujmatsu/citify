@@ -354,6 +354,38 @@ export async function fetchCityDashboard(
 }
 
 // ============================================================================
+// Population Trend (TASK-POPTREND) — 人口推移 (国勢調査実績 + XKT013 将来推計)
+// ============================================================================
+
+export const PopulationTrendPointSchema = z.object({
+  year: z.number().int(),
+  population: z.number().int(),
+  source: z.enum(["census", "projection"]),
+});
+export type PopulationTrendPoint = z.infer<typeof PopulationTrendPointSchema>;
+
+export const PopulationTrendResponseSchema = z.object({
+  municipality_code: z.string(),
+  series: z.array(PopulationTrendPointSchema).default([]),
+  latest_actual_year: z.number().int().nullable().optional(),
+  projection_start_year: z.number().int().nullable().optional(),
+  source_note: z.string().default(""),
+});
+export type PopulationTrendResponse = z.infer<
+  typeof PopulationTrendResponseSchema
+>;
+
+/** 1 自治体の人口推移 (実績 + 2025-2070 将来推計) を取得。 */
+export async function fetchPopulationTrend(
+  municipalityCode: string,
+): Promise<PopulationTrendResponse> {
+  return fetchJson(
+    `${API_BASE}/v1/cities/${encodeURIComponent(municipalityCode)}/population-trend`,
+    PopulationTrendResponseSchema,
+  );
+}
+
+// ============================================================================
 // Concierge (Plan E) — 街診断 Migration Concierge Agent
 // ============================================================================
 
