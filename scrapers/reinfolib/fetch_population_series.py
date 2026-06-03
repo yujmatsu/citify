@@ -73,6 +73,10 @@ def cmd_fetch_all(args: argparse.Namespace) -> int:
             return 1
         targets = [t for t in targets if is_in_region(t["municipality_code"], args.region)]
 
+    if args.codes:
+        wanted = {c.strip() for c in args.codes}
+        targets = [t for t in targets if t["municipality_code"] in wanted]
+
     completed: set[str] = set()
     if args.resume and args.output.exists():
         with args.output.open("r", encoding="utf-8") as f:
@@ -135,6 +139,12 @@ def main() -> int:
         "--output", type=Path, default=Path("infra/seed/population_series_projection.csv")
     )
     p.add_argument("--region", default=None, choices=list_regions())
+    p.add_argument(
+        "--codes",
+        nargs="+",
+        default=None,
+        help="特定の自治体コードのみ fetch (例: --codes 01100 22130。座標修正後の再取得用)",
+    )
     p.add_argument("--resume", action="store_true")
     p.add_argument(
         "--radius", type=int, default=1, help="z=11 タイル拡張 (1=3x3, 2=5x5。広域は2推奨)"

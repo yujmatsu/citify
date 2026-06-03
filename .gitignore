@@ -53,3 +53,9 @@ service-account*.json
 # Citify 固有
 prompts/eval_dataset/*.local.jsonl
 scrapers/**/fixtures/*.html.test
+
+# TASK-POPTREND: e-Stat 国勢調査 時系列 Excel (47都道府県、再生成可能な raw ソース)
+# da0614.xlsx (神奈川) のみ統合テスト fixture として追跡、残り46は ignore。
+# 派生 CSV (population_series_census_history.csv) をコミットすれば再現性は確保。
+infra/seed/da06*.xlsx
+!infra/seed/da0614.xlsx
