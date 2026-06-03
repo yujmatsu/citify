@@ -238,9 +238,44 @@ _MUNI_NAME_MAP: dict[str, str] = {
 }
 
 
+# municipality_stats.municipality_name の全件キャッシュ (名前は不変なのでプロセス内永続)
+_MUNI_NAME_CACHE: dict[str, str] | None = None
+
+
+def _load_all_muni_names() -> dict[str, str]:
+    """municipality_stats から全自治体の表示名を 1 回ロードしてキャッシュ。
+
+    ハードコード (_MUNI_NAME_MAP) は主要自治体のみのため、未登録自治体 (例: 朝霞市 11227)
+    の名前を BQ から補完する。BQ 失敗時は空 dict で graceful (フォールバック `自治体{code}`)。
+    """
+    global _MUNI_NAME_CACHE
+    if _MUNI_NAME_CACHE is not None:
+        return _MUNI_NAME_CACHE
+    names: dict[str, str] = {}
+    try:
+        client = _get_bq_client()
+        table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
+        sql = f"SELECT municipality_code, municipality_name FROM `{table_fqn}`"  # noqa: S608
+        for row in client.query(sql).result(timeout=15):
+            code = str(row.get("municipality_code") or "")
+            name = row.get("municipality_name")
+            if code and name:
+                names[code] = name
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("muni_names.load_failed err=%s", exc)
+    _MUNI_NAME_CACHE = names
+    return names
+
+
 def _muni_label(code: str) -> str:
-    """municipality_code から表示用ラベルを返す (未登録は `自治体{code}`)。"""
-    return _MUNI_NAME_MAP.get(code, f"自治体{code}")
+    """municipality_code から表示用ラベルを返す。
+
+    優先順位: ハードコード (国会/都道府県/主要市区) → municipality_stats の名前 → `自治体{code}`。
+    """
+    if code in _MUNI_NAME_MAP:
+        return _MUNI_NAME_MAP[code]
+    name = _load_all_muni_names().get(code)
+    return name or f"自治体{code}"
 
 
 @asynccontextmanager
@@ -1979,7 +2014,7 @@ def _fetch_heatmap_bq(metric_column: str, direction: str) -> tuple[list[dict], l
         top_by_pref.setdefault(pref_code, []).append(
             {
                 "municipality_code": muni_code,
-                "municipality_name": _MUNI_NAME_MAP.get(muni_code, f"自治体{muni_code}"),
+                "municipality_name": _muni_label(muni_code),
                 "metric_value": float(row.get("metric_value") or 0.0),
             }
         )
@@ -2176,7 +2211,7 @@ def _fetch_timeline_candidates(
                 summary_first_line=str(first_line)[:120],
                 meeting_date=r.get("meeting_date"),
                 municipality_code=muni_code,
-                municipality_name=_MUNI_NAME_MAP.get(muni_code, f"自治体{muni_code}"),
+                municipality_name=_muni_label(muni_code),
                 speaker_position=r.get("speaker_position"),
                 matched_interests=list(r.get("matched_interests") or []),
                 relevance_score=int(r.get("relevance_score") or 0),
@@ -2276,11 +2311,7 @@ async def get_forecast(
     series = engine.forecast_series(monthly_counts, horizon=3)
 
     # Step 3: Narrator (LLM)
-    municipality_label = (
-        _MUNI_NAME_MAP.get(municipality_code, f"自治体{municipality_code}")
-        if municipality_code
-        else "全国"
-    )
+    municipality_label = _muni_label(municipality_code) if municipality_code else "全国"
     narrator = _get_forecast_narrator()
     narrative = narrator.narrate(series, persona, municipality_label=municipality_label)
 
