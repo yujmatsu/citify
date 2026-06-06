@@ -89,24 +89,47 @@ def test_compare_towns_returns_per_town_stats() -> None:
         {
             "municipality_code": "13104",
             "population_total": 349385,
+            "youth_share_pct": 18.2,
+            "elderly_share_pct": 21.0,
+            "birth_rate_per_1000": 7.1,
+            "population_change_pct": 3.5,
+            "population_2050_estimated": 360000,
+            "population_change_2025_2050_pct": 2.0,
             "used_apartment_median_price_man_yen": 4900,
             "childcare_facility_count": 80,
             "medical_facility_count": 500,
-            "population_change_pct": 3.5,
         },
         {
             "municipality_code": "27100",
             "population_total": 2752000,
+            "youth_share_pct": 15.0,
+            "elderly_share_pct": 27.0,
+            "birth_rate_per_1000": 6.0,
+            "population_change_pct": -1.2,
+            "population_2050_estimated": 2400000,
+            "population_change_2025_2050_pct": -12.0,
             "used_apartment_median_price_man_yen": 2600,
             "childcare_facility_count": 300,
             "medical_facility_count": 1200,
-            "population_change_pct": -1.2,
         },
     ]
     wt.set_bq_client_factory(lambda: _client_returning(rows))
     out = wt.compare_towns(["13104", "27100"])
     assert {r["municipality_code"] for r in out} == {"13104", "27100"}
     assert out[0]["population_total"] == 349385
+    # 街選びに効く新たな軸が含まれる
+    assert out[0]["youth_share_pct"] == 18.2
+    assert out[0]["population_change_2025_2050_pct"] == 2.0
+    assert out[1]["elderly_share_pct"] == 27.0
+
+
+def test_compare_towns_missing_columns_become_null() -> None:
+    # 一部列が無い行でも例外にならず None 埋め (graceful)
+    rows = [{"municipality_code": "13104", "population_total": 100}]
+    wt.set_bq_client_factory(lambda: _client_returning(rows))
+    out = wt.compare_towns(["13104"])
+    assert out[0]["youth_share_pct"] is None
+    assert out[0]["medical_facility_count"] is None
 
 
 def test_compare_towns_empty_codes() -> None:

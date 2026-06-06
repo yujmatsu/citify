@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from agents.relevance.schema import AgeGroup, Interest
 
@@ -39,13 +39,17 @@ class WatchInput(BaseModel):
 
 
 class TownAssessment(BaseModel):
-    """1 つの街(住む街=基準 or 気になる街=候補)の多軸評価。"""
+    """1 つの街(住む街=基準 or 気になる街=候補)の多軸評価。
+
+    LLM 出力を取りこぼさないため文字数・スコアは validator で *切り詰め/clamp* し、
+    制約超過でも ValidationError にしない (parse 失敗で analysis が空になるのを防ぐ)。
+    """
 
     municipality_code: str
     role: Literal["home", "candidate"] = Field(
         description="home=住む街(基準) / candidate=気になる街(移住候補)"
     )
-    headline: str = Field(max_length=60, description="この街の一言評価")
+    headline: str = Field(description="この街の一言評価 (簡潔に)")
     strengths: list[str] = Field(
         default_factory=list, description="あなたにとっての強み (人口/子育て/住居/医療/議題)"
     )
@@ -53,23 +57,30 @@ class TownAssessment(BaseModel):
         default_factory=list, description="あなたにとっての懸念 (人口減/コスト等)"
     )
     population_outlook: str = Field(
-        default="", max_length=120, description="人口の将来見通し (2070 まで) の短い説明"
+        default="", description="人口の将来見通し (2070 まで) の短い説明"
     )
-    recent_signal: str = Field(
-        default="", max_length=120, description="直近議題から拾った 1 つの動き (任意)"
-    )
+    recent_signal: str = Field(default="", description="直近議題から拾った 1 つの動き (任意)")
     source_speech_ids: list[str] = Field(
         default_factory=list, description="根拠とした議題 speech_id"
     )
-    fit_score: int = Field(default=50, ge=0, le=100, description="あなたへの適合度 0-100")
+    fit_score: int = Field(default=50, description="あなたへの適合度 0-100")
+
+    @field_validator("fit_score", mode="before")
+    @classmethod
+    def _clamp_fit(cls, v: object) -> int:
+        try:
+            n = int(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 50
+        return max(0, min(100, n))
 
 
 class WatchVerdict(BaseModel):
     """エージェントの"生きた結論" (移るべきか/移るならどこか)。差別化の核。"""
 
-    headline: str = Field(max_length=80, description="生きた結論 1 行 (例: 今のところ小田原が優勢)")
+    headline: str = Field(description="生きた結論 1 行 (例: 今のところ小田原が優勢)")
     reasoning: str = Field(
-        max_length=400, description="なぜその結論か (人口/子育て/住居/議題の多軸統合)"
+        default="", description="なぜその結論か (人口/子育て/住居/議題の多軸統合)"
     )
     recommended_code: str | None = Field(
         default=None, description="現時点の推し街コード (住み続けるべきなら home の code)"

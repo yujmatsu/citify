@@ -149,18 +149,23 @@ def fetch_population_trend(municipality_code: str) -> dict:
 
 
 def compare_towns(municipality_codes: list[str]) -> list[dict]:
-    """複数の街の主要統計を並べて比較する。
+    """複数の街の主要統計を並べて比較する。街選びの中核ツール。
 
-    ウォッチ中の街(住む街・気になる街)同士を、人口・家賃・子育て・医療・人口増減で
-    横断比較したい時に使う。
+    ウォッチ中の街(住む街・気になる街)同士を、人口規模・年齢構成・将来人口・
+    出生率・住居コスト・子育て/医療施設で横断比較したい時に使う。
 
     Args:
         municipality_codes: 比較する 5 桁市区町村コードの list (最大 5 件)
 
     Returns:
-        街ごとの dict の list。各 dict は municipality_code / population_total /
-        used_apartment_median_price_man_yen / childcare_facility_count /
-        medical_facility_count / population_change_pct を含む。失敗時は空 list。
+        街ごとの dict の list。各 dict は以下を含む(値が無い項目は null):
+        municipality_code / population_total / youth_share_pct(15-29歳割合) /
+        elderly_share_pct(65歳以上割合) / birth_rate_per_1000(人口千人あたり出生) /
+        population_change_pct(直近変化) / population_2050_estimated(2050年推計人口) /
+        population_change_2025_2050_pct(2025→2050の増減率) /
+        used_apartment_median_price_man_yen(中古マンション中央値・万円) /
+        childcare_facility_count(子育て施設数) / medical_facility_count(医療施設数)。
+        失敗時は空 list。
     """
     codes = [c for c in municipality_codes if c][:MAX_COMPARE_TOWNS]
     if not codes:
@@ -169,11 +174,27 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
     table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
     sql = f"""
         SELECT municipality_code, population_total,
+               youth_share_pct, elderly_share_pct, birth_rate_per_1000,
+               population_change_pct, population_2050_estimated,
+               population_change_2025_2050_pct,
                used_apartment_median_price_man_yen, childcare_facility_count,
-               medical_facility_count, population_change_pct
+               medical_facility_count
         FROM `{table_fqn}`
         WHERE municipality_code IN UNNEST(@codes)
     """  # noqa: S608
+    cols = (
+        "municipality_code",
+        "population_total",
+        "youth_share_pct",
+        "elderly_share_pct",
+        "birth_rate_per_1000",
+        "population_change_pct",
+        "population_2050_estimated",
+        "population_change_2025_2050_pct",
+        "used_apartment_median_price_man_yen",
+        "childcare_facility_count",
+        "medical_facility_count",
+    )
     try:
         from google.cloud import bigquery
 
@@ -181,17 +202,7 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         rows = client.query(
             sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
         ).result(timeout=10)
-        return [
-            {
-                "municipality_code": r["municipality_code"],
-                "population_total": r["population_total"],
-                "used_apartment_median_price_man_yen": r["used_apartment_median_price_man_yen"],
-                "childcare_facility_count": r["childcare_facility_count"],
-                "medical_facility_count": r["medical_facility_count"],
-                "population_change_pct": r["population_change_pct"],
-            }
-            for r in rows
-        ]
+        return [{c: r.get(c) for c in cols} for r in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning("watcher.compare_towns.bq_failed codes=%s err=%s", codes, exc)
         return []

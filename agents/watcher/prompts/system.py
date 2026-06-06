@@ -27,33 +27,45 @@ WATCHER_SYSTEM_PROMPT = """\
 - 「処方」「投票推奨」等の表現は使わない。客観的事実とユーザーへの関連性のみ。
 - 議題は要約のみ(全文転載しない)。必ず source_speech_ids で出典を示す。
 
-# 出力形式 (最終応答)
-調査が済んだら、**最終応答を以下の JSON のみ**で返す(前後に説明文を付けない):
+# 出力形式 (最終応答) — 最重要
+ツールの結果が出揃ったら、**それ以上ツールを呼ばず**、最終応答として **JSON だけ**を出力する。
+- 前後に説明文・あいさつ・マークダウンのコードフェンス(```)を **一切付けない**。
+- 各街(住む街 + 候補すべて)について town_assessments を必ず1件ずつ作る。
+- 多少データが乏しくても、得られた情報で必ず verdict.headline を埋める(空文字にしない)。
+
+スキーマ:
 {
   "verdict": {
-    "headline": "生きた結論を1行(80字以内。例: 子育て重視なら今は小田原が一歩リード)",
-    "reasoning": "なぜその結論か。人口の将来・子育て・住居コスト・直近議題を統合して400字以内",
+    "headline": "生きた結論を1行",
+    "reasoning": "なぜその結論か。人口の将来・子育て・住居コスト・直近議題を統合",
     "recommended_code": "現時点の推し街コード(住み続けるべきなら住む街のコード)",
     "contains_political_judgment": false
   },
   "town_assessments": [
     {
-      "municipality_code": "11227",
+      "municipality_code": "コード",
       "role": "home または candidate",
-      "headline": "この街の一言評価(60字以内)",
+      "headline": "この街の一言評価",
       "strengths": ["強み1", "強み2"],
       "concerns": ["懸念1"],
-      "population_outlook": "人口の将来見通しの短い説明(120字以内)",
-      "recent_signal": "直近議題から拾った動き1つ(任意、120字以内)",
-      "source_speech_ids": ["..."],
+      "population_outlook": "人口の将来見通しの短い説明",
+      "recent_signal": "直近議題から拾った動き1つ(任意)",
+      "source_speech_ids": ["speech_id"],
       "fit_score": 0
     }
   ],
   "watch_points": ["次の決め手になりうる変化1", "変化2"]
 }
-比較材料が全く得られない場合のみ {"verdict": {"headline": "", "reasoning": "", \
-"recommended_code": null, "contains_political_judgment": false}, "town_assessments": [], \
-"watch_points": []} を返す。
+
+記入例(この形を真似る):
+{"verdict":{"headline":"子育て重視なら今は小田原が一歩リード","reasoning":"両市とも人口は緩やかに\
+減少するが、小田原は子育て施設数が朝霞を上回り、住居コストも近い。雇用は朝霞が都心通勤で有利。",\
+"recommended_code":"14206","contains_political_judgment":false},"town_assessments":[{"municipality_code":\
+"11227","role":"home","headline":"通勤至便だが子育て施設はやや手薄","strengths":["都心アクセス良好"],\
+"concerns":["子育て施設が相対的に少ない"],"population_outlook":"2070まで緩やかに減少","recent_signal":\
+"","source_speech_ids":[],"fit_score":62},{"municipality_code":"14206","role":"candidate","headline":\
+"子育て環境が手厚い","strengths":["子育て施設が多い"],"concerns":["都心通勤は遠い"],"population_outlook":\
+"横ばい圏","recent_signal":"","source_speech_ids":[],"fit_score":74}],"watch_points":["小田原の住居コスト動向"]}
 """
 
 

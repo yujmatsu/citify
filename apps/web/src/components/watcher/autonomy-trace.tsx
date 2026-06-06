@@ -77,12 +77,17 @@ export function AutonomyTrace({
           )}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500">
             <span>調査した街: {runLog.towns_checked.length} 件</span>
-            <span>発見: {runLog.n_discoveries} 件</span>
+            <span>評価した街: {runLog.n_discoveries} 件</span>
             {runLog.token_cost != null && (
               <span>消費トークン: {runLog.token_cost.toLocaleString()}</span>
             )}
             <span>状態: {runLog.status}</span>
           </div>
+          {runLog.status !== "ok" && runLog.note && (
+            <p className="break-all rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+              診断: {runLog.note}
+            </p>
+          )}
         </div>
       )}
     </section>

@@ -237,8 +237,19 @@ class WatcherAgent:
                 ),
             )
 
-        analysis = apply_ethics(parse_analysis(final_text))
+        parsed = parse_analysis(final_text)
+        analysis = apply_ethics(parsed)
         n_assessed = len(analysis.town_assessments) if analysis else 0
+        note = ""
+        if analysis is None:
+            # 診断: なぜ空になったか (parse 失敗か倫理ドロップか) を note に残す
+            if parsed is None:
+                note = f"parse_failed: {final_text[:300]}"
+                logger.warning(
+                    "watcher.parse_empty user=%s text=%r", watch.user_id, final_text[:300]
+                )
+            else:
+                note = "ethics_dropped"
         if status != "max_iterations":
             status = "ok" if analysis else "empty"
         run_log = _build_run_log(
@@ -248,7 +259,7 @@ class WatcherAgent:
             tool_calls,
             n_assessed,
             status,
-            "",
+            note,
             token_cost,
         )
         self._persist(watch.user_id, run_log, analysis)
