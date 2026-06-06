@@ -98,6 +98,11 @@ def test_compare_towns_returns_per_town_stats() -> None:
             "used_apartment_median_price_man_yen": 4900,
             "childcare_facility_count": 80,
             "medical_facility_count": 500,
+            "financial_capability_index": 0.98,
+            "real_debt_service_ratio_pct": 4.9,
+            "taxable_income_per_capita_yen": 3947780,
+            "homeownership_rate_pct": 53.7,
+            "crime_rate_per_1000": 13.5,
         },
         {
             "municipality_code": "27100",
@@ -121,6 +126,10 @@ def test_compare_towns_returns_per_town_stats() -> None:
     assert out[0]["youth_share_pct"] == 18.2
     assert out[0]["population_change_2025_2050_pct"] == 2.0
     assert out[1]["elderly_share_pct"] == 27.0
+    # TASK-FISCAL: 財政・所得・治安の軸 (SSDS)
+    assert out[0]["financial_capability_index"] == 0.98
+    assert out[0]["taxable_income_per_capita_yen"] == 3947780
+    assert out[0]["crime_rate_per_1000"] == 13.5
 
 
 def test_compare_towns_missing_columns_become_null() -> None:

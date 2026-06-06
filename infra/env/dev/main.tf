@@ -458,6 +458,15 @@ resource "google_bigquery_table" "municipality_stats" {
     { name = "nursery_count", type = "INTEGER", mode = "NULLABLE", description = "うち保育園・認定こども園・その他" },
     { name = "reinfolib_loaded_at", type = "TIMESTAMP", mode = "NULLABLE", description = "Reinfolib データ最終取得時刻" },
     { name = "reinfolib_source_url", type = "STRING", mode = "NULLABLE", description = "不動産情報ライブラリ URL (引用元)" },
+    # ----- TASK-FISCAL: 社会・人口統計体系 (統計でみる市区町村のすがた) 由来 5指標 -----
+    { name = "financial_capability_index", type = "FLOAT", mode = "NULLABLE", description = "財政力指数 (3か年平均、1.0超で財政的余裕。SSDS D2201、特別区は対象外で null)" },
+    { name = "real_debt_service_ratio_pct", type = "FLOAT", mode = "NULLABLE", description = "実質公債費比率 (%、借金の重さ。SSDS D2211)" },
+    { name = "taxable_income_per_capita_yen", type = "INTEGER", mode = "NULLABLE", description = "1人当たり課税対象所得 (円、=課税対象所得/納税義務者数。SSDS C120110/C120120)" },
+    { name = "homeownership_rate_pct", type = "FLOAT", mode = "NULLABLE", description = "持ち家比率 (%、=持ち家数/居住世帯あり住宅数。SSDS H1310/H1101、住調標本のため一部 null)" },
+    { name = "crime_rate_per_1000", type = "FLOAT", mode = "NULLABLE", description = "刑法犯認知件数 (人口千対、=刑法犯/人口×1000。SSDS K4201/A1101)" },
+    { name = "ssds_data_year", type = "INTEGER", mode = "NULLABLE", description = "SSDS 公表年度 (統計でみる市区町村のすがた)" },
+    { name = "ssds_source_url", type = "STRING", mode = "NULLABLE", description = "e-Stat 社会・人口統計体系 URL (引用元)" },
+    { name = "ssds_loaded_at", type = "TIMESTAMP", mode = "NULLABLE", description = "SSDS データ最終取得時刻" },
   ])
 
   labels = merge(local.common_labels, { purpose = "city_dashboard_stats" })

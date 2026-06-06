@@ -1,0 +1,23 @@
+{
+  "data_year": 2025,
+  "source_url": "https://www.e-stat.go.jp/stat-search/database?toukei=00200502 (社会・人口統計体系 統計でみる市区町村のすがた2025 基礎データ・廃置分合処理済)",
+  "indicators": {
+    "financial_capability_index": {
+      "stats_data_id": "0000020204",
+      "cd_cat01": "D2201"
+    },
+    "real_debt_service_ratio_pct": {
+      "stats_data_id": "0000020204",
+      "cd_cat01": "D2211"
+    },
+    "taxable_income_total": {
+      "stats_data_id": "0000020203",
+      "cd_cat01": "C120110"
+    },
+    "taxpayers": { "stats_data_id": "0000020203", "cd_cat01": "C120120" },
+    "owned_homes": { "stats_data_id": "0000020208", "cd_cat01": "H1310" },
+    "dwellings": { "stats_data_id": "0000020208", "cd_cat01": "H1101" },
+    "crime_count": { "stats_data_id": "0000020211", "cd_cat01": "K4201" },
+    "population": { "stats_data_id": "0000020201", "cd_cat01": "A1101" }
+  }
+}

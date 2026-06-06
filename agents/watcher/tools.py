@@ -164,8 +164,12 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         population_change_pct(直近変化) / population_2050_estimated(2050年推計人口) /
         population_change_2025_2050_pct(2025→2050の増減率) /
         used_apartment_median_price_man_yen(中古マンション中央値・万円) /
-        childcare_facility_count(子育て施設数) / medical_facility_count(医療施設数)。
-        失敗時は空 list。
+        childcare_facility_count(子育て施設数) / medical_facility_count(医療施設数) /
+        financial_capability_index(財政力指数、1.0超で財政的余裕) /
+        real_debt_service_ratio_pct(実質公債費比率%、借金の重さ) /
+        taxable_income_per_capita_yen(1人当たり課税対象所得・円) /
+        homeownership_rate_pct(持ち家比率%) / crime_rate_per_1000(刑法犯認知件数・人口千対)。
+        失敗時は空 list。値が無い項目は null (財政指標は特別区等で欠損あり)。
     """
     codes = [c for c in municipality_codes if c][:MAX_COMPARE_TOWNS]
     if not codes:
@@ -178,7 +182,10 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
                population_change_pct, population_2050_estimated,
                population_change_2025_2050_pct,
                used_apartment_median_price_man_yen, childcare_facility_count,
-               medical_facility_count
+               medical_facility_count,
+               financial_capability_index, real_debt_service_ratio_pct,
+               taxable_income_per_capita_yen, homeownership_rate_pct,
+               crime_rate_per_1000
         FROM `{table_fqn}`
         WHERE municipality_code IN UNNEST(@codes)
     """  # noqa: S608
@@ -194,6 +201,11 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         "used_apartment_median_price_man_yen",
         "childcare_facility_count",
         "medical_facility_count",
+        "financial_capability_index",
+        "real_debt_service_ratio_pct",
+        "taxable_income_per_capita_yen",
+        "homeownership_rate_pct",
+        "crime_rate_per_1000",
     )
     try:
         from google.cloud import bigquery
