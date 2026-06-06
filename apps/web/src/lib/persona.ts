@@ -65,3 +65,18 @@ export const DEMO_PERSONA: Persona = {
   interests: ["住居", "雇用", "税", "子育て"],
   municipality_codes: ["33000", "00000"],
 };
+
+// ============================================================================
+// ウォッチ街 (マイ街エージェント Slice 3) — persona の municipality_codes を
+// 「住む街(先頭) + 気になる街(残り)」として解釈する。スキーマは変えず互換維持。
+// ============================================================================
+
+/** 住む街コード (municipality_codes の先頭)。未設定なら null。 */
+export function homeCode(p: Persona): string | null {
+  return p.municipality_codes[0] ?? null;
+}
+
+/** 気になる街コード (municipality_codes の 2 件目以降)。 */
+export function watchedCodes(p: Persona): string[] {
+  return p.municipality_codes.slice(1);
+}

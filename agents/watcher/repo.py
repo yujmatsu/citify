@@ -71,13 +71,50 @@ class WatcherRepository:
             logger.warning("watcher_repo.save_run skipped: empty run_id")
             return False
         try:
-            self._client().collection(FIRESTORE_RUNS).document(_safe(run.run_id)).set(
-                run.model_dump()
-            )
+            payload = run.model_dump()
+            payload["created_at"] = datetime.now(UTC)  # latest 判定用 (schema 外の補助列)
+            self._client().collection(FIRESTORE_RUNS).document(_safe(run.run_id)).set(payload)
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("watcher_repo.save_run_failed run=%s err=%s", run.run_id, exc)
             return False
+
+    def get_run(self, run_id: str) -> AgentRunLog | None:
+        """run_id で 1 実行ログを取得 (doc-id lookup、composite index 不要)。"""
+        if not run_id:
+            return None
+        try:
+            snap = self._client().collection(FIRESTORE_RUNS).document(_safe(run_id)).get()
+            if not getattr(snap, "exists", False):
+                return None
+            return AgentRunLog.model_validate(snap.to_dict() or {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("watcher_repo.get_run_failed run=%s err=%s", run_id, exc)
+            return None
+
+    def get_latest_run(self, user_id: str) -> AgentRunLog | None:
+        """user の最新実行ログ。最新 discovery の run_id 経由で取得する。
+
+        discoveries は既に user_id+created_at で order_by 済 (list_discoveries の index を
+        再利用)。最新 1 件の run_id を引いて get_run するので、runs 用の新規 composite
+        index を増やさない。discovery が無ければ None。
+        """
+        try:
+            query = (
+                self._client()
+                .collection(FIRESTORE_DISCOVERIES)
+                .where("user_id", "==", user_id)
+                .order_by("created_at", direction="DESCENDING")
+                .limit(1)
+            )
+            run_id = ""
+            for doc in query.stream():
+                run_id = (doc.to_dict() or {}).get("run_id", "")
+                break
+            return self.get_run(run_id) if run_id else None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("watcher_repo.get_latest_run_failed user=%s err=%s", user_id, exc)
+            return None
 
     # ------------------------------------------------------------------ discoveries
     def save_discoveries(self, user_id: str, run_id: str, discoveries: list[Discovery]) -> int:

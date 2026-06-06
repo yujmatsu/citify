@@ -84,6 +84,56 @@ def test_save_run_requires_run_id() -> None:
     assert repo.save_run(log2) is True
 
 
+def test_save_run_adds_created_at() -> None:
+    """save_run の payload に created_at (latest 判定用の補助列) が付く。"""
+    client = MagicMock()
+    repo = WatcherRepository(firestore_client=client)
+    assert repo.save_run(AgentRunLog(run_id="r1", user_id="u")) is True
+    payload = client.collection.return_value.document.return_value.set.call_args.args[0]
+    assert "created_at" in payload
+
+
+def test_get_run_hit_and_miss() -> None:
+    client = MagicMock()
+    repo = WatcherRepository(firestore_client=client)
+    # hit
+    client.collection.return_value.document.return_value.get.return_value = _snap(
+        True, AgentRunLog(run_id="r1", user_id="u", n_discoveries=2).model_dump()
+    )
+    got = repo.get_run("r1")
+    assert got is not None and got.n_discoveries == 2
+    # empty run_id → None (Firestore 非アクセス)
+    assert repo.get_run("") is None
+    # miss
+    client.collection.return_value.document.return_value.get.return_value = _snap(False)
+    assert repo.get_run("nope") is None
+
+
+def test_get_latest_run_via_newest_discovery() -> None:
+    """最新 discovery の run_id を引いて get_run する経路。"""
+    client = MagicMock()
+    repo = WatcherRepository(firestore_client=client)
+
+    disc_doc = MagicMock()
+    disc_doc.to_dict.return_value = {"run_id": "r-latest"}
+    (
+        client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
+    ) = [disc_doc]
+    client.collection.return_value.document.return_value.get.return_value = _snap(
+        True, AgentRunLog(run_id="r-latest", user_id="demo-40-49", status="ok").model_dump()
+    )
+    got = repo.get_latest_run("demo-40-49")
+    assert got is not None and got.run_id == "r-latest"
+
+
+def test_get_latest_run_no_discovery_returns_none() -> None:
+    client = MagicMock()
+    (
+        client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
+    ) = []
+    assert WatcherRepository(firestore_client=client).get_latest_run("u") is None
+
+
 # ============================================================================
 # discoveries
 # ============================================================================

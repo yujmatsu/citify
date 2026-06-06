@@ -978,3 +978,146 @@ export async function fetchCostHealth(
   const data = await res.json();
   return CostHealthResponseSchema.parse(data);
 }
+
+// ============================================================================
+// Watcher (マイ街エージェント / TASK-WATCHER Slice 3) — 自律型 Civic Watch Agent
+// agents/watcher/schema.py の Pydantic (Discovery / AgentRunLog) と一致させる。
+// 認可は x-user-id header (path user_id と一致必須、demo)。
+// ============================================================================
+
+export const WatcherDiscoverySchema = z.object({
+  municipality_code: z.string(),
+  title: z.string(),
+  summary: z.array(z.string()).default([]),
+  /** 「なぜ *あなたに* surface したか」= 差別化の核 */
+  why_surfaced: z.string(),
+  significance: z.enum(["high", "medium", "low"]),
+  source_speech_ids: z.array(z.string()).default([]),
+  contains_political_judgment: z.boolean().default(false),
+});
+
+export type WatcherDiscovery = z.infer<typeof WatcherDiscoverySchema>;
+
+/** エージェントが自分で選んで呼んだツール 1 回 = ①自律性の証跡 */
+export const WatcherToolCallSchema = z.object({
+  tool: z.string(),
+  args: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type WatcherToolCall = z.infer<typeof WatcherToolCallSchema>;
+
+export const WatcherRunLogSchema = z.object({
+  run_id: z.string().default(""),
+  user_id: z.string(),
+  towns_checked: z.array(z.string()).default([]),
+  tool_calls: z.array(WatcherToolCallSchema).default([]),
+  n_discoveries: z.number().int().nonnegative().default(0),
+  token_cost: z.number().int().nullable().optional(),
+  status: z.enum(["ok", "empty", "error", "max_iterations"]).default("ok"),
+  note: z.string().default(""),
+});
+
+export type WatcherRunLog = z.infer<typeof WatcherRunLogSchema>;
+
+export const WatcherDiscoveriesResponseSchema = z.object({
+  user_id: z.string(),
+  discoveries: z.array(WatcherDiscoverySchema).default([]),
+  latest_run: WatcherRunLogSchema.nullable().default(null),
+  total: z.number().int().nonnegative().default(0),
+});
+
+export type WatcherDiscoveriesResponse = z.infer<
+  typeof WatcherDiscoveriesResponseSchema
+>;
+
+export const WatchlistSchema = z.object({
+  user_id: z.string(),
+  age_group: z.string(),
+  interests: z.array(z.string()).default([]),
+  home_municipality_code: z.string(),
+  watched_codes: z.array(z.string()).default([]),
+});
+
+export type Watchlist = z.infer<typeof WatchlistSchema>;
+
+/** PUT / POST run の body (user_id は path から取るので含めない)。 */
+export type WatchlistBody = {
+  age_group: string;
+  interests: string[];
+  home_municipality_code: string;
+  watched_codes: string[];
+};
+
+export const WatcherRunResponseSchema = z.object({
+  run_log: WatcherRunLogSchema,
+  discoveries: z.array(WatcherDiscoverySchema).default([]),
+});
+
+export type WatcherRunResponse = z.infer<typeof WatcherRunResponseSchema>;
+
+function watcherHeaders(userId: string): HeadersInit {
+  return { Accept: "application/json", "x-user-id": userId };
+}
+
+/** エージェントの発見 + 最新実行ログ (自律証跡) を取得。 */
+export async function fetchWatcherDiscoveries(
+  userId: string,
+  limit = 20,
+): Promise<WatcherDiscoveriesResponse> {
+  return fetchJson(
+    `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/discoveries?limit=${limit}`,
+    WatcherDiscoveriesResponseSchema,
+    { headers: watcherHeaders(userId), cache: "no-store" },
+  );
+}
+
+/** 保存済ウォッチ街を取得 (未設定なら null)。 */
+export async function fetchWatchlist(userId: string): Promise<Watchlist | null> {
+  const res = await fetch(
+    `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/watchlist`,
+    { headers: watcherHeaders(userId), cache: "no-store" },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return data == null ? null : WatchlistSchema.parse(data);
+}
+
+/** ウォッチ街を保存。 */
+export async function putWatchlist(
+  userId: string,
+  body: WatchlistBody,
+): Promise<Watchlist> {
+  return fetchJson(
+    `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/watchlist`,
+    WatchlistSchema,
+    {
+      method: "PUT",
+      headers: { ...watcherHeaders(userId), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    },
+  );
+}
+
+/**
+ * エージェントをその場で自律実行 (ADK Runner、5-20 秒)。
+ * body 省略時は保存済 watchlist を使用。返却 run_log.tool_calls がライブ自律の証跡。
+ */
+export async function runWatcher(
+  userId: string,
+  body?: WatchlistBody,
+): Promise<WatcherRunResponse> {
+  return fetchJson(
+    `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/run`,
+    WatcherRunResponseSchema,
+    {
+      method: "POST",
+      headers: { ...watcherHeaders(userId), "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: "no-store",
+    },
+  );
+}

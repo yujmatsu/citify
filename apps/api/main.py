@@ -2732,3 +2732,188 @@ async def get_cost_health(
         bool(cross_pattern),
     )
     return result
+
+
+# ============================================================================
+# Watcher (マイ街エージェント / TASK-WATCHER Slice 3) — 自律型 Civic Watch Agent
+# ============================================================================
+# 自律エージェント (ADK Runner) がユーザーのウォッチ街から「あなたに意味ある発見」を
+# 見つける。本セクションはその面 (discoveries 取得 / watchlist / on-demand 実行)。
+#   - GET  /v1/watcher/{user_id}/discoveries : 発見 + 最新実行ログ (自律証跡 tool_calls)
+#   - GET  /v1/watcher/{user_id}/watchlist   : 保存済ウォッチ街
+#   - PUT  /v1/watcher/{user_id}/watchlist   : ウォッチ街を保存
+#   - POST /v1/watcher/{user_id}/run         : エージェントをその場で自律実行 (ADK、5-20s)
+# 認可は concierge history と同じ x-user-id header 簡易方式 (demo)。
+# ============================================================================
+
+
+_watcher_repo_cache: Any = None
+_watcher_agent_cache: Any = None
+
+
+def _get_watcher_repo() -> Any:
+    """WatcherRepository を遅延初期化 (Firestore client 注入、テストで monkeypatch 可)。"""
+    global _watcher_repo_cache
+    if _watcher_repo_cache is None:
+        from agents.watcher.repo import WatcherRepository
+
+        _watcher_repo_cache = WatcherRepository(firestore_client=_get_firestore_client())
+    return _watcher_repo_cache
+
+
+def _get_watcher_agent() -> Any:
+    """WatcherAgent を遅延初期化 (ADK は WatcherAgent 内で更に lazy import)。
+
+    run 以外の経路では呼ばれないため、discoveries/watchlist 取得で ADK は読み込まれない。
+    テストでは monkeypatch して mock を注入する。
+    """
+    global _watcher_agent_cache
+    if _watcher_agent_cache is None:
+        from agents.watcher.main import WatcherAgent
+
+        _watcher_agent_cache = WatcherAgent(project_id=BQ_PROJECT, repo=_get_watcher_repo())
+    return _watcher_agent_cache
+
+
+def _require_watcher_user(user_id: str, x_user_id: str | None) -> None:
+    """demo 簡易認可: path user_id と header x-user-id の一致を要求 (concierge と同方式)。"""
+    if x_user_id is None or x_user_id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="x-user-id header must match path user_id (demo 認可)",
+        )
+
+
+class WatchlistBody(BaseModel):
+    """ウォッチ街の保存 / 実行入力 (user_id は path から取るので body には含めない)。"""
+
+    age_group: str = Field(description="年代 (18-24/25-29/30-39/40-49/50+)")
+    interests: list[str] = Field(default_factory=list)
+    home_municipality_code: str = Field(description="住む街 (5 桁)")
+    watched_codes: list[str] = Field(
+        default_factory=list, description="気になる街 (home 含め上限 5)"
+    )
+
+
+def _to_watch_input(user_id: str, body: WatchlistBody) -> Any:
+    """WatchlistBody → WatchInput。enum 不一致は 400 に変換 (graceful)。"""
+    from agents.watcher.schema import WatchInput
+    from pydantic import ValidationError
+
+    try:
+        return WatchInput(
+            user_id=user_id,
+            age_group=body.age_group,  # type: ignore[arg-type]
+            interests=body.interests,  # type: ignore[arg-type]
+            home_municipality_code=body.home_municipality_code,
+            watched_codes=body.watched_codes,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid watchlist: {exc!s}") from exc
+
+
+@app.get("/v1/watcher/{user_id}/discoveries")
+async def get_watcher_discoveries(
+    user_id: str,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=50),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict:
+    """エージェントの発見 (新着順) + 最新実行ログ (自律証跡 tool_calls)。
+
+    latest_run.tool_calls が「LLM が自分で選んだ調査計画」= ①自律性の可視化。
+    discoveries が空でも 200 (空配列)。
+    """
+    _require_watcher_user(user_id, x_user_id)
+    response.headers["Cache-Control"] = "private, max-age=0, no-cache"
+
+    repo = _get_watcher_repo()
+    discoveries = repo.list_discoveries(user_id, limit=limit)
+    latest = repo.get_latest_run(user_id)
+    logger.info(
+        "watcher.discoveries.done user_id=%s n=%d has_run=%s",
+        user_id,
+        len(discoveries),
+        latest is not None,
+    )
+    return {
+        "user_id": user_id,
+        "discoveries": [d.model_dump() for d in discoveries],
+        "latest_run": latest.model_dump() if latest else None,
+        "total": len(discoveries),
+    }
+
+
+@app.get("/v1/watcher/{user_id}/watchlist")
+async def get_watcher_watchlist(
+    user_id: str,
+    response: Response,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict | None:
+    """保存済のウォッチ街を返す (未設定なら null)。"""
+    _require_watcher_user(user_id, x_user_id)
+    response.headers["Cache-Control"] = "private, max-age=0, no-cache"
+    wl = _get_watcher_repo().get_watchlist(user_id)
+    return wl.model_dump() if wl else None
+
+
+@app.put("/v1/watcher/{user_id}/watchlist")
+async def put_watcher_watchlist(
+    user_id: str,
+    body: WatchlistBody,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict:
+    """ウォッチ街を保存 (home + watched、上限 5 は all_codes で truncate)。"""
+    _require_watcher_user(user_id, x_user_id)
+    watch = _to_watch_input(user_id, body)
+    if not _get_watcher_repo().save_watchlist(watch):
+        raise HTTPException(status_code=500, detail="failed to save watchlist")
+    logger.info("watcher.watchlist.saved user_id=%s towns=%s", user_id, watch.all_codes())
+    return watch.model_dump()
+
+
+@app.post("/v1/watcher/{user_id}/run")
+async def run_watcher(
+    user_id: str,
+    response: Response,
+    body: WatchlistBody | None = None,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict:
+    """エージェントをその場で自律実行 (ADK Runner、5-20 秒)。
+
+    body があれば watchlist を更新してから実行、無ければ保存済を使用。
+    ツール選択は LLM に委任 (スクリプト化しない) = ①自律性。倫理ゲート・コスト bound は
+    WatcherAgent 側で継承。返却の run_log.tool_calls がライブ自律の証跡。
+    """
+    _require_watcher_user(user_id, x_user_id)
+    response.headers["Cache-Control"] = "no-store"
+
+    repo = _get_watcher_repo()
+    if body is not None:
+        watch = _to_watch_input(user_id, body)
+        repo.save_watchlist(watch)
+    else:
+        watch = repo.get_watchlist(user_id)
+        if watch is None:
+            raise HTTPException(
+                status_code=400,
+                detail="no watchlist saved; provide a body or PUT /watchlist first",
+            )
+
+    try:
+        result = await _get_watcher_agent().run(watch)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("watcher.run_failed user_id=%s err=%s", user_id, exc)
+        raise HTTPException(status_code=500, detail=f"agent run failed: {exc!s}") from exc
+
+    logger.info(
+        "watcher.run.done user_id=%s status=%s n_discoveries=%d n_tool_calls=%d",
+        user_id,
+        result.run_log.status,
+        result.run_log.n_discoveries,
+        len(result.run_log.tool_calls),
+    )
+    return {
+        "run_log": result.run_log.model_dump(),
+        "discoveries": [d.model_dump() for d in result.discoveries],
+    }

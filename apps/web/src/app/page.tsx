@@ -41,8 +41,14 @@ export default function Home() {
               {persona.user_id} ({persona.age_group}) として続行
             </p>
             <Link
+              href="/agent"
+              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-6 text-base font-medium text-white transition-colors hover:bg-emerald-700"
+            >
+              🤖 マイ街エージェント
+            </Link>
+            <Link
               href="/feed"
-              className="inline-flex h-12 w-full items-center justify-center rounded-full bg-zinc-900 px-6 text-base font-medium text-zinc-50 transition-colors hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex h-11 w-full items-center justify-center rounded-full border border-zinc-300 px-6 text-sm font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
             >
               フィードを見る
             </Link>
