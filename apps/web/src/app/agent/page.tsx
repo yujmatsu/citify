@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AutonomyTrace } from "@/components/watcher/autonomy-trace";
-import { DiscoveryCard } from "@/components/watcher/discovery-card";
+import { TownAssessmentCard } from "@/components/watcher/town-assessment-card";
+import { VerdictCard } from "@/components/watcher/verdict-card";
 import {
-  fetchWatcherDiscoveries,
+  fetchWatcherAnalysis,
   runWatcher,
+  type TownAnalysis,
   type WatchlistBody,
-  type WatcherDiscovery,
   type WatcherRunLog,
 } from "@/lib/api";
 import {
@@ -24,23 +25,41 @@ import {
   type Persona,
 } from "@/lib/persona";
 
+const NATIONAL_DIET_CODE = "00000";
+
 type LoadState =
   | { kind: "loading" }
+  | { kind: "needs_town"; persona: Persona }
   | {
       kind: "ready";
       persona: Persona;
       munis: Municipality[];
-      discoveries: WatcherDiscovery[];
+      analysis: TownAnalysis | null;
       latestRun: WatcherRunLog | null;
     }
   | { kind: "error"; message: string };
 
-function toBody(persona: Persona): WatchlistBody {
+/** persona から「国会を除いた」住む街+候補を取り出す。home が国会なら候補先頭を昇格。 */
+function realTowns(persona: Persona): {
+  home: string | null;
+  watched: string[];
+} {
+  const watched = watchedCodes(persona).filter((c) => c !== NATIONAL_DIET_CODE);
+  let home = homeCode(persona);
+  if (home === NATIONAL_DIET_CODE || !home) {
+    home = watched.shift() ?? null;
+  }
+  return { home, watched };
+}
+
+function toBody(persona: Persona): WatchlistBody | null {
+  const { home, watched } = realTowns(persona);
+  if (!home) return null;
   return {
     age_group: persona.age_group,
     interests: persona.interests,
-    home_municipality_code: homeCode(persona) ?? "00000",
-    watched_codes: watchedCodes(persona),
+    home_municipality_code: home,
+    watched_codes: watched,
   };
 }
 
@@ -56,18 +75,19 @@ export default function AgentHomePage(): React.JSX.Element {
       router.replace("/onboarding");
       return;
     }
+    if (!realTowns(persona).home) {
+      setState({ kind: "needs_town", persona });
+      return;
+    }
     let cancelled = false;
-    Promise.all([
-      loadMunicipalities(),
-      fetchWatcherDiscoveries(persona.user_id),
-    ])
+    Promise.all([loadMunicipalities(), fetchWatcherAnalysis(persona.user_id)])
       .then(([munis, res]) => {
         if (cancelled) return;
         setState({
           kind: "ready",
           persona,
           munis,
-          discoveries: res.discoveries,
+          analysis: res.analysis,
           latestRun: res.latest_run,
         });
       })
@@ -85,18 +105,13 @@ export default function AgentHomePage(): React.JSX.Element {
 
   const handleRun = useCallback(async () => {
     if (state.kind !== "ready") return;
+    const body = toBody(state.persona);
+    if (!body) return;
     setRunning(true);
     setRunError(null);
     try {
-      const res = await runWatcher(
-        state.persona.user_id,
-        toBody(state.persona),
-      );
-      setState({
-        ...state,
-        discoveries: res.discoveries,
-        latestRun: res.run_log,
-      });
+      const res = await runWatcher(state.persona.user_id, body);
+      setState({ ...state, analysis: res.analysis, latestRun: res.run_log });
     } catch (err) {
       setRunError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -108,6 +123,26 @@ export default function AgentHomePage(): React.JSX.Element {
     return (
       <main className="flex flex-1 items-center justify-center">
         <p className="text-sm text-zinc-500">エージェントを起動中...</p>
+      </main>
+    );
+  }
+
+  if (state.kind === "needs_town") {
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
+        <div className="max-w-md space-y-4 text-center">
+          <h1 className="text-xl font-semibold">住む街を登録してください</h1>
+          <p className="text-sm text-zinc-500">
+            街選びアナリストは「住む街（基準）」と「気になる街（候補）」を比較します。
+            国会以外の実在する街を登録してください。
+          </p>
+          <Link
+            href="/onboarding"
+            className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            街を登録する
+          </Link>
+        </div>
       </main>
     );
   }
@@ -129,11 +164,11 @@ export default function AgentHomePage(): React.JSX.Element {
     );
   }
 
-  const { persona, munis, discoveries, latestRun } = state;
+  const { persona, munis, analysis, latestRun } = state;
   const nameOf = (code: string): string =>
     findByCode(munis, code)?.name ?? `自治体 ${code}`;
-  const home = homeCode(persona);
-  const watched = watchedCodes(persona);
+  const { home, watched } = realTowns(persona);
+  const recommendedCode = analysis?.verdict.recommended_code ?? null;
 
   return (
     <main className="flex flex-1 flex-col px-5 pb-24 pt-6">
@@ -141,19 +176,17 @@ export default function AgentHomePage(): React.JSX.Element {
         {/* ヒーロー */}
         <header className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-            マイ街エージェント
+            マイ街エージェント・街選びアナリスト
           </p>
           <h1 className="text-2xl font-semibold leading-tight tracking-tight">
-            あなたの街を、
+            住み続ける？
             <br />
-            AI が見張っています
+            それとも移る？
           </h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            住む街
-            {home ? `（${nameOf(home)}）` : ""}
-            と気になる街
+            住む街{home ? `（${nameOf(home)}）` : ""}を基準に、気になる街
             {watched.length > 0 ? `（${watched.map(nameOf).join("・")}）` : ""}
-            の議題から、あなたに意味のある動きを見つけて届けます。
+            と比較して、AI が「どこが今のあなたに合うか」を考え続けます。
           </p>
         </header>
 
@@ -167,15 +200,17 @@ export default function AgentHomePage(): React.JSX.Element {
           {running ? (
             <>
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-              エージェントが調査中...
+              街を比較・分析中...
             </>
+          ) : analysis ? (
+            <>🔄 もう一度分析してもらう</>
           ) : (
-            <>🔍 今すぐ調べてもらう</>
+            <>🔍 今すぐ分析してもらう</>
           )}
         </button>
         {running && (
           <p className="text-center text-xs text-zinc-500">
-            ツールを自分で選んで街を調べています（5〜20 秒ほど）
+            街を自分で選んで人口・統計・議題を横断調査しています（5〜20 秒ほど）
           </p>
         )}
         {runError && (
@@ -187,28 +222,60 @@ export default function AgentHomePage(): React.JSX.Element {
         {/* 自律の証跡 */}
         {latestRun && <AutonomyTrace runLog={latestRun} />}
 
-        {/* 発見フィード */}
-        {discoveries.length === 0 ? (
+        {analysis ? (
+          <>
+            {/* 生きた結論 */}
+            <VerdictCard
+              verdict={analysis.verdict}
+              recommendedName={
+                recommendedCode ? nameOf(recommendedCode) : undefined
+              }
+            />
+
+            {/* 街の比較 */}
+            {analysis.town_assessments.length > 0 && (
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                  街の比較
+                </h2>
+                {analysis.town_assessments.map((a) => (
+                  <TownAssessmentCard
+                    key={a.municipality_code}
+                    assessment={a}
+                    municipalityName={nameOf(a.municipality_code)}
+                    isRecommended={a.municipality_code === recommendedCode}
+                  />
+                ))}
+              </section>
+            )}
+
+            {/* 次の決め手 */}
+            {analysis.watch_points.length > 0 && (
+              <section className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                <h2 className="text-sm font-semibold">
+                  👀 次の決め手になる変化
+                </h2>
+                <ul className="space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  {analysis.watch_points.map((w, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span aria-hidden className="text-zinc-400">
+                        ・
+                      </span>
+                      <span>{w}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
+        ) : (
           <div className="space-y-3 rounded-2xl border border-dashed border-zinc-300 p-6 text-center dark:border-zinc-700">
-            <p className="text-sm font-medium">まだ発見がありません</p>
+            <p className="text-sm font-medium">まだ分析がありません</p>
             <p className="text-xs text-zinc-500">
-              「今すぐ調べてもらう」を押すと、エージェントがあなたの街を調査して
-              発見を届けます。
+              「今すぐ分析してもらう」を押すと、エージェントが住む街と候補を比較して
+              「住み続けるか/移るならどこか」の結論を出します。
             </p>
           </div>
-        ) : (
-          <section className="space-y-4">
-            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-              エージェントからの発見 {discoveries.length} 件
-            </h2>
-            {discoveries.map((d, i) => (
-              <DiscoveryCard
-                key={`${d.municipality_code}-${i}`}
-                discovery={d}
-                municipalityName={nameOf(d.municipality_code)}
-              />
-            ))}
-          </section>
         )}
 
         <footer className="pt-2 text-center text-xs text-zinc-500">

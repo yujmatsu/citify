@@ -12,8 +12,6 @@ from pydantic import BaseModel, Field
 
 from agents.relevance.schema import AgeGroup, Interest
 
-Significance = Literal["high", "medium", "low"]
-
 
 class WatchInput(BaseModel):
     """1 ユーザー分のウォッチ・コンテキスト (エージェント実行の入力)。"""
@@ -40,22 +38,54 @@ class WatchInput(BaseModel):
         return seen[: self.MAX_TOWNS]
 
 
-class Discovery(BaseModel):
-    """エージェントが「あなたに意味がある」と判断して surface する 1 件の発見。"""
+class TownAssessment(BaseModel):
+    """1 つの街(住む街=基準 or 気になる街=候補)の多軸評価。"""
 
     municipality_code: str
-    title: str = Field(max_length=60, description="若者向けの短いタイトル")
-    summary: list[str] = Field(default_factory=list, description="3 行以内のサマリ")
-    why_surfaced: str = Field(
-        max_length=200,
-        description="なぜ *あなたに* surface したかの理由 (関心/人生段階/街の文脈)。差別化の核",
+    role: Literal["home", "candidate"] = Field(
+        description="home=住む街(基準) / candidate=気になる街(移住候補)"
     )
-    significance: Significance = Field(description="エージェントの重要度自己評価")
+    headline: str = Field(max_length=60, description="この街の一言評価")
+    strengths: list[str] = Field(
+        default_factory=list, description="あなたにとっての強み (人口/子育て/住居/医療/議題)"
+    )
+    concerns: list[str] = Field(
+        default_factory=list, description="あなたにとっての懸念 (人口減/コスト等)"
+    )
+    population_outlook: str = Field(
+        default="", max_length=120, description="人口の将来見通し (2070 まで) の短い説明"
+    )
+    recent_signal: str = Field(
+        default="", max_length=120, description="直近議題から拾った 1 つの動き (任意)"
+    )
     source_speech_ids: list[str] = Field(
-        default_factory=list, description="根拠となった議題 speech_id (引用必須)"
+        default_factory=list, description="根拠とした議題 speech_id"
+    )
+    fit_score: int = Field(default=50, ge=0, le=100, description="あなたへの適合度 0-100")
+
+
+class WatchVerdict(BaseModel):
+    """エージェントの"生きた結論" (移るべきか/移るならどこか)。差別化の核。"""
+
+    headline: str = Field(max_length=80, description="生きた結論 1 行 (例: 今のところ小田原が優勢)")
+    reasoning: str = Field(
+        max_length=400, description="なぜその結論か (人口/子育て/住居/議題の多軸統合)"
+    )
+    recommended_code: str | None = Field(
+        default=None, description="現時点の推し街コード (住み続けるべきなら home の code)"
     )
     contains_political_judgment: bool = Field(
         default=False, description="倫理チェック: 賛否表明/政党推奨を含むか"
+    )
+
+
+class TownAnalysis(BaseModel):
+    """エージェント 1 実行の最終アウトプット (比較 + 生きた結論)。"""
+
+    verdict: WatchVerdict
+    town_assessments: list[TownAssessment] = Field(default_factory=list)
+    watch_points: list[str] = Field(
+        default_factory=list, description="次の決め手になりうる変化 (継続ウォッチの観点)"
     )
 
 
@@ -86,5 +116,7 @@ class AgentRunLog(BaseModel):
 class WatcherResult(BaseModel):
     """エージェント 1 実行の最終結果。"""
 
-    discoveries: list[Discovery] = Field(default_factory=list)
+    analysis: TownAnalysis | None = Field(
+        default=None, description="比較 + 生きた結論 (parse 失敗時は None)"
+    )
     run_log: AgentRunLog

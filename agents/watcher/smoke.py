@@ -1,8 +1,8 @@
 """WatcherAgent 実データ smoke = 自律性の合否ゲート (TASK-WATCHER Slice 1)。
 
 ADK import + Gemini + BQ が要るので **実環境で人間が実行**する。
-ツール選択を指示しないプロンプトのまま、エージェントが *自分で* search_speeches /
-fetch_population_trend を呼び、Discovery を why_surfaced 付きで返すことを確認する。
+ツール選択を指示しないプロンプトのまま、エージェントが *自分で* compare_towns /
+fetch_population_trend / search_speeches を呼び、街選び分析 (verdict + 街評価) を返すことを確認する。
 
 使い方:
     cd ~/projects/citify
@@ -13,7 +13,7 @@ fetch_population_trend を呼び、Discovery を why_surfaced 付きで返すこ
 
 判定:
     - run_log.tool_calls が **空でない** = LLM が自分でツールを選んだ (自律性 OK)
-    - discoveries に why_surfaced が入っている = 「なぜあなたに」が生成できている
+    - analysis.verdict.headline が入っている = 「生きた結論」が生成できている
 """
 
 from __future__ import annotations
@@ -46,22 +46,24 @@ async def _run(args: argparse.Namespace) -> int:
     print("=" * 70)
     print(
         f"run_log: status={result.run_log.status} "
-        f"n_discoveries={result.run_log.n_discoveries} "
+        f"towns_assessed={result.run_log.n_discoveries} "
         f"towns={result.run_log.towns_checked}"
     )
     print("--- tool_calls (LLM が自分で選んだ調査計画 = 自律性の証跡) ---")
     for tc in result.run_log.tool_calls:
         print(f"  {tc.tool}({tc.args})")
-    print("--- discoveries ---")
-    for d in result.discoveries:
-        print(json.dumps(d.model_dump(), ensure_ascii=False, indent=2))
+    print("--- analysis (比較 + 生きた結論) ---")
+    if result.analysis is not None:
+        print(json.dumps(result.analysis.model_dump(), ensure_ascii=False, indent=2))
+    else:
+        print("  (analysis なし)")
 
     autonomous = len(result.run_log.tool_calls) > 0
-    has_why = all(d.why_surfaced for d in result.discoveries)
+    has_verdict = result.analysis is not None and bool(result.analysis.verdict.headline)
     print("=" * 70)
     print(
         f"SMOKE_RESULT={'OK' if autonomous else 'NO_TOOL_USE(自律性NG)'} "
-        f"tool_calls={len(result.run_log.tool_calls)} why_surfaced_ok={has_why}"
+        f"tool_calls={len(result.run_log.tool_calls)} verdict_ok={has_verdict}"
     )
     return 0
 

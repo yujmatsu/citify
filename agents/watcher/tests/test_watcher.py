@@ -1,27 +1,64 @@
-"""WatcherAgent の純粋ロジック test (TASK-WATCHER Slice 1)。
+"""WatcherAgent の純粋ロジック test (TASK-WATCHER Slice 3.5)。
 
 ADK Runner I/O (自律ループ) は実環境 smoke で検証するため、ここでは ADK 非依存の
-parse_discoveries / apply_ethics / run-log / schema を検証する。
+parse_analysis / apply_ethics / run-log / schema を検証する。
 """
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
-from agents.watcher.main import WatcherAgent, apply_ethics, parse_discoveries
-from agents.watcher.schema import AgentRunLog, Discovery, WatchInput
+from agents.watcher.main import WatcherAgent, apply_ethics, parse_analysis
+from agents.watcher.schema import (
+    AgentRunLog,
+    TownAnalysis,
+    TownAssessment,
+    WatchInput,
+    WatchVerdict,
+)
 
 
-def _disc(code="11227", title="新保育補助", why="子育て関心に合致", political=False) -> Discovery:
-    return Discovery(
-        municipality_code=code,
-        title=title,
-        summary=["保育料の補助が拡充される"],
-        why_surfaced=why,
-        significance="high",
-        source_speech_ids=["sp-1"],
-        contains_political_judgment=political,
+def _analysis(
+    headline: str = "今は小田原が子育て面でリード",
+    reasoning: str = "人口は両市とも微減だが小田原は子育て施設が多い",
+    home_headline: str = "住み慣れた基準の街",
+    political: bool = False,
+) -> TownAnalysis:
+    return TownAnalysis(
+        verdict=WatchVerdict(
+            headline=headline,
+            reasoning=reasoning,
+            recommended_code="27206",
+            contains_political_judgment=political,
+        ),
+        town_assessments=[
+            TownAssessment(
+                municipality_code="11227",
+                role="home",
+                headline=home_headline,
+                strengths=["通勤至便"],
+                concerns=["人口微減"],
+                population_outlook="2070 まで緩やかに減少",
+                source_speech_ids=["sp-1"],
+                fit_score=60,
+            ),
+            TownAssessment(
+                municipality_code="27206",
+                role="candidate",
+                headline="子育て施設が充実",
+                strengths=["子育て施設多い"],
+                concerns=[],
+                population_outlook="横ばい",
+                fit_score=75,
+            ),
+        ],
+        watch_points=["小田原の住居コストの動向"],
     )
+
+
+def _analysis_json(**kw: object) -> str:
+    return json.dumps(_analysis(**kw).model_dump(), ensure_ascii=False)  # type: ignore[arg-type]
 
 
 # ============================================================================
@@ -41,7 +78,6 @@ def test_all_codes_dedup_home_first() -> None:
 
 
 def test_all_codes_truncates_to_max5() -> None:
-    # home + 6 watched = 7 → 上限5に truncate (ValidationError でなく graceful)
     w = WatchInput(
         user_id="u",
         age_group="40-49",
@@ -50,66 +86,40 @@ def test_all_codes_truncates_to_max5() -> None:
     )
     codes = w.all_codes()
     assert len(codes) == 5
-    assert codes[0] == "00001"  # home は残る
+    assert codes[0] == "00001"
 
 
 # ============================================================================
-# parse_discoveries
+# parse_analysis
 # ============================================================================
 
 
 def test_parse_valid_json() -> None:
-    text = (
-        '{"discoveries":[{"municipality_code":"11227","title":"新保育補助",'
-        '"summary":["補助拡充"],"why_surfaced":"子育て関心に合致","significance":"high",'
-        '"source_speech_ids":["sp-1"],"contains_political_judgment":false}]}'
-    )
-    ds = parse_discoveries(text)
-    assert len(ds) == 1
-    assert ds[0].municipality_code == "11227"
-    assert ds[0].significance == "high"
+    a = parse_analysis(_analysis_json())
+    assert a is not None
+    assert a.verdict.headline.startswith("今は小田原")
+    assert [t.role for t in a.town_assessments] == ["home", "candidate"]
+    assert a.town_assessments[1].municipality_code == "27206"
 
 
 def test_parse_json_with_surrounding_text() -> None:
-    text = 'はい、調査しました:\n{"discoveries": []}\n以上です。'
-    assert parse_discoveries(text) == []
+    text = f"はい、分析しました:\n{_analysis_json()}\n以上です。"
+    a = parse_analysis(text)
+    assert a is not None and a.verdict.recommended_code == "27206"
 
 
-def test_parse_invalid_json_returns_empty() -> None:
-    assert parse_discoveries("これはJSONではありません") == []
-    assert parse_discoveries("") == []
-
-
-def test_parse_caps_at_max_discoveries() -> None:
-    import json
-
-    payload = {
-        "discoveries": [
-            {
-                "municipality_code": "11227",
-                "title": f"t{i}",
-                "summary": [],
-                "why_surfaced": "w",
-                "significance": "low",
-                "source_speech_ids": [],
-            }
-            for i in range(6)
-        ]
-    }
-    ds = parse_discoveries(json.dumps(payload))
-    assert len(ds) == 3  # MAX_DISCOVERIES
-
-
-def test_parse_skips_invalid_discovery() -> None:
-    # significance が不正な要素は skip、正常な1件のみ残る
+def test_parse_empty_verdict_returns_none() -> None:
     text = (
-        '{"discoveries":[{"municipality_code":"11227","title":"ok","summary":[],'
-        '"why_surfaced":"w","significance":"high","source_speech_ids":[]},'
-        '{"municipality_code":"13104","title":"bad","significance":"INVALID"}]}'
+        '{"verdict":{"headline":"","reasoning":"","recommended_code":null,'
+        '"contains_political_judgment":false},"town_assessments":[],"watch_points":[]}'
     )
-    ds = parse_discoveries(text)
-    assert len(ds) == 1
-    assert ds[0].title == "ok"
+    assert parse_analysis(text) is None
+
+
+def test_parse_invalid_or_missing_verdict_returns_none() -> None:
+    assert parse_analysis("これはJSONではありません") is None
+    assert parse_analysis("") is None
+    assert parse_analysis('{"town_assessments": []}') is None  # verdict キー無し
 
 
 # ============================================================================
@@ -117,53 +127,59 @@ def test_parse_skips_invalid_discovery() -> None:
 # ============================================================================
 
 
-def test_ethics_keeps_clean_discovery() -> None:
-    out = apply_ethics([_disc()])
-    assert len(out) == 1
+def test_ethics_keeps_clean_analysis() -> None:
+    assert apply_ethics(_analysis()) is not None
 
 
-def test_ethics_drops_forbidden_pattern() -> None:
-    # "必ず投票" は FORBIDDEN_PATTERNS にマッチ → surface しない
-    bad = _disc(why="この政策には必ず投票しましょう")
-    assert apply_ethics([bad]) == []
+def test_ethics_none_passthrough() -> None:
+    assert apply_ethics(None) is None
+
+
+def test_ethics_drops_forbidden_in_verdict() -> None:
+    bad = _analysis(reasoning="この政策には必ず投票しましょう")
+    assert apply_ethics(bad) is None
+
+
+def test_ethics_drops_forbidden_in_assessment() -> None:
+    bad = _analysis(home_headline="絶対に賛成すべき議案がある街")
+    assert apply_ethics(bad) is None
 
 
 def test_ethics_drops_self_flagged_political() -> None:
-    bad = _disc(political=True)  # LLM 自己申告で政治的判断あり
-    assert apply_ethics([bad]) == []
-
-
-def test_ethics_mixed_keeps_only_clean() -> None:
-    clean = _disc(code="11227", title="保育補助")
-    bad = _disc(code="13104", title="絶対に賛成すべき議案")  # "絶対に賛成" マッチ
-    out = apply_ethics([clean, bad])
-    assert [d.municipality_code for d in out] == ["11227"]
+    assert apply_ethics(_analysis(political=True)) is None
 
 
 # ============================================================================
-# _persist (Slice 2: repo 注入で永続化、None なら skip)
+# _persist (repo 注入で永続化、None なら skip)
 # ============================================================================
 
 
 def test_persist_skips_when_no_repo() -> None:
     agent = WatcherAgent(repo=None)
-    # repo=None でも例外なく no-op
-    agent._persist("u", AgentRunLog(run_id="r1", user_id="u"), [_disc()])
+    agent._persist("u", AgentRunLog(run_id="r1", user_id="u"), _analysis())
 
 
 def test_persist_calls_repo() -> None:
     repo = MagicMock()
     agent = WatcherAgent(repo=repo)
     log = AgentRunLog(run_id="r1", user_id="demo-40-49")
-    discoveries = [_disc()]
-    agent._persist("demo-40-49", log, discoveries)
+    analysis = _analysis()
+    agent._persist("demo-40-49", log, analysis)
     repo.save_run.assert_called_once_with(log)
-    repo.save_discoveries.assert_called_once_with("demo-40-49", "r1", discoveries)
+    repo.save_analysis.assert_called_once_with("demo-40-49", "r1", analysis)
+
+
+def test_persist_skips_analysis_when_none() -> None:
+    repo = MagicMock()
+    agent = WatcherAgent(repo=repo)
+    log = AgentRunLog(run_id="r1", user_id="u")
+    agent._persist("u", log, None)
+    repo.save_run.assert_called_once_with(log)
+    repo.save_analysis.assert_not_called()
 
 
 def test_persist_graceful_on_repo_failure() -> None:
     repo = MagicMock()
     repo.save_run.side_effect = RuntimeError("firestore down")
     agent = WatcherAgent(repo=repo)
-    # repo 障害でも例外を投げない
-    agent._persist("u", AgentRunLog(run_id="r1", user_id="u"), [_disc()])
+    agent._persist("u", AgentRunLog(run_id="r1", user_id="u"), _analysis())

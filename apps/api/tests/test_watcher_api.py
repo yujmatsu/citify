@@ -1,17 +1,25 @@
-"""Watcher (マイ街エージェント) endpoint のユニットテスト (TASK-WATCHER Slice 3)。
+"""Watcher (マイ街エージェント=街選びアナリスト) endpoint の test (TASK-WATCHER Slice 3.5)。
 
 repo / agent を monkeypatch で fake に差し替えるため ADK / Firestore / Gemini は不要。
 カバー範囲:
-    GET  /v1/watcher/{uid}/discoveries : 200(発見+latest_run) / 空 / 403
-    GET  /v1/watcher/{uid}/watchlist   : 保存済 / null / 403
-    PUT  /v1/watcher/{uid}/watchlist   : 保存呼出 / enum 不正 400 / 403
-    POST /v1/watcher/{uid}/run         : agent.run 呼出 + persist / watchlist 無し 400 / 403
+    GET  /v1/watcher/{uid}/analysis  : 200(分析+latest_run) / 空 / 403
+    GET  /v1/watcher/{uid}/watchlist : 保存済 / null / 403
+    PUT  /v1/watcher/{uid}/watchlist : 保存呼出 / 国会除外 / 国会のみ 400 / enum不正400 / 403
+    POST /v1/watcher/{uid}/run       : agent.run 呼出 + analysis 返却 / watchlist無し 400 / 403
 """
 
 from __future__ import annotations
 
 import pytest
-from agents.watcher.schema import AgentRunLog, Discovery, ToolCall, WatcherResult, WatchInput
+from agents.watcher.schema import (
+    AgentRunLog,
+    ToolCall,
+    TownAnalysis,
+    TownAssessment,
+    WatcherResult,
+    WatchInput,
+    WatchVerdict,
+)
 from fastapi.testclient import TestClient
 
 UID = "demo-40-49"
@@ -28,23 +36,29 @@ def _watch() -> WatchInput:
     )
 
 
-def _disc() -> Discovery:
-    return Discovery(
-        municipality_code="27100",
-        title="保育補助の拡充",
-        summary=["来年度から拡充"],
-        why_surfaced="子育て関心 × あなたの気になる街",
-        significance="high",
-        source_speech_ids=["sp-1"],
+def _analysis() -> TownAnalysis:
+    return TownAnalysis(
+        verdict=WatchVerdict(
+            headline="今は小田原が子育て面でリード",
+            reasoning="人口は両市微減だが小田原は子育て施設が多い",
+            recommended_code="27100",
+        ),
+        town_assessments=[
+            TownAssessment(municipality_code="13104", role="home", headline="基準の街"),
+            TownAssessment(municipality_code="27100", role="candidate", headline="子育て充実"),
+        ],
+        watch_points=["住居コストの動向"],
     )
 
 
-def _run_log(n: int = 1) -> AgentRunLog:
+def _run_log(n: int = 2) -> AgentRunLog:
     return AgentRunLog(
         run_id="r1",
         user_id=UID,
         towns_checked=["13104", "27100"],
-        tool_calls=[ToolCall(tool="search_speeches", args={"municipality_code": "27100"})],
+        tool_calls=[
+            ToolCall(tool="compare_towns", args={"municipality_codes": ["13104", "27100"]})
+        ],
         n_discoveries=n,
         status="ok",
     )
@@ -54,13 +68,13 @@ class _FakeRepo:
     """WatcherRepository の最小 fake (呼び出しを記録)。"""
 
     def __init__(self) -> None:
-        self.discoveries: list[Discovery] = []
+        self.analysis: TownAnalysis | None = None
         self.latest: AgentRunLog | None = None
         self.watchlist: WatchInput | None = None
         self.saved_watchlist: WatchInput | None = None
 
-    def list_discoveries(self, user_id: str, limit: int = 20) -> list[Discovery]:
-        return self.discoveries
+    def get_latest_analysis(self, user_id: str) -> TownAnalysis | None:
+        return self.analysis
 
     def get_latest_run(self, user_id: str) -> AgentRunLog | None:
         return self.latest
@@ -81,7 +95,7 @@ class _FakeAgent:
 
     async def run(self, watch: WatchInput) -> WatcherResult:
         self.ran_with = watch
-        return WatcherResult(discoveries=[_disc()], run_log=_run_log())
+        return WatcherResult(analysis=_analysis(), run_log=_run_log())
 
 
 @pytest.fixture()
@@ -110,39 +124,38 @@ def client() -> TestClient:
 
 
 # ============================================================================
-# GET discoveries
+# GET analysis
 # ============================================================================
 
 
-def test_get_discoveries_returns_items_and_latest_run(
+def test_get_analysis_returns_verdict_and_latest_run(
     client: TestClient, fake_repo: _FakeRepo
 ) -> None:
-    fake_repo.discoveries = [_disc()]
+    fake_repo.analysis = _analysis()
     fake_repo.latest = _run_log()
-    res = client.get(f"/v1/watcher/{UID}/discoveries", headers=AUTH)
+    res = client.get(f"/v1/watcher/{UID}/analysis", headers=AUTH)
     assert res.status_code == 200
     body = res.json()
-    assert body["total"] == 1
-    assert body["discoveries"][0]["why_surfaced"]
+    assert body["analysis"]["verdict"]["headline"].startswith("今は小田原")
+    assert [t["role"] for t in body["analysis"]["town_assessments"]] == ["home", "candidate"]
     # 自律証跡 (tool_calls) が latest_run に含まれる
-    assert body["latest_run"]["tool_calls"][0]["tool"] == "search_speeches"
+    assert body["latest_run"]["tool_calls"][0]["tool"] == "compare_towns"
 
 
-def test_get_discoveries_empty_is_200(client: TestClient, fake_repo: _FakeRepo) -> None:
-    res = client.get(f"/v1/watcher/{UID}/discoveries", headers=AUTH)
+def test_get_analysis_empty_is_200(client: TestClient, fake_repo: _FakeRepo) -> None:
+    res = client.get(f"/v1/watcher/{UID}/analysis", headers=AUTH)
     assert res.status_code == 200
     body = res.json()
-    assert body["total"] == 0
+    assert body["analysis"] is None
     assert body["latest_run"] is None
 
 
-def test_get_discoveries_forbidden_without_matching_header(
+def test_get_analysis_forbidden_without_matching_header(
     client: TestClient, fake_repo: _FakeRepo
 ) -> None:
-    assert client.get(f"/v1/watcher/{UID}/discoveries").status_code == 403
+    assert client.get(f"/v1/watcher/{UID}/analysis").status_code == 403
     assert (
-        client.get(f"/v1/watcher/{UID}/discoveries", headers={"x-user-id": "other"}).status_code
-        == 403
+        client.get(f"/v1/watcher/{UID}/analysis", headers={"x-user-id": "other"}).status_code == 403
     )
 
 
@@ -169,6 +182,33 @@ def test_put_watchlist_saves(client: TestClient, fake_repo: _FakeRepo) -> None:
     assert res.status_code == 200
     assert fake_repo.saved_watchlist is not None
     assert fake_repo.saved_watchlist.home_municipality_code == "13104"
+
+
+def test_put_watchlist_excludes_national_diet(client: TestClient, fake_repo: _FakeRepo) -> None:
+    """国会(00000)は home/watched から除外。home が国会なら watched 先頭を昇格。"""
+    payload = {
+        "age_group": "40-49",
+        "interests": ["子育て"],
+        "home_municipality_code": "00000",  # 国会 → home にしない
+        "watched_codes": ["13104", "00000", "27100"],
+    }
+    res = client.put(f"/v1/watcher/{UID}/watchlist", json=payload, headers=AUTH)
+    assert res.status_code == 200
+    saved = fake_repo.saved_watchlist
+    assert saved is not None
+    assert saved.home_municipality_code == "13104"  # watched 先頭が昇格
+    assert "00000" not in saved.all_codes()
+
+
+def test_put_watchlist_only_national_diet_400(client: TestClient, fake_repo: _FakeRepo) -> None:
+    payload = {
+        "age_group": "40-49",
+        "interests": [],
+        "home_municipality_code": "00000",
+        "watched_codes": ["00000"],
+    }
+    res = client.put(f"/v1/watcher/{UID}/watchlist", json=payload, headers=AUTH)
+    assert res.status_code == 400
 
 
 def test_put_watchlist_invalid_age_group_400(client: TestClient, fake_repo: _FakeRepo) -> None:
@@ -205,8 +245,9 @@ def test_run_with_body_invokes_agent_and_saves(
     res = client.post(f"/v1/watcher/{UID}/run", json=payload, headers=AUTH)
     assert res.status_code == 200
     body = res.json()
-    assert body["run_log"]["tool_calls"][0]["tool"] == "search_speeches"
-    assert len(body["discoveries"]) == 1
+    assert body["run_log"]["tool_calls"][0]["tool"] == "compare_towns"
+    assert body["analysis"]["verdict"]["headline"].startswith("今は小田原")
+    assert len(body["analysis"]["town_assessments"]) == 2
     # body 指定時は watchlist も保存される
     assert fake_repo.saved_watchlist is not None
     assert fake_agent.ran_with is not None

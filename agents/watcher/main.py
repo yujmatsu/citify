@@ -7,7 +7,7 @@
     - 自律性そのものの検証は実環境 smoke (run_smoke) が担う
 
 責務分離:
-    - parse_discoveries / apply_ethics / _build_run_log : 純粋関数 (テスト対象)
+    - parse_analysis / apply_ethics / _build_run_log : 純粋関数 (テスト対象)
     - WatcherAgent.run : ADK Runner I/O (実環境 smoke で検証)
 """
 
@@ -21,14 +21,19 @@ from typing import Any
 from agents._shared.forbidden import find_forbidden_matches
 
 from .prompts.system import WATCHER_SYSTEM_PROMPT, build_watch_user_prompt
-from .schema import AgentRunLog, Discovery, ToolCall, WatcherResult, WatchInput
+from .schema import (
+    AgentRunLog,
+    ToolCall,
+    TownAnalysis,
+    WatcherResult,
+    WatchInput,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_LOCATION = "us-central1"
 MAX_TOOL_CALLS = 12  # 暴走/コスト防止の上限 (watch街5 × 2-3ツール想定)
-MAX_DISCOVERIES = 3  # 量より質
 
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -38,51 +43,54 @@ _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 # ============================================================================
 
 
-def parse_discoveries(final_text: str) -> list[Discovery]:
-    """エージェント最終応答 (JSON) を Discovery list にパース。
+def parse_analysis(final_text: str) -> TownAnalysis | None:
+    """エージェント最終応答 (JSON) を TownAnalysis にパース。
 
-    前後に説明文が混じっても最外 JSON ブロックを抽出。パース失敗は空 list (graceful)。
+    前後に説明文が混じっても最外 JSON ブロックを抽出。パース失敗・空内容は None (graceful)。
     """
     if not final_text:
-        return []
+        return None
     m = _JSON_BLOCK.search(final_text)
     if not m:
-        return []
+        return None
     try:
         data = json.loads(m.group(0))
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning("watcher.parse_failed err=%s", exc)
-        return []
-    raw_list = data.get("discoveries", []) if isinstance(data, dict) else []
-    out: list[Discovery] = []
-    for raw in raw_list[:MAX_DISCOVERIES]:
-        try:
-            out.append(Discovery.model_validate(raw))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("watcher.discovery_invalid err=%s", exc)
-    return out
+        return None
+    if not isinstance(data, dict) or "verdict" not in data:
+        return None
+    try:
+        analysis = TownAnalysis.model_validate(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("watcher.analysis_invalid err=%s", exc)
+        return None
+    # verdict が空 (比較材料なし) なら None 扱い
+    if not analysis.verdict.headline and not analysis.town_assessments:
+        return None
+    return analysis
 
 
-def apply_ethics(discoveries: list[Discovery]) -> list[Discovery]:
-    """倫理ゲート: 政党/政治家/賛否を含む発見は surface しない (PROJECT.md §5)。
+def apply_ethics(analysis: TownAnalysis | None) -> TownAnalysis | None:
+    """倫理ゲート: 政党/政治家/賛否を含む内容は出さない (PROJECT.md §5)。
 
-    find_forbidden_matches で検出。検出された Discovery は除外し、
-    LLM が contains_political_judgment=True と自己申告したものも除外。
+    verdict 本文 or いずれかの街評価が forbidden に当たる、もしくは LLM が
+    contains_political_judgment=True と自己申告した場合は analysis 全体を None に倒す
+    (一部だけ消すと比較が壊れるため、安全側に倒す)。
     """
-    safe: list[Discovery] = []
-    for d in discoveries:
-        text = f"{d.title} {' '.join(d.summary)} {d.why_surfaced}"
-        matches = find_forbidden_matches(text)
-        if matches or d.contains_political_judgment:
-            logger.info(
-                "watcher.ethics_dropped code=%s matches=%s self=%s",
-                d.municipality_code,
-                matches,
-                d.contains_political_judgment,
-            )
-            continue
-        safe.append(d)
-    return safe
+    if analysis is None:
+        return None
+    verdict_text = f"{analysis.verdict.headline} {analysis.verdict.reasoning}"
+    texts = [verdict_text] + [
+        f"{a.headline} {' '.join(a.strengths)} {' '.join(a.concerns)} "
+        f"{a.population_outlook} {a.recent_signal}"
+        for a in analysis.town_assessments
+    ]
+    matches = find_forbidden_matches(" ".join(texts))
+    if matches or analysis.verdict.contains_political_judgment:
+        logger.info("watcher.ethics_dropped matches=%s", matches)
+        return None
+    return analysis
 
 
 def _build_run_log(
@@ -216,7 +224,7 @@ class WatcherAgent:
         except Exception as exc:  # noqa: BLE001
             logger.exception("watcher.run_failed user=%s err=%s", watch.user_id, exc)
             return WatcherResult(
-                discoveries=[],
+                analysis=None,
                 run_log=_build_run_log(
                     run_id,
                     watch.user_id,
@@ -229,28 +237,30 @@ class WatcherAgent:
                 ),
             )
 
-        discoveries = apply_ethics(parse_discoveries(final_text))
+        analysis = apply_ethics(parse_analysis(final_text))
+        n_assessed = len(analysis.town_assessments) if analysis else 0
         if status != "max_iterations":
-            status = "ok" if discoveries else "empty"
+            status = "ok" if analysis else "empty"
         run_log = _build_run_log(
             run_id,
             watch.user_id,
             watch.all_codes(),
             tool_calls,
-            len(discoveries),
+            n_assessed,
             status,
             "",
             token_cost,
         )
-        self._persist(watch.user_id, run_log, discoveries)
-        return WatcherResult(discoveries=discoveries, run_log=run_log)
+        self._persist(watch.user_id, run_log, analysis)
+        return WatcherResult(analysis=analysis, run_log=run_log)
 
-    def _persist(self, user_id: str, run_log: AgentRunLog, discoveries: list[Discovery]) -> None:
-        """repo があれば agent_runs + discoveries を永続化 (graceful、無ければ skip)。"""
+    def _persist(self, user_id: str, run_log: AgentRunLog, analysis: TownAnalysis | None) -> None:
+        """repo があれば agent_runs + analysis を永続化 (graceful、無ければ skip)。"""
         if self.repo is None:
             return
         try:
             self.repo.save_run(run_log)
-            self.repo.save_discoveries(user_id, run_log.run_id, discoveries)
+            if analysis is not None:
+                self.repo.save_analysis(user_id, run_log.run_id, analysis)
         except Exception as exc:  # noqa: BLE001
             logger.warning("watcher.persist_failed user=%s err=%s", user_id, exc)

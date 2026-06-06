@@ -980,23 +980,43 @@ export async function fetchCostHealth(
 }
 
 // ============================================================================
-// Watcher (マイ街エージェント / TASK-WATCHER Slice 3) — 自律型 Civic Watch Agent
-// agents/watcher/schema.py の Pydantic (Discovery / AgentRunLog) と一致させる。
+// Watcher (マイ街エージェント=街選びアナリスト / TASK-WATCHER Slice 3.5)
+// agents/watcher/schema.py の Pydantic (TownAnalysis / AgentRunLog) と一致させる。
 // 認可は x-user-id header (path user_id と一致必須、demo)。
 // ============================================================================
 
-export const WatcherDiscoverySchema = z.object({
+/** 1 つの街(住む街=基準 or 候補)の多軸評価 */
+export const TownAssessmentSchema = z.object({
   municipality_code: z.string(),
-  title: z.string(),
-  summary: z.array(z.string()).default([]),
-  /** 「なぜ *あなたに* surface したか」= 差別化の核 */
-  why_surfaced: z.string(),
-  significance: z.enum(["high", "medium", "low"]),
+  role: z.enum(["home", "candidate"]),
+  headline: z.string(),
+  strengths: z.array(z.string()).default([]),
+  concerns: z.array(z.string()).default([]),
+  population_outlook: z.string().default(""),
+  recent_signal: z.string().default(""),
   source_speech_ids: z.array(z.string()).default([]),
+  fit_score: z.number().int().min(0).max(100).default(50),
+});
+
+export type TownAssessment = z.infer<typeof TownAssessmentSchema>;
+
+/** エージェントの"生きた結論" = 差別化の核 */
+export const WatchVerdictSchema = z.object({
+  headline: z.string(),
+  reasoning: z.string().default(""),
+  recommended_code: z.string().nullable().default(null),
   contains_political_judgment: z.boolean().default(false),
 });
 
-export type WatcherDiscovery = z.infer<typeof WatcherDiscoverySchema>;
+export type WatchVerdict = z.infer<typeof WatchVerdictSchema>;
+
+export const TownAnalysisSchema = z.object({
+  verdict: WatchVerdictSchema,
+  town_assessments: z.array(TownAssessmentSchema).default([]),
+  watch_points: z.array(z.string()).default([]),
+});
+
+export type TownAnalysis = z.infer<typeof TownAnalysisSchema>;
 
 /** エージェントが自分で選んで呼んだツール 1 回 = ①自律性の証跡 */
 export const WatcherToolCallSchema = z.object({
@@ -1019,15 +1039,14 @@ export const WatcherRunLogSchema = z.object({
 
 export type WatcherRunLog = z.infer<typeof WatcherRunLogSchema>;
 
-export const WatcherDiscoveriesResponseSchema = z.object({
+export const WatcherAnalysisResponseSchema = z.object({
   user_id: z.string(),
-  discoveries: z.array(WatcherDiscoverySchema).default([]),
+  analysis: TownAnalysisSchema.nullable().default(null),
   latest_run: WatcherRunLogSchema.nullable().default(null),
-  total: z.number().int().nonnegative().default(0),
 });
 
-export type WatcherDiscoveriesResponse = z.infer<
-  typeof WatcherDiscoveriesResponseSchema
+export type WatcherAnalysisResponse = z.infer<
+  typeof WatcherAnalysisResponseSchema
 >;
 
 export const WatchlistSchema = z.object({
@@ -1050,7 +1069,7 @@ export type WatchlistBody = {
 
 export const WatcherRunResponseSchema = z.object({
   run_log: WatcherRunLogSchema,
-  discoveries: z.array(WatcherDiscoverySchema).default([]),
+  analysis: TownAnalysisSchema.nullable().default(null),
 });
 
 export type WatcherRunResponse = z.infer<typeof WatcherRunResponseSchema>;
@@ -1059,14 +1078,13 @@ function watcherHeaders(userId: string): HeadersInit {
   return { Accept: "application/json", "x-user-id": userId };
 }
 
-/** エージェントの発見 + 最新実行ログ (自律証跡) を取得。 */
-export async function fetchWatcherDiscoveries(
+/** エージェントの街選び分析 (比較+生きた結論) + 最新実行ログ (自律証跡) を取得。 */
+export async function fetchWatcherAnalysis(
   userId: string,
-  limit = 20,
-): Promise<WatcherDiscoveriesResponse> {
+): Promise<WatcherAnalysisResponse> {
   return fetchJson(
-    `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/discoveries?limit=${limit}`,
-    WatcherDiscoveriesResponseSchema,
+    `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/analysis`,
+    WatcherAnalysisResponseSchema,
     { headers: watcherHeaders(userId), cache: "no-store" },
   );
 }

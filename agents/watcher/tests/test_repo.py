@@ -5,7 +5,14 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from agents.watcher.repo import WatcherRepository, _safe
-from agents.watcher.schema import AgentRunLog, Discovery, ToolCall, WatchInput
+from agents.watcher.schema import (
+    AgentRunLog,
+    ToolCall,
+    TownAnalysis,
+    TownAssessment,
+    WatchInput,
+    WatchVerdict,
+)
 
 
 def _watch() -> WatchInput:
@@ -18,14 +25,13 @@ def _watch() -> WatchInput:
     )
 
 
-def _disc(code="27100") -> Discovery:
-    return Discovery(
-        municipality_code=code,
-        title="保育補助",
-        summary=["拡充"],
-        why_surfaced="子育て関心に合致",
-        significance="high",
-        source_speech_ids=["sp-1"],
+def _analysis() -> TownAnalysis:
+    return TownAnalysis(
+        verdict=WatchVerdict(headline="今は小田原が優勢", reasoning="子育て施設が多い"),
+        town_assessments=[
+            TownAssessment(municipality_code="27100", role="candidate", headline="子育て充実"),
+        ],
+        watch_points=["住居コストの動向"],
     )
 
 
@@ -109,16 +115,16 @@ def test_get_run_hit_and_miss() -> None:
     assert repo.get_run("nope") is None
 
 
-def test_get_latest_run_via_newest_discovery() -> None:
-    """最新 discovery の run_id を引いて get_run する経路。"""
+def test_get_latest_run_via_newest_analysis() -> None:
+    """最新 analysis の run_id を引いて get_run する経路。"""
     client = MagicMock()
     repo = WatcherRepository(firestore_client=client)
 
-    disc_doc = MagicMock()
-    disc_doc.to_dict.return_value = {"run_id": "r-latest"}
+    an_doc = MagicMock()
+    an_doc.to_dict.return_value = {"run_id": "r-latest"}
     (
         client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
-    ) = [disc_doc]
+    ) = [an_doc]
     client.collection.return_value.document.return_value.get.return_value = _snap(
         True, AgentRunLog(run_id="r-latest", user_id="demo-40-49", status="ok").model_dump()
     )
@@ -126,7 +132,7 @@ def test_get_latest_run_via_newest_discovery() -> None:
     assert got is not None and got.run_id == "r-latest"
 
 
-def test_get_latest_run_no_discovery_returns_none() -> None:
+def test_get_latest_run_no_analysis_returns_none() -> None:
     client = MagicMock()
     (
         client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
@@ -135,45 +141,49 @@ def test_get_latest_run_no_discovery_returns_none() -> None:
 
 
 # ============================================================================
-# discoveries
+# analyses
 # ============================================================================
 
 
-def test_save_discoveries_batch() -> None:
+def test_save_analysis_sets_doc_with_metadata() -> None:
     client = MagicMock()
-    batch = MagicMock()
-    client.batch.return_value = batch
     repo = WatcherRepository(firestore_client=client)
-    n = repo.save_discoveries("demo-40-49", "r1", [_disc(), _disc("13104")])
-    assert n == 2
-    assert batch.set.call_count == 2
-    batch.commit.assert_called_once()
+    assert repo.save_analysis("demo-40-49", "r1", _analysis()) is True
+    payload = client.collection.return_value.document.return_value.set.call_args.args[0]
+    assert payload["user_id"] == "demo-40-49"
+    assert payload["run_id"] == "r1"
+    assert "created_at" in payload
+    assert payload["verdict"]["headline"] == "今は小田原が優勢"
 
 
-def test_save_discoveries_empty_returns_zero() -> None:
+def test_save_analysis_graceful_on_failure() -> None:
     client = MagicMock()
-    assert WatcherRepository(firestore_client=client).save_discoveries("u", "r1", []) == 0
+    client.collection.return_value.document.return_value.set.side_effect = RuntimeError("down")
+    assert WatcherRepository(firestore_client=client).save_analysis("u", "r1", _analysis()) is False
 
 
-def test_save_discoveries_graceful_on_failure() -> None:
-    client = MagicMock()
-    client.batch.side_effect = RuntimeError("down")
-    assert WatcherRepository(firestore_client=client).save_discoveries("u", "r1", [_disc()]) == 0
-
-
-def test_list_discoveries_parses_docs() -> None:
+def test_get_latest_analysis_parses_doc() -> None:
     client = MagicMock()
     doc = MagicMock()
-    doc.to_dict.return_value = _disc().model_dump()
+    doc.to_dict.return_value = _analysis().model_dump()
     (
         client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
     ) = [doc]
-    out = WatcherRepository(firestore_client=client).list_discoveries("demo-40-49")
-    assert len(out) == 1
-    assert out[0].municipality_code == "27100"
+    out = WatcherRepository(firestore_client=client).get_latest_analysis("demo-40-49")
+    assert out is not None
+    assert out.verdict.headline == "今は小田原が優勢"
+    assert out.town_assessments[0].municipality_code == "27100"
 
 
-def test_list_discoveries_graceful_on_failure() -> None:
+def test_get_latest_analysis_none_when_empty() -> None:
+    client = MagicMock()
+    (
+        client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
+    ) = []
+    assert WatcherRepository(firestore_client=client).get_latest_analysis("u") is None
+
+
+def test_get_latest_analysis_graceful_on_failure() -> None:
     client = MagicMock()
     client.collection.return_value.where.side_effect = RuntimeError("down")
-    assert WatcherRepository(firestore_client=client).list_discoveries("u") == []
+    assert WatcherRepository(firestore_client=client).get_latest_analysis("u") is None

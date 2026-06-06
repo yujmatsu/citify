@@ -1,9 +1,9 @@
-"""WatcherRepository: マイ街エージェントの Firestore 永続化層 (TASK-WATCHER Slice 2)。
+"""WatcherRepository: マイ街エージェントの Firestore 永続化層 (TASK-WATCHER Slice 3.5)。
 
 3 コレクション:
     - user_watchlist     (doc id = user_id)            : ウォッチ街リスト
     - watcher_agent_runs (doc id = run_id)             : 自律実行ログ (tool_calls 等)
-    - watcher_discoveries(doc id = {user_id}__{run_id}__{idx}) : 発見
+    - watcher_analyses   (doc id = {user_id}__{run_id}) : 街選び分析 (verdict + 街評価)
 
 設計: relevance/cache.py と同じ graceful パターン。全 method は Firestore 障害時も
 例外を投げず None / [] / False / 0 を返す (エージェント実行は永続化と無関係に継続)。
@@ -16,13 +16,13 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from .schema import AgentRunLog, Discovery, WatchInput
+from .schema import AgentRunLog, TownAnalysis, WatchInput
 
 logger = logging.getLogger(__name__)
 
 FIRESTORE_WATCHLIST = "user_watchlist"
 FIRESTORE_RUNS = "watcher_agent_runs"
-FIRESTORE_DISCOVERIES = "watcher_discoveries"
+FIRESTORE_ANALYSES = "watcher_analyses"
 
 
 def _safe(s: str) -> str:
@@ -93,71 +93,60 @@ class WatcherRepository:
             return None
 
     def get_latest_run(self, user_id: str) -> AgentRunLog | None:
-        """user の最新実行ログ。最新 discovery の run_id 経由で取得する。
+        """user の最新実行ログ。最新 analysis の run_id 経由で取得する。
 
-        discoveries は既に user_id+created_at で order_by 済 (list_discoveries の index を
+        analyses は user_id+created_at で order_by 済 (get_latest_analysis と同 index を
         再利用)。最新 1 件の run_id を引いて get_run するので、runs 用の新規 composite
-        index を増やさない。discovery が無ければ None。
+        index を増やさない。analysis が無ければ None。
         """
         try:
-            query = (
-                self._client()
-                .collection(FIRESTORE_DISCOVERIES)
-                .where("user_id", "==", user_id)
-                .order_by("created_at", direction="DESCENDING")
-                .limit(1)
-            )
-            run_id = ""
-            for doc in query.stream():
-                run_id = (doc.to_dict() or {}).get("run_id", "")
-                break
+            run_id = self._latest_analysis_run_id(user_id)
             return self.get_run(run_id) if run_id else None
         except Exception as exc:  # noqa: BLE001
             logger.warning("watcher_repo.get_latest_run_failed user=%s err=%s", user_id, exc)
             return None
 
-    # ------------------------------------------------------------------ discoveries
-    def save_discoveries(self, user_id: str, run_id: str, discoveries: list[Discovery]) -> int:
-        """発見を batch write。成功件数を返す (graceful)。"""
-        if not discoveries:
-            return 0
+    # ------------------------------------------------------------------ analyses
+    def save_analysis(self, user_id: str, run_id: str, analysis: TownAnalysis) -> bool:
+        """街選び分析を 1 件保存 (doc id = {user}__{run})。成功可否を返す (graceful)。"""
         try:
-            client = self._client()
-            col = client.collection(FIRESTORE_DISCOVERIES)
-            batch = client.batch()
-            now = datetime.now(UTC)
-            for idx, d in enumerate(discoveries):
-                doc_id = f"{_safe(user_id)}__{_safe(run_id)}__{idx}"
-                payload = d.model_dump()
-                payload["user_id"] = user_id
-                payload["run_id"] = run_id
-                payload["created_at"] = now
-                batch.set(col.document(doc_id), payload)
-            batch.commit()
-            return len(discoveries)
+            doc_id = f"{_safe(user_id)}__{_safe(run_id)}"
+            payload = analysis.model_dump()
+            payload["user_id"] = user_id
+            payload["run_id"] = run_id
+            payload["created_at"] = datetime.now(UTC)
+            self._client().collection(FIRESTORE_ANALYSES).document(doc_id).set(payload)
+            return True
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "watcher_repo.save_discoveries_failed user=%s run=%s err=%s", user_id, run_id, exc
+                "watcher_repo.save_analysis_failed user=%s run=%s err=%s", user_id, run_id, exc
             )
-            return 0
+            return False
 
-    def list_discoveries(self, user_id: str, limit: int = 20) -> list[Discovery]:
-        """user の発見を新着順 (created_at DESC) で取得。"""
+    def _latest_analysis_doc(self, user_id: str) -> dict | None:
+        """user の最新 analysis ドキュメント (raw dict)。無ければ None。"""
+        query = (
+            self._client()
+            .collection(FIRESTORE_ANALYSES)
+            .where("user_id", "==", user_id)
+            .order_by("created_at", direction="DESCENDING")
+            .limit(1)
+        )
+        for doc in query.stream():
+            return doc.to_dict() or {}
+        return None
+
+    def _latest_analysis_run_id(self, user_id: str) -> str:
+        doc = self._latest_analysis_doc(user_id)
+        return (doc or {}).get("run_id", "") if doc else ""
+
+    def get_latest_analysis(self, user_id: str) -> TownAnalysis | None:
+        """user の最新の街選び分析を取得 (created_at DESC)。無ければ None。"""
         try:
-            query = (
-                self._client()
-                .collection(FIRESTORE_DISCOVERIES)
-                .where("user_id", "==", user_id)
-                .order_by("created_at", direction="DESCENDING")
-                .limit(limit)
-            )
-            out: list[Discovery] = []
-            for doc in query.stream():
-                try:
-                    out.append(Discovery.model_validate(doc.to_dict() or {}))
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("watcher_repo.discovery_parse_failed err=%s", exc)
-            return out
+            doc = self._latest_analysis_doc(user_id)
+            if not doc:
+                return None
+            return TownAnalysis.model_validate(doc)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("watcher_repo.list_discoveries_failed user=%s err=%s", user_id, exc)
-            return []
+            logger.warning("watcher_repo.get_latest_analysis_failed user=%s err=%s", user_id, exc)
+            return None

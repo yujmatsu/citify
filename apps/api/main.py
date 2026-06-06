@@ -2737,9 +2737,9 @@ async def get_cost_health(
 # ============================================================================
 # Watcher (マイ街エージェント / TASK-WATCHER Slice 3) — 自律型 Civic Watch Agent
 # ============================================================================
-# 自律エージェント (ADK Runner) がユーザーのウォッチ街から「あなたに意味ある発見」を
-# 見つける。本セクションはその面 (discoveries 取得 / watchlist / on-demand 実行)。
-#   - GET  /v1/watcher/{user_id}/discoveries : 発見 + 最新実行ログ (自律証跡 tool_calls)
+# 自律エージェント (ADK Runner) = 街選びアナリスト。住む街(基準)と気になる街(候補)を
+# 多軸比較し「移るべきか/移るならどこか」の生きた結論を出す。
+#   - GET  /v1/watcher/{user_id}/analysis  : 比較+生きた結論 + 最新実行ログ (自律証跡)
 #   - GET  /v1/watcher/{user_id}/watchlist   : 保存済ウォッチ街
 #   - PUT  /v1/watcher/{user_id}/watchlist   : ウォッチ街を保存
 #   - POST /v1/watcher/{user_id}/run         : エージェントをその場で自律実行 (ADK、5-20s)
@@ -2795,52 +2795,67 @@ class WatchlistBody(BaseModel):
     )
 
 
+NATIONAL_DIET_CODE = "00000"  # 国会: エージェントの街選びウォッチ対象からは除外
+
+
 def _to_watch_input(user_id: str, body: WatchlistBody) -> Any:
-    """WatchlistBody → WatchInput。enum 不一致は 400 に変換 (graceful)。"""
+    """WatchlistBody → WatchInput。国会(00000)を除外し、enum 不一致は 400 に変換 (graceful)。
+
+    国会は「住む街(=移住判断の基準)」ではないため、エージェントのウォッチ対象から外す。
+    home が 00000 の場合は watched 先頭を home に昇格。実在する街が無ければ 400。
+    """
     from agents.watcher.schema import WatchInput
     from pydantic import ValidationError
+
+    watched = [c for c in body.watched_codes if c and c != NATIONAL_DIET_CODE]
+    home = body.home_municipality_code
+    if home == NATIONAL_DIET_CODE or not home:
+        if not watched:
+            raise HTTPException(
+                status_code=400,
+                detail="国会(00000)以外の実在する街を住む街として登録してください",
+            )
+        home = watched.pop(0)
 
     try:
         return WatchInput(
             user_id=user_id,
             age_group=body.age_group,  # type: ignore[arg-type]
             interests=body.interests,  # type: ignore[arg-type]
-            home_municipality_code=body.home_municipality_code,
-            watched_codes=body.watched_codes,
+            home_municipality_code=home,
+            watched_codes=watched,
         )
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=f"invalid watchlist: {exc!s}") from exc
 
 
-@app.get("/v1/watcher/{user_id}/discoveries")
-async def get_watcher_discoveries(
+@app.get("/v1/watcher/{user_id}/analysis")
+async def get_watcher_analysis(
     user_id: str,
     response: Response,
-    limit: int = Query(default=20, ge=1, le=50),
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> dict:
-    """エージェントの発見 (新着順) + 最新実行ログ (自律証跡 tool_calls)。
+    """エージェントの街選び分析 (比較 + 生きた結論) + 最新実行ログ (自律証跡)。
 
     latest_run.tool_calls が「LLM が自分で選んだ調査計画」= ①自律性の可視化。
-    discoveries が空でも 200 (空配列)。
+    分析が未生成でも 200 (analysis=null)。
     """
     _require_watcher_user(user_id, x_user_id)
     response.headers["Cache-Control"] = "private, max-age=0, no-cache"
 
     repo = _get_watcher_repo()
-    discoveries = repo.list_discoveries(user_id, limit=limit)
+    analysis = repo.get_latest_analysis(user_id)
     latest = repo.get_latest_run(user_id)
     logger.info(
-        "watcher.discoveries.done user_id=%s n=%d has_run=%s",
+        "watcher.analysis.done user_id=%s has_analysis=%s has_run=%s",
         user_id,
-        len(discoveries),
+        analysis is not None,
         latest is not None,
     )
     return {
         "user_id": user_id,
-        "discoveries": [d.model_dump() for d in discoveries],
+        "analysis": analysis.model_dump() if analysis else None,
         "latest_run": latest.model_dump() if latest else None,
-        "total": len(discoveries),
     }
 
 
@@ -2907,7 +2922,7 @@ async def run_watcher(
         raise HTTPException(status_code=500, detail=f"agent run failed: {exc!s}") from exc
 
     logger.info(
-        "watcher.run.done user_id=%s status=%s n_discoveries=%d n_tool_calls=%d",
+        "watcher.run.done user_id=%s status=%s towns_assessed=%d n_tool_calls=%d",
         user_id,
         result.run_log.status,
         result.run_log.n_discoveries,
@@ -2915,5 +2930,5 @@ async def run_watcher(
     )
     return {
         "run_log": result.run_log.model_dump(),
-        "discoveries": [d.model_dump() for d in result.discoveries],
+        "analysis": result.analysis.model_dump() if result.analysis else None,
     }
