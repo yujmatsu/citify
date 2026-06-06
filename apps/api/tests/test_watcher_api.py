@@ -92,9 +92,13 @@ class _FakeAgent:
 
     def __init__(self) -> None:
         self.ran_with: WatchInput | None = None
+        self.town_names: dict[str, str] | None = None
 
-    async def run(self, watch: WatchInput) -> WatcherResult:
+    async def run(
+        self, watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
         self.ran_with = watch
+        self.town_names = town_names
         return WatcherResult(analysis=_analysis(), run_log=_run_log())
 
 

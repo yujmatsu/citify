@@ -32,6 +32,9 @@ WATCHER_SYSTEM_PROMPT = """\
 - 前後に説明文・あいさつ・マークダウンのコードフェンス(```)を **一切付けない**。
 - 各街(住む街 + 候補すべて)について town_assessments を必ず1件ずつ作る。
 - 多少データが乏しくても、得られた情報で必ず verdict.headline を埋める(空文字にしない)。
+- **文章フィールド(headline / reasoning / population_outlook / recent_signal / watch_points)では、
+  市区町村コード(11227 等の数字)を書かず、必ず街名(例: 朝霞市)を使う**。
+  municipality_code フィールドにのみコードを入れる。
 
 スキーマ:
 {
@@ -75,17 +78,30 @@ def build_watch_user_prompt(
     interests: list[str],
     home_code: str,
     watched_codes: list[str],
+    town_names: dict[str, str] | None = None,
 ) -> str:
-    """エージェント起動時のユーザーコンテキスト prompt。"""
+    """エージェント起動時のユーザーコンテキスト prompt。
+
+    town_names: コード→街名。出力文章で街名を使わせるために渡す(ツール呼出はコードを使う)。
+    """
+    names = town_names or {}
+
+    def label(code: str) -> str:
+        nm = names.get(code)
+        return f"{nm}(コード {code})" if nm else f"コード {code}"
+
     interests_s = "、".join(interests) if interests else "(指定なし)"
-    watched_s = "、".join(watched_codes) if watched_codes else "(なし)"
+    watched_s = "、".join(label(c) for c in watched_codes) if watched_codes else "(なし)"
     return (
         f"# 街選びを検討中のユーザー\n"
         f"- user_id: {user_id}\n"
         f"- 年代: {age_group}\n"
         f"- 関心軸: {interests_s}\n"
-        f"- 住む街=判断の基準(コード): {home_code}\n"
-        f"- 気になる街=移住候補(コード): {watched_s}\n\n"
+        f"- 住む街=判断の基準: {label(home_code)}\n"
+        f"- 気になる街=移住候補: {watched_s}\n\n"
+        f"ツール呼び出しには市区町村コードを使ってください。"
+        f"ただし **出力する文章 (verdict.headline / reasoning / 各 headline / watch_points) では、"
+        f"市区町村コード(数字)ではなく上記の街名を使ってください**。\n"
         f"このユーザーが「住み続けるか/移るならどこか」を判断できるよう、"
         f"住む街と候補を比較・統合し、生きた結論を JSON で返してください。"
     )

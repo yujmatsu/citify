@@ -2915,8 +2915,10 @@ async def run_watcher(
                 detail="no watchlist saved; provide a body or PUT /watchlist first",
             )
 
+    # 出力文章で街名を使わせるため、コード→名前を解決して渡す
+    town_names = {c: _muni_label(c) for c in watch.all_codes()}
     try:
-        result = await _get_watcher_agent().run(watch)
+        result = await _get_watcher_agent().run(watch, town_names=town_names)
     except Exception as exc:  # noqa: BLE001
         logger.exception("watcher.run_failed user_id=%s err=%s", user_id, exc)
         raise HTTPException(status_code=500, detail=f"agent run failed: {exc!s}") from exc

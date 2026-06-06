@@ -173,8 +173,13 @@ class WatcherAgent:
         if self.project_id:
             os.environ.setdefault("GOOGLE_CLOUD_PROJECT", self.project_id)
 
-    async def run(self, watch: WatchInput) -> WatcherResult:
-        """1 ユーザー分の自律実行 → WatcherResult (repo があれば Firestore 永続化)。"""
+    async def run(
+        self, watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
+        """1 ユーザー分の自律実行 → WatcherResult (repo があれば Firestore 永続化)。
+
+        town_names: コード→街名。出力文章で街名を使わせるためにプロンプトへ渡す(任意)。
+        """
         import uuid
 
         self._ensure_vertex_env()
@@ -196,6 +201,7 @@ class WatcherAgent:
             list(watch.interests),
             watch.home_municipality_code,
             list(watch.watched_codes),
+            town_names=town_names,
         )
         msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
 
