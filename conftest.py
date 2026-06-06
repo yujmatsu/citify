@@ -44,4 +44,22 @@ def _ensure_genai_stub() -> None:
         sys.modules.setdefault("google.genai.types", types_stub)
 
 
+def _ensure_firestore_real() -> None:
+    """実 google.cloud.firestore を先に import して sys.modules に載せる。
+
+    各 endpoint テストの autouse fixture `_stub_firestore_module` は
+    「sys.modules に firestore が無ければ MagicMock を注入」する。だが MagicMock を
+    一度注入すると session 全体に残り、実 firestore の型 (firestore.Increment 等) を
+    必要とする test_reactions を壊す (テスト汚染)。
+    google-cloud-firestore は依存に宣言済 (apps/api/pyproject.toml) なので、
+    session 開始時に実モジュールを import しておけば stub 注入が skip され汚染が消える。
+    未インストール環境では従来通り各 fixture が stub する (graceful)。
+    """
+    try:
+        import google.cloud.firestore  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass  # 未インストールなら各 fixture の stub に委ねる
+
+
 _ensure_genai_stub()
+_ensure_firestore_real()

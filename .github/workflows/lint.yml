@@ -38,13 +38,50 @@ jobs:
         run: ruff format --check apps/api/
         if: ${{ hashFiles('apps/api/**/*.py') != '' }}
 
-      # Week 2 以降で agents/, scrapers/ も追加予定
-      # - name: Ruff check (agents)
-      #   run: ruff check agents/
-      #   if: ${{ hashFiles('agents/**/*.py') != '' }}
-      # - name: Ruff check (scrapers)
-      #   run: ruff check scrapers/
-      #   if: ${{ hashFiles('scrapers/**/*.py') != '' }}
+      - name: Ruff check (agents)
+        run: ruff check agents/
+        if: ${{ hashFiles('agents/**/*.py') != '' }}
+
+      - name: Ruff check (scrapers / pkg)
+        run: ruff check scrapers/ pkg/
+        if: ${{ hashFiles('scrapers/**/*.py') != '' }}
+
+      - name: Ruff format --check (agents / scrapers / pkg)
+        run: ruff format --check agents/ scrapers/ pkg/
+        if: ${{ hashFiles('agents/**/*.py') != '' }}
+
+  # ---------------------------------------------------------------------------
+  # Python: pytest (回帰防御ゲート)
+  # apps/api/pyproject.toml の dependencies + dev を抽出して install (パッケージ
+  # ビルド不要)。リポジトリのコードは pythonpath=["."] (root pyproject) で import。
+  # ---------------------------------------------------------------------------
+  python-test:
+    name: Python Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies (from apps/api/pyproject.toml)
+        run: |
+          python - <<'PY'
+          import tomllib
+          d = tomllib.load(open("apps/api/pyproject.toml", "rb"))
+          deps = d["project"]["dependencies"]
+          deps += d["project"].get("optional-dependencies", {}).get("dev", [])
+          open("ci-requirements.txt", "w").write("\n".join(deps) + "\n")
+          print("\n".join(deps))
+          PY
+          pip install --no-cache-dir -r ci-requirements.txt
+
+      - name: Run pytest
+        run: python -m pytest agents apps/api scrapers pkg -q
 
   # ---------------------------------------------------------------------------
   # Terraform: fmt check

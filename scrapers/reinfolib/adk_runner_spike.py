@@ -58,9 +58,7 @@ async def _main() -> int:
 
     session_service = InMemorySessionService()
     app_name, user_id, session_id = "spike", "u1", "s1"
-    await session_service.create_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
+    await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
     runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
 
     msg = gat.Content(role="user", parts=[gat.Part(text="朝霞市の人口は?")])
@@ -74,7 +72,9 @@ async def _main() -> int:
             for part in getattr(getattr(event, "content", None), "parts", []) or []:
                 if getattr(part, "function_call", None):
                     tool_called = True
-                    print(f"  TOOL_CALL: {part.function_call.name}({dict(part.function_call.args)})")
+                    print(
+                        f"  TOOL_CALL: {part.function_call.name}({dict(part.function_call.args)})"
+                    )
             if getattr(event, "is_final_response", lambda: False)():
                 final_text = (event.content.parts[0].text or "") if event.content else ""
     except Exception as exc:  # noqa: BLE001

@@ -140,7 +140,7 @@ class _MockRagModule:
     RagRetrievalConfig = staticmethod(lambda **kw: kw)  # noqa: N815
 
     def create_corpus(
-        self, *, display_name: str, description: str, backend_config: Any
+        self, *, display_name: str, description: str, backend_config: Any = None
     ) -> _MockCorpus:
         self.created_args = {
             "display_name": display_name,
@@ -206,9 +206,20 @@ def test_create_corpus_calls_rag_module_correctly():
         rag_module=mock,
     )
     assert mock.created_args["display_name"] == "my-corpus"
-    # backend_config に embedding model が入っているか (str 化で構造を確認)
+    # serverless (default) は backend_config を省略する (corpus.py の現行既定)
+    assert mock.created_args["backend_config"] is None
+
+
+def test_create_corpus_spanner_mode_sets_embedding_backend() -> None:
+    """use_serverless=False (Spanner legacy) は backend_config に embedding model を設定。"""
+    mock = _MockRagModule()
+    create_corpus(
+        project_id="test-proj",
+        display_name="my-corpus",
+        rag_module=mock,
+        use_serverless=False,
+    )
     assert "text-multilingual-embedding-002" in str(mock.created_args["backend_config"])
-    assert corpus.display_name == "my-corpus"
 
 
 def test_get_corpus_by_display_name_returns_match():

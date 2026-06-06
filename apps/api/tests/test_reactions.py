@@ -163,7 +163,7 @@ def _deep_apply(existing: dict[str, Any], payload: dict[str, Any]) -> None:
 
 @pytest.fixture()
 def mock_firestore(monkeypatch: pytest.MonkeyPatch) -> _FakeFirestore:
-    import main
+    from apps.api import main
 
     fake = _FakeFirestore()
     monkeypatch.setattr(main, "_firestore_client_cache", fake)
@@ -172,7 +172,7 @@ def mock_firestore(monkeypatch: pytest.MonkeyPatch) -> _FakeFirestore:
 
 @pytest.fixture()
 def client() -> TestClient:
-    import main
+    from apps.api import main
 
     return TestClient(main.app)
 
