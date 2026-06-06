@@ -22,6 +22,9 @@ function formatRaw(key: string, raw: number | null): string {
     case "homeownership_rate_pct":
     case "real_debt_service_ratio_pct":
       return `${raw}%`;
+    case "future_population_change_pct":
+      // 2070年予測の増減率 (符号付き)
+      return `${raw > 0 ? "+" : ""}${raw}%`;
     case "crime_rate_per_1000":
       return `${raw}`;
     default:

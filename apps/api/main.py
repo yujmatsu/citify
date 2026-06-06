@@ -831,6 +831,7 @@ async def get_population_trend(
 # ============================================================================
 _COMPARE_STATS_CACHE = _TTLCache(maxsize=64, ttl_sec=600.0)
 _SSDS_NATIONAL_CACHE = _TTLCache(maxsize=1, ttl_sec=3600.0)
+_FUTURE_POP_CACHE = _TTLCache(maxsize=1, ttl_sec=3600.0)
 
 # (列名, レーダー軸ラベル, 良い向き)。lower = 低いほど良い → score 反転
 _FISCAL_RADAR_METRICS: tuple[tuple[str, str, str], ...] = (
@@ -840,6 +841,49 @@ _FISCAL_RADAR_METRICS: tuple[tuple[str, str, str], ...] = (
     ("real_debt_service_ratio_pct", "財政健全度", "lower"),
     ("crime_rate_per_1000", "治安", "lower"),
 )
+# 将来人口は別ソース (municipality_population_series の 2070 予測 / 直近実績比)。
+# 結論が引用する人口見通しと同じ数字を軸にして「根拠の見える化」を担保する。
+_FUTURE_POP_KEY = "future_population_change_pct"
+_FUTURE_POP_LABEL = "将来人口"
+
+
+def _load_future_pop_change() -> dict[str, float]:
+    """全自治体の (2070予測 - 直近国勢調査) / 直近 × 100 (%) を返す (1h cache)。
+
+    結論(verdict)が使う人口見通しと同じ municipality_population_series 由来。
+    減少が小さい/増加ほど値が大きい = 良い。
+    """
+    cached = _FUTURE_POP_CACHE.get("all")
+    if cached is not None:
+        return cached
+    out: dict[str, float] = {}
+    try:
+        client = _get_bq_client()
+        series_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.municipality_population_series"
+        sql = f"""
+            WITH base AS (
+              SELECT municipality_code,
+                     ARRAY_AGG(population ORDER BY year DESC LIMIT 1)[OFFSET(0)] AS pop
+              FROM `{series_fqn}`
+              WHERE source = 'census' AND population IS NOT NULL
+              GROUP BY municipality_code
+            ),
+            fut AS (
+              SELECT municipality_code, population AS pop
+              FROM `{series_fqn}`
+              WHERE year = 2070 AND population IS NOT NULL
+            )
+            SELECT b.municipality_code AS code, b.pop AS base_pop, f.pop AS fut_pop
+            FROM base b JOIN fut f USING (municipality_code)
+        """  # noqa: S608 — 固定リテラル
+        for r in client.query(sql).result(timeout=15):
+            base, fut = r.get("base_pop"), r.get("fut_pop")
+            if base:
+                out[str(r["code"])] = round((fut - base) / base * 100.0, 1)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("compare_stats.future_pop_load_failed err=%s", exc)
+    _FUTURE_POP_CACHE.set("all", out)
+    return out
 
 
 def _load_national_fiscal() -> dict[str, list[float]]:
@@ -920,7 +964,13 @@ async def get_compare_stats(
         logger.warning("compare_stats.bq_failed codes=%s err=%s", code_list, exc)
 
     national = _load_national_fiscal()
+    future_pop = _load_future_pop_change()
+    future_sorted = sorted(future_pop.values())
     metrics_meta = [{"key": k, "label": lbl, "direction": d} for k, lbl, d in _FISCAL_RADAR_METRICS]
+    # 将来人口を軸に追加 (結論の主要根拠を可視化)。所得の次に配置。
+    metrics_meta.insert(
+        2, {"key": _FUTURE_POP_KEY, "label": _FUTURE_POP_LABEL, "direction": "higher"}
+    )
     towns = []
     for code in code_list:
         raw = raw_by_code.get(code, {})
@@ -931,6 +981,11 @@ async def get_compare_stats(
                 "raw": float(rv) if isinstance(rv, int | float) else None,
                 "score": _percentile_score(rv, national.get(k, []), d),
             }
+        fv = future_pop.get(code)
+        values[_FUTURE_POP_KEY] = {
+            "raw": fv,
+            "score": _percentile_score(fv, future_sorted, "higher"),
+        }
         towns.append(
             {"municipality_code": code, "municipality_name": _muni_label(code), "values": values}
         )
