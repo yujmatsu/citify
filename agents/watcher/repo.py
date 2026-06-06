@@ -3,7 +3,7 @@
 3 コレクション:
     - user_watchlist     (doc id = user_id)            : ウォッチ街リスト
     - watcher_agent_runs (doc id = run_id)             : 自律実行ログ (tool_calls 等)
-    - watcher_analyses   (doc id = {user_id}__{run_id}) : 街選び分析 (verdict + 街評価)
+    - watcher_analyses   (doc id = user_id、最新のみ上書き) : 街選び分析 (verdict + 街評価)
 
 設計: relevance/cache.py と同じ graceful パターン。全 method は Firestore 障害時も
 例外を投げず None / [] / False / 0 を返す (エージェント実行は永続化と無関係に継続)。
@@ -93,14 +93,13 @@ class WatcherRepository:
             return None
 
     def get_latest_run(self, user_id: str) -> AgentRunLog | None:
-        """user の最新実行ログ。最新 analysis の run_id 経由で取得する。
+        """user の最新実行ログ。最新 analysis ドキュメントの run_id 経由で取得する。
 
-        analyses は user_id+created_at で order_by 済 (get_latest_analysis と同 index を
-        再利用)。最新 1 件の run_id を引いて get_run するので、runs 用の新規 composite
-        index を増やさない。analysis が無ければ None。
+        doc-id 直接取得 (composite index 不要)。analysis が無ければ None。
         """
         try:
-            run_id = self._latest_analysis_run_id(user_id)
+            doc = self._latest_analysis_doc(user_id)
+            run_id = (doc or {}).get("run_id", "") if doc else ""
             return self.get_run(run_id) if run_id else None
         except Exception as exc:  # noqa: BLE001
             logger.warning("watcher_repo.get_latest_run_failed user=%s err=%s", user_id, exc)
@@ -108,14 +107,18 @@ class WatcherRepository:
 
     # ------------------------------------------------------------------ analyses
     def save_analysis(self, user_id: str, run_id: str, analysis: TownAnalysis) -> bool:
-        """街選び分析を 1 件保存 (doc id = {user}__{run})。成功可否を返す (graceful)。"""
+        """最新の街選び分析を保存 (doc id = user_id、毎回上書き)。成功可否を返す (graceful)。
+
+        doc id を user_id にして上書きするため、取得は doc 直接 get で済み
+        composite index が不要 (where+order_by クエリは Firestore index 未作成だと
+        失敗するため、それを回避する設計)。最新のみ保持 (履歴は持たない)。
+        """
         try:
-            doc_id = f"{_safe(user_id)}__{_safe(run_id)}"
             payload = analysis.model_dump()
             payload["user_id"] = user_id
             payload["run_id"] = run_id
             payload["created_at"] = datetime.now(UTC)
-            self._client().collection(FIRESTORE_ANALYSES).document(doc_id).set(payload)
+            self._client().collection(FIRESTORE_ANALYSES).document(_safe(user_id)).set(payload)
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -124,24 +127,14 @@ class WatcherRepository:
             return False
 
     def _latest_analysis_doc(self, user_id: str) -> dict | None:
-        """user の最新 analysis ドキュメント (raw dict)。無ければ None。"""
-        query = (
-            self._client()
-            .collection(FIRESTORE_ANALYSES)
-            .where("user_id", "==", user_id)
-            .order_by("created_at", direction="DESCENDING")
-            .limit(1)
-        )
-        for doc in query.stream():
-            return doc.to_dict() or {}
-        return None
-
-    def _latest_analysis_run_id(self, user_id: str) -> str:
-        doc = self._latest_analysis_doc(user_id)
-        return (doc or {}).get("run_id", "") if doc else ""
+        """user の最新 analysis ドキュメント (raw dict)。doc-id 直接取得、無ければ None。"""
+        snap = self._client().collection(FIRESTORE_ANALYSES).document(_safe(user_id)).get()
+        if not getattr(snap, "exists", False):
+            return None
+        return snap.to_dict() or {}
 
     def get_latest_analysis(self, user_id: str) -> TownAnalysis | None:
-        """user の最新の街選び分析を取得 (created_at DESC)。無ければ None。"""
+        """user の最新の街選び分析を取得 (doc-id 直接取得)。無ければ None。"""
         try:
             doc = self._latest_analysis_doc(user_id)
             if not doc:

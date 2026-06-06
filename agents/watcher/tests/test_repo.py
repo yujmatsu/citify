@@ -115,28 +115,23 @@ def test_get_run_hit_and_miss() -> None:
     assert repo.get_run("nope") is None
 
 
-def test_get_latest_run_via_newest_analysis() -> None:
-    """最新 analysis の run_id を引いて get_run する経路。"""
+def test_get_latest_run_via_latest_analysis_doc() -> None:
+    """最新 analysis ドキュメント (doc-id=user) の run_id を引いて get_run する経路。"""
     client = MagicMock()
     repo = WatcherRepository(firestore_client=client)
 
-    an_doc = MagicMock()
-    an_doc.to_dict.return_value = {"run_id": "r-latest"}
-    (
-        client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
-    ) = [an_doc]
-    client.collection.return_value.document.return_value.get.return_value = _snap(
-        True, AgentRunLog(run_id="r-latest", user_id="demo-40-49", status="ok").model_dump()
-    )
+    # 1回目 get = analysis doc (run_id 入り)、2回目 get = run doc
+    client.collection.return_value.document.return_value.get.side_effect = [
+        _snap(True, {"run_id": "r-latest", "verdict": {"headline": "x"}}),
+        _snap(True, AgentRunLog(run_id="r-latest", user_id="demo-40-49", status="ok").model_dump()),
+    ]
     got = repo.get_latest_run("demo-40-49")
     assert got is not None and got.run_id == "r-latest"
 
 
 def test_get_latest_run_no_analysis_returns_none() -> None:
     client = MagicMock()
-    (
-        client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
-    ) = []
+    client.collection.return_value.document.return_value.get.return_value = _snap(False)
     assert WatcherRepository(firestore_client=client).get_latest_run("u") is None
 
 
@@ -145,10 +140,12 @@ def test_get_latest_run_no_analysis_returns_none() -> None:
 # ============================================================================
 
 
-def test_save_analysis_sets_doc_with_metadata() -> None:
+def test_save_analysis_sets_doc_keyed_by_user() -> None:
     client = MagicMock()
     repo = WatcherRepository(firestore_client=client)
     assert repo.save_analysis("demo-40-49", "r1", _analysis()) is True
+    # doc id は user_id (最新のみ上書き、composite index 不要)
+    client.collection.return_value.document.assert_called_with(_safe("demo-40-49"))
     payload = client.collection.return_value.document.return_value.set.call_args.args[0]
     assert payload["user_id"] == "demo-40-49"
     assert payload["run_id"] == "r1"
@@ -164,11 +161,9 @@ def test_save_analysis_graceful_on_failure() -> None:
 
 def test_get_latest_analysis_parses_doc() -> None:
     client = MagicMock()
-    doc = MagicMock()
-    doc.to_dict.return_value = _analysis().model_dump()
-    (
-        client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
-    ) = [doc]
+    client.collection.return_value.document.return_value.get.return_value = _snap(
+        True, _analysis().model_dump()
+    )
     out = WatcherRepository(firestore_client=client).get_latest_analysis("demo-40-49")
     assert out is not None
     assert out.verdict.headline == "今は小田原が優勢"
@@ -177,13 +172,11 @@ def test_get_latest_analysis_parses_doc() -> None:
 
 def test_get_latest_analysis_none_when_empty() -> None:
     client = MagicMock()
-    (
-        client.collection.return_value.where.return_value.order_by.return_value.limit.return_value.stream.return_value
-    ) = []
+    client.collection.return_value.document.return_value.get.return_value = _snap(False)
     assert WatcherRepository(firestore_client=client).get_latest_analysis("u") is None
 
 
 def test_get_latest_analysis_graceful_on_failure() -> None:
     client = MagicMock()
-    client.collection.return_value.where.side_effect = RuntimeError("down")
+    client.collection.return_value.document.return_value.get.side_effect = RuntimeError("down")
     assert WatcherRepository(firestore_client=client).get_latest_analysis("u") is None
