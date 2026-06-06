@@ -108,6 +108,29 @@ def test_parse_json_with_surrounding_text() -> None:
     assert a is not None and a.verdict.recommended_code == "27206"
 
 
+def test_parse_confidence_and_open_questions() -> None:
+    """A7: confidence / open_questions をパースできる。"""
+    text = (
+        '{"verdict":{"headline":"今は朝霞が安心","reasoning":"人口が安定",'
+        '"recommended_code":"11227","confidence":"high","contains_political_judgment":false},'
+        '"town_assessments":[{"municipality_code":"11227","role":"home","headline":"安定",'
+        '"confidence":"high","source_speech_ids":["sp-1"]}],'
+        '"watch_points":[],"open_questions":["小田原の待機児童の最新状況"]}'
+    )
+    a = parse_analysis(text)
+    assert a is not None
+    assert a.verdict.confidence == "high"
+    assert a.town_assessments[0].confidence == "high"
+    assert a.open_questions == ["小田原の待機児童の最新状況"]
+
+
+def test_parse_confidence_defaults_medium_when_absent() -> None:
+    """confidence 未指定でも後方互換 (default medium)。"""
+    a = parse_analysis(_analysis_json())
+    assert a is not None
+    assert a.verdict.confidence == "medium"
+
+
 def test_parse_empty_verdict_returns_none() -> None:
     text = (
         '{"verdict":{"headline":"","reasoning":"","recommended_code":null,'

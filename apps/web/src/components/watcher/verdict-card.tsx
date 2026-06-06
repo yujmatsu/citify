@@ -1,6 +1,7 @@
 "use client";
 
 import type { WatchVerdict } from "@/lib/api";
+import { ConfidenceBadge } from "@/components/watcher/confidence-badge";
 
 /**
  * エージェントの"生きた結論"カード(ヒーロー)。差別化の核。
@@ -15,9 +16,12 @@ export function VerdictCard({
 }): React.JSX.Element {
   return (
     <section className="space-y-3 rounded-2xl border border-emerald-300 bg-gradient-to-b from-emerald-50 to-white p-5 shadow-sm dark:border-emerald-800 dark:from-emerald-950 dark:to-zinc-900">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-        🤖 エージェントの結論（今のところ）
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          🤖 エージェントの結論（今のところ）
+        </p>
+        <ConfidenceBadge confidence={verdict.confidence} />
+      </div>
       <h2 className="text-xl font-bold leading-snug tracking-tight">
         {verdict.headline}
       </h2>

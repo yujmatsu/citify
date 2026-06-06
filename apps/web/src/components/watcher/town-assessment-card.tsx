@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ConfidenceBadge } from "@/components/watcher/confidence-badge";
 import type { TownAssessment } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -48,9 +49,12 @@ export function TownAssessmentCard({
             {isHome ? "🏠 住む街（基準）" : "⭐ 候補"}
           </span>
         </div>
-        <span className="shrink-0 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
-          適合 {assessment.fit_score}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <ConfidenceBadge confidence={assessment.confidence} />
+          <span className="text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+            適合 {assessment.fit_score}
+          </span>
+        </div>
       </div>
 
       <p className="text-sm font-medium">{assessment.headline}</p>

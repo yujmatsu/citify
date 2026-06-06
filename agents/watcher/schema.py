@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from agents.relevance.schema import AgeGroup, Interest
 
+Confidence = Literal["high", "medium", "low"]
+
 
 class WatchInput(BaseModel):
     """1 ユーザー分のウォッチ・コンテキスト (エージェント実行の入力)。"""
@@ -61,9 +63,12 @@ class TownAssessment(BaseModel):
     )
     recent_signal: str = Field(default="", description="直近議題から拾った 1 つの動き (任意)")
     source_speech_ids: list[str] = Field(
-        default_factory=list, description="根拠とした議題 speech_id"
+        default_factory=list, description="根拠とした議題 speech_id (引用必須、A11)"
     )
     fit_score: int = Field(default=50, description="あなたへの適合度 0-100")
+    confidence: Confidence = Field(
+        default="medium", description="この評価の確信度 (データの厚みに応じて、A7)"
+    )
 
     @field_validator("fit_score", mode="before")
     @classmethod
@@ -85,6 +90,7 @@ class WatchVerdict(BaseModel):
     recommended_code: str | None = Field(
         default=None, description="現時点の推し街コード (住み続けるべきなら home の code)"
     )
+    confidence: Confidence = Field(default="medium", description="結論全体の確信度 (A7)")
     contains_political_judgment: bool = Field(
         default=False, description="倫理チェック: 賛否表明/政党推奨を含むか"
     )
@@ -97,6 +103,10 @@ class TownAnalysis(BaseModel):
     town_assessments: list[TownAssessment] = Field(default_factory=list)
     watch_points: list[str] = Field(
         default_factory=list, description="次の決め手になりうる変化 (継続ウォッチの観点)"
+    )
+    open_questions: list[str] = Field(
+        default_factory=list,
+        description="確定のために何が分かれば良いか (A7: エージェントが認識する不確実性)",
     )
 
 

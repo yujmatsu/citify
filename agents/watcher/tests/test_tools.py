@@ -145,6 +145,43 @@ def test_compare_towns_empty_codes() -> None:
     assert wt.compare_towns([]) == []
 
 
+# ============================================================================
+# fetch_topic_trend (Watcher v2 P1, A6)
+# ============================================================================
+
+
+def _months(counts: list[int]) -> list[dict]:
+    # year_month は昇順。直近が末尾。
+    return [{"year_month": f"2025-{i + 1:02d}", "cnt": c} for i, c in enumerate(counts)]
+
+
+def test_topic_trend_increasing() -> None:
+    # 前6か月 計6、直近6か月 計18 → increasing
+    rows = _months([1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3])
+    wt.set_bq_client_factory(lambda: _client_returning(rows))
+    out = wt.fetch_topic_trend("11227", "子育て")
+    assert out["recent_6m"] == 18
+    assert out["prev_6m"] == 6
+    assert out["trend"] == "increasing"
+
+
+def test_topic_trend_flat() -> None:
+    rows = _months([2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2])
+    wt.set_bq_client_factory(lambda: _client_returning(rows))
+    assert wt.fetch_topic_trend("11227", "子育て")["trend"] == "flat"
+
+
+def test_topic_trend_empty_is_unknown() -> None:
+    wt.set_bq_client_factory(lambda: _client_returning([]))
+    out = wt.fetch_topic_trend("11227", "子育て")
+    assert out["series"] == [] and out["trend"] == "unknown"
+
+
+def test_topic_trend_graceful_on_failure() -> None:
+    wt.set_bq_client_factory(lambda: _client_returning(RuntimeError("BQ down")))
+    assert wt.fetch_topic_trend("11227")["trend"] == "unknown"
+
+
 def test_compare_towns_graceful_on_failure() -> None:
     wt.set_bq_client_factory(lambda: _client_returning(RuntimeError("BQ down")))
     assert wt.compare_towns(["13104"]) == []

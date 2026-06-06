@@ -289,6 +289,23 @@ export default function AgentHomePage(): React.JSX.Element {
                 </ul>
               </section>
             )}
+
+            {/* もっと確かにするには (A7: エージェントが認識する不確実性) */}
+            {analysis.open_questions.length > 0 && (
+              <section className="space-y-2 rounded-2xl border border-dashed border-zinc-300 p-4 dark:border-zinc-700">
+                <h2 className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">
+                  ❓ もっと確かにするには
+                </h2>
+                <ul className="space-y-1 text-sm text-zinc-500">
+                  {analysis.open_questions.map((q, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span aria-hidden>・</span>
+                      <span>{q}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </>
         ) : (
           <div className="space-y-3 rounded-2xl border border-dashed border-zinc-300 p-6 text-center dark:border-zinc-700">

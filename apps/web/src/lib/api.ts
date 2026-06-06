@@ -996,6 +996,7 @@ export const TownAssessmentSchema = z.object({
   recent_signal: z.string().default(""),
   source_speech_ids: z.array(z.string()).default([]),
   fit_score: z.number().int().min(0).max(100).default(50),
+  confidence: z.enum(["high", "medium", "low"]).default("medium"),
 });
 
 export type TownAssessment = z.infer<typeof TownAssessmentSchema>;
@@ -1005,6 +1006,7 @@ export const WatchVerdictSchema = z.object({
   headline: z.string(),
   reasoning: z.string().default(""),
   recommended_code: z.string().nullable().default(null),
+  confidence: z.enum(["high", "medium", "low"]).default("medium"),
   contains_political_judgment: z.boolean().default(false),
 });
 
@@ -1014,6 +1016,7 @@ export const TownAnalysisSchema = z.object({
   verdict: WatchVerdictSchema,
   town_assessments: z.array(TownAssessmentSchema).default([]),
   watch_points: z.array(z.string()).default([]),
+  open_questions: z.array(z.string()).default([]),
 });
 
 export type TownAnalysis = z.infer<typeof TownAnalysisSchema>;

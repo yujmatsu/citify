@@ -157,6 +157,7 @@ class WatcherAgent:
                 FunctionTool(func=watcher_tools.search_speeches),
                 FunctionTool(func=watcher_tools.fetch_population_trend),
                 FunctionTool(func=watcher_tools.compare_towns),
+                FunctionTool(func=watcher_tools.fetch_topic_trend),
             ],
         )
 

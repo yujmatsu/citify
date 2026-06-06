@@ -148,6 +148,63 @@ def fetch_population_trend(municipality_code: str) -> dict:
     }
 
 
+def fetch_topic_trend(municipality_code: str, interest: str = "") -> dict:
+    """指定した街で、ある関心テーマの議題が時系列で増えているか減っているかを調べる。
+
+    「この街は最近この話題を活発に議論し始めたか?」という"動きの方向"を知りたい時に使う。
+    直近6か月と、その前6か月の議題件数を比べて傾向を判定する。
+
+    Args:
+        municipality_code: 5 桁の市区町村コード (例: "11227")
+        interest: 関心軸 (例: "子育て"。空なら全テーマ合算)
+
+    Returns:
+        {"series": [{"year_month","count"}], "recent_6m": int, "prev_6m": int,
+         "trend": "increasing"|"flat"|"decreasing"|"unknown"} 形式。データ無しは series 空・trend unknown。
+    """
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_SCORED}"
+    interest_clause = "AND @interest IN UNNEST(matched_interests)" if interest else ""
+    sql = f"""
+        SELECT FORMAT_DATE('%Y-%m', meeting_date) AS year_month,
+               COUNT(DISTINCT speech_id) AS cnt
+        FROM `{table_fqn}`
+        WHERE municipality_code = @code AND meeting_date IS NOT NULL
+          {interest_clause}
+        GROUP BY year_month
+        ORDER BY year_month
+    """  # noqa: S608
+    try:
+        from google.cloud import bigquery
+
+        params = [bigquery.ScalarQueryParameter("code", "STRING", municipality_code)]
+        if interest:
+            params.append(bigquery.ScalarQueryParameter("interest", "STRING", interest))
+        rows = list(
+            client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result(
+                timeout=10
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("watcher.topic_trend.bq_failed code=%s err=%s", municipality_code, exc)
+        return {"series": [], "recent_6m": 0, "prev_6m": 0, "trend": "unknown"}
+
+    series = [{"year_month": r["year_month"], "count": int(r["cnt"])} for r in rows]
+    # 直近6か月 vs その前6か月 (年月文字列の昇順末尾を使う)
+    counts = [s["count"] for s in series]
+    recent_6m = sum(counts[-6:])
+    prev_6m = sum(counts[-12:-6])
+    if not series:
+        trend = "unknown"
+    elif recent_6m > prev_6m * 1.2:
+        trend = "increasing"
+    elif recent_6m < prev_6m * 0.8:
+        trend = "decreasing"
+    else:
+        trend = "flat"
+    return {"series": series, "recent_6m": recent_6m, "prev_6m": prev_6m, "trend": trend}
+
+
 def compare_towns(municipality_codes: list[str]) -> list[dict]:
     """複数の街の主要統計を並べて比較する。街選びの中核ツール。
 
