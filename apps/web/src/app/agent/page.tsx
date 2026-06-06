@@ -222,7 +222,7 @@ export default function AgentHomePage(): React.JSX.Element {
         </button>
         {running && (
           <p className="text-center text-xs text-zinc-500">
-            街を自分で選んで人口・統計・議題を横断調査しています（5〜20 秒ほど）
+            街を横断調査し、結論を自己検証・反論で詰めています（30〜90 秒ほど）
           </p>
         )}
         {runError && (

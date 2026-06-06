@@ -391,8 +391,15 @@ class WatcherAgent:
         draft_json = json.dumps(draft.model_dump(), ensure_ascii=False)
         review_msg = build_review_user_prompt(draft_json, context)
 
-        critique = parse_critique(await self._run_single_agent(CRITIC_PROMPT, review_msg))
-        advocacy = parse_advocacy(await self._run_single_agent(ADVOCATE_PROMPT, review_msg))
+        # critique と advocate は独立 → 並列実行でレイテンシ短縮 (Cloud Run timeout 対策)
+        import asyncio
+
+        critic_text, advocate_text = await asyncio.gather(
+            self._run_single_agent(CRITIC_PROMPT, review_msg),
+            self._run_single_agent(ADVOCATE_PROMPT, review_msg),
+        )
+        critique = parse_critique(critic_text)
+        advocacy = parse_advocacy(advocate_text)
         critique_note = _summarize_critique(critique)
         advocate_note = advocacy.counter_verdict if advocacy else ""
 

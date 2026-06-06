@@ -94,7 +94,9 @@ steps:
       - --min-instances=1                          # Phase Q: cold start 撲滅 (デモ体感優先、月 $10 程度)
       - --max-instances=10
       - --concurrency=80
-      - --timeout=60s
+      # Watcher v2: 自律マルチステップ(draft+critique+advocate+revise)で 60s 超過 504 が出たため延長。
+      # on-demand 深掘り分析は最長 ~120s 想定。将来は日次事前計算/quickモードで体感短縮。
+      - --timeout=300s
       - --port=8080
       - --labels=project=citify,env=dev,managed_by=cloud-build
 
