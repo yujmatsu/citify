@@ -1074,6 +1074,43 @@ export const WatcherRunResponseSchema = z.object({
 
 export type WatcherRunResponse = z.infer<typeof WatcherRunResponseSchema>;
 
+// ----- 街比較レーダー (TASK-FISCAL) — 財政5指標 raw + 全国percentile score -----
+export const CompareStatMetricSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  direction: z.enum(["higher", "lower"]),
+});
+export type CompareStatMetric = z.infer<typeof CompareStatMetricSchema>;
+
+export const CompareStatValueSchema = z.object({
+  raw: z.number().nullable(),
+  score: z.number().nullable(),
+});
+
+export const CompareStatTownSchema = z.object({
+  municipality_code: z.string(),
+  municipality_name: z.string(),
+  values: z.record(z.string(), CompareStatValueSchema),
+});
+export type CompareStatTown = z.infer<typeof CompareStatTownSchema>;
+
+export const CompareStatsResponseSchema = z.object({
+  metrics: z.array(CompareStatMetricSchema).default([]),
+  towns: z.array(CompareStatTownSchema).default([]),
+});
+export type CompareStatsResponse = z.infer<typeof CompareStatsResponseSchema>;
+
+/** 街比較レーダー用の5指標(財政力/所得/持ち家/財政健全度/治安)を取得。 */
+export async function fetchCompareStats(
+  codes: string[],
+): Promise<CompareStatsResponse> {
+  const qs = encodeURIComponent(codes.join(","));
+  return fetchJson(
+    `${API_BASE}/v1/cities/compare-stats?codes=${qs}`,
+    CompareStatsResponseSchema,
+  );
+}
+
 function watcherHeaders(userId: string): HeadersInit {
   return { Accept: "application/json", "x-user-id": userId };
 }

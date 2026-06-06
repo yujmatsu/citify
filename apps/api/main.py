@@ -824,6 +824,122 @@ async def get_population_trend(
     return _fetch_population_trend(municipality_code)
 
 
+# ============================================================================
+# GET /v1/cities/compare-stats — 街比較レーダー用の5指標 (TASK-FISCAL)
+# 全国分布のパーセンタイルで正規化 (0-100、外側ほど良い向きに統一) + 生値を返す。
+# 2-3市の相対 min-max だと僅差が極端に見え誤解を招くため、絶対指標 (全国percentile) を採用。
+# ============================================================================
+_COMPARE_STATS_CACHE = _TTLCache(maxsize=64, ttl_sec=600.0)
+_SSDS_NATIONAL_CACHE = _TTLCache(maxsize=1, ttl_sec=3600.0)
+
+# (列名, レーダー軸ラベル, 良い向き)。lower = 低いほど良い → score 反転
+_FISCAL_RADAR_METRICS: tuple[tuple[str, str, str], ...] = (
+    ("financial_capability_index", "財政力", "higher"),
+    ("taxable_income_per_capita_yen", "所得", "higher"),
+    ("homeownership_rate_pct", "持ち家", "higher"),
+    ("real_debt_service_ratio_pct", "財政健全度", "lower"),
+    ("crime_rate_per_1000", "治安", "lower"),
+)
+
+
+def _load_national_fiscal() -> dict[str, list[float]]:
+    """全市区町村の5指標を取得し metric ごとのソート済み値配列を返す (percentile 算出用、1h cache)。"""
+    cached = _SSDS_NATIONAL_CACHE.get("all")
+    if cached is not None:
+        return cached
+    cols = [m[0] for m in _FISCAL_RADAR_METRICS]
+    arrays: dict[str, list[float]] = {c: [] for c in cols}
+    try:
+        client = _get_bq_client()
+        table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
+        sql = (  # noqa: S608 — 列名は固定リテラル
+            f"SELECT {', '.join(cols)} FROM `{table_fqn}` "
+            "WHERE municipality_code != '00000' "
+            "AND SUBSTR(municipality_code, 3) NOT IN ('000', '001', '002')"
+        )
+        for r in client.query(sql).result(timeout=15):
+            for c in cols:
+                v = r.get(c)
+                if v is not None:
+                    arrays[c].append(float(v))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("compare_stats.national_load_failed err=%s", exc)
+    for c in cols:
+        arrays[c].sort()
+    _SSDS_NATIONAL_CACHE.set("all", arrays)
+    return arrays
+
+
+def _percentile_score(value: Any, sorted_vals: list[float], direction: str) -> float | None:
+    """value の全国パーセンタイル (0-100)。direction=lower は反転 (外側ほど良いに統一)。"""
+    import bisect
+
+    if value is None or not sorted_vals:
+        return None
+    rank = bisect.bisect_right(sorted_vals, float(value))
+    pct = rank / len(sorted_vals) * 100.0
+    return round(pct if direction == "higher" else 100.0 - pct, 1)
+
+
+@app.get("/v1/cities/compare-stats")
+async def get_compare_stats(
+    response: Response,
+    codes: str = Query(..., description="カンマ区切りの市区町村コード (最大5)"),
+) -> dict:
+    """街比較レーダー用: 指定自治体の財政5指標を raw + 全国 percentile score で返す。
+
+    score は 0-100、外側ほど良い (財政力/所得/持ち家は高いほど、財政健全度/治安は低い元値ほど高score)。
+    財政データ未投入 (列なし) でも graceful: values は null。
+    """
+    response.headers["Cache-Control"] = "public, max-age=600"
+    code_list = [c.strip() for c in codes.split(",") if c.strip()][:5]
+    if not code_list:
+        return {"metrics": [], "towns": []}
+    cache_key = ("cmpstats", tuple(code_list))
+    cached = _COMPARE_STATS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    cols = [m[0] for m in _FISCAL_RADAR_METRICS]
+    raw_by_code: dict[str, dict[str, Any]] = {}
+    try:
+        from google.cloud import bigquery
+
+        client = _get_bq_client()
+        table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
+        sql = (  # noqa: S608 — 列名は固定リテラル、コードは parameterized
+            f"SELECT municipality_code, {', '.join(cols)} FROM `{table_fqn}` "
+            "WHERE municipality_code IN UNNEST(@codes)"
+        )
+        params = [bigquery.ArrayQueryParameter("codes", "STRING", code_list)]
+        for r in client.query(
+            sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
+        ).result(timeout=10):
+            raw_by_code[str(r["municipality_code"])] = {c: r.get(c) for c in cols}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("compare_stats.bq_failed codes=%s err=%s", code_list, exc)
+
+    national = _load_national_fiscal()
+    metrics_meta = [{"key": k, "label": lbl, "direction": d} for k, lbl, d in _FISCAL_RADAR_METRICS]
+    towns = []
+    for code in code_list:
+        raw = raw_by_code.get(code, {})
+        values: dict[str, dict[str, Any]] = {}
+        for k, _lbl, d in _FISCAL_RADAR_METRICS:
+            rv = raw.get(k)
+            values[k] = {
+                "raw": float(rv) if isinstance(rv, int | float) else None,
+                "score": _percentile_score(rv, national.get(k, []), d),
+            }
+        towns.append(
+            {"municipality_code": code, "municipality_name": _muni_label(code), "values": values}
+        )
+    result = {"metrics": metrics_meta, "towns": towns}
+    _COMPARE_STATS_CACHE.set(cache_key, result)
+    logger.info("compare_stats.done codes=%s n_towns=%d", code_list, len(towns))
+    return result
+
+
 @app.get("/v1/cities/{municipality_code}", response_model=CityDashboardResponse)
 async def get_city_dashboard(
     municipality_code: str,

@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AutonomyTrace } from "@/components/watcher/autonomy-trace";
 import { TownAssessmentCard } from "@/components/watcher/town-assessment-card";
+import { TownRadar } from "@/components/watcher/town-radar";
 import { VerdictCard } from "@/components/watcher/verdict-card";
 import {
+  fetchCompareStats,
   fetchWatcherAnalysis,
   runWatcher,
+  type CompareStatsResponse,
   type TownAnalysis,
   type WatchlistBody,
   type WatcherRunLog,
@@ -36,6 +39,7 @@ type LoadState =
       munis: Municipality[];
       analysis: TownAnalysis | null;
       latestRun: WatcherRunLog | null;
+      compareStats: CompareStatsResponse | null;
     }
   | { kind: "error"; message: string };
 
@@ -79,9 +83,16 @@ export default function AgentHomePage(): React.JSX.Element {
       setState({ kind: "needs_town", persona });
       return;
     }
+    const { home, watched } = realTowns(persona);
+    const codes = [home, ...watched].filter((c): c is string => Boolean(c));
     let cancelled = false;
-    Promise.all([loadMunicipalities(), fetchWatcherAnalysis(persona.user_id)])
-      .then(([munis, res]) => {
+    Promise.all([
+      loadMunicipalities(),
+      fetchWatcherAnalysis(persona.user_id),
+      // 比較レーダーは分析の有無に関係なく出す。失敗しても致命的でないので空で握りつぶす
+      fetchCompareStats(codes).catch(() => null),
+    ])
+      .then(([munis, res, compareStats]) => {
         if (cancelled) return;
         setState({
           kind: "ready",
@@ -89,6 +100,7 @@ export default function AgentHomePage(): React.JSX.Element {
           munis,
           analysis: res.analysis,
           latestRun: res.latest_run,
+          compareStats,
         });
       })
       .catch((err) => {
@@ -164,7 +176,7 @@ export default function AgentHomePage(): React.JSX.Element {
     );
   }
 
-  const { persona, munis, analysis, latestRun } = state;
+  const { persona, munis, analysis, latestRun, compareStats } = state;
   const nameOf = (code: string): string =>
     findByCode(munis, code)?.name ?? `自治体 ${code}`;
   const { home, watched } = realTowns(persona);
@@ -221,6 +233,16 @@ export default function AgentHomePage(): React.JSX.Element {
 
         {/* 自律の証跡 */}
         {latestRun && <AutonomyTrace runLog={latestRun} />}
+
+        {/* 街比較レーダー (財政力・所得・持ち家・財政健全度・治安) */}
+        {compareStats && compareStats.towns.length > 0 && (
+          <section className="space-y-2 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+              街の総合比較
+            </h2>
+            <TownRadar data={compareStats} />
+          </section>
+        )}
 
         {analysis ? (
           <>
