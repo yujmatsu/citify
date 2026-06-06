@@ -200,7 +200,7 @@ class _MockRagModule:
 
 def test_create_corpus_calls_rag_module_correctly():
     mock = _MockRagModule()
-    corpus = create_corpus(
+    create_corpus(
         project_id="test-proj",
         display_name="my-corpus",
         rag_module=mock,

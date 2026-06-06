@@ -73,7 +73,10 @@ jobs:
           python - <<'PY'
           import tomllib
           d = tomllib.load(open("apps/api/pyproject.toml", "rb"))
-          deps = d["project"]["dependencies"]
+          deps = list(d["project"]["dependencies"])
+          # dev tools (pytest 等) は PEP 735 [dependency-groups] に置いている。
+          # 旧 [project.optional-dependencies] も後方互換で拾う。
+          deps += d.get("dependency-groups", {}).get("dev", [])
           deps += d["project"].get("optional-dependencies", {}).get("dev", [])
           open("ci-requirements.txt", "w").write("\n".join(deps) + "\n")
           print("\n".join(deps))
