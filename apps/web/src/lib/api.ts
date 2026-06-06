@@ -1017,6 +1017,9 @@ export const TownAnalysisSchema = z.object({
   town_assessments: z.array(TownAssessmentSchema).default([]),
   watch_points: z.array(z.string()).default([]),
   open_questions: z.array(z.string()).default([]),
+  // P2: 検証と反論の透明性 (A1 / A9)
+  critique_note: z.string().default(""),
+  devils_advocate: z.string().default(""),
 });
 
 export type TownAnalysis = z.infer<typeof TownAnalysisSchema>;

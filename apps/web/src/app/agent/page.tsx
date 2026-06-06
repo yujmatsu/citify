@@ -254,12 +254,32 @@ export default function AgentHomePage(): React.JSX.Element {
               }
             />
 
+            {/* 検証と反論 (A1 自己批判 / A9 悪魔の代弁者) */}
+            {(analysis.critique_note || analysis.devils_advocate) && (
+              <section className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                <h2 className="text-sm font-semibold">⚖️ AI の自己検証と反論</h2>
+                {analysis.critique_note && (
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                    <span className="font-medium">🔍 自己検証:</span>{" "}
+                    {analysis.critique_note}
+                  </p>
+                )}
+                {analysis.devils_advocate && (
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                    <span className="font-medium">😈 反対意見:</span>{" "}
+                    {analysis.devils_advocate}
+                  </p>
+                )}
+              </section>
+            )}
+
             {/* 街の比較 */}
             {analysis.town_assessments.length > 0 && (
               <section className="space-y-3">
                 <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
                   街の比較
                 </h2>
+                {/* TownAssessmentCard rows below */}
                 {analysis.town_assessments.map((a) => (
                   <TownAssessmentCard
                     key={a.municipality_code}

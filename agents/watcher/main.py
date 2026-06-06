@@ -20,9 +20,18 @@ from typing import Any
 
 from agents._shared.forbidden import find_forbidden_matches
 
-from .prompts.system import WATCHER_SYSTEM_PROMPT, build_watch_user_prompt
+from .prompts.system import (
+    ADVOCATE_PROMPT,
+    CRITIC_PROMPT,
+    WATCHER_SYSTEM_PROMPT,
+    build_review_user_prompt,
+    build_revise_prompt,
+    build_watch_user_prompt,
+)
 from .schema import (
+    Advocacy,
     AgentRunLog,
+    Critique,
     ToolCall,
     TownAnalysis,
     WatcherResult,
@@ -69,6 +78,61 @@ def parse_analysis(final_text: str) -> TownAnalysis | None:
     if not analysis.verdict.headline and not analysis.town_assessments:
         return None
     return analysis
+
+
+def _extract_json(final_text: str) -> dict | None:
+    """最外 JSON ブロックを dict で抽出 (critique/advocacy 用、graceful)。"""
+    if not final_text:
+        return None
+    m = _JSON_BLOCK.search(final_text)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def parse_critique(final_text: str) -> Critique | None:
+    """Critic 応答 (JSON) を Critique に。失敗は None (graceful)。"""
+    data = _extract_json(final_text)
+    if data is None:
+        return None
+    try:
+        return Critique.model_validate(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("watcher.critique_invalid err=%s", exc)
+        return None
+
+
+def parse_advocacy(final_text: str) -> Advocacy | None:
+    """Devil's Advocate 応答 (JSON) を Advocacy に。失敗は None (graceful)。"""
+    data = _extract_json(final_text)
+    if data is None:
+        return None
+    try:
+        return Advocacy.model_validate(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("watcher.advocacy_invalid err=%s", exc)
+        return None
+
+
+def should_revise(critique: Critique | None) -> bool:
+    """critique が修正を要求しているか。None は False (草案を採用)。"""
+    if critique is None:
+        return False
+    return critique.needs_revision or bool(
+        critique.issues or critique.missing_axes or critique.grounding_failures
+    )
+
+
+def _summarize_critique(critique: Critique | None) -> str:
+    """critique を1行要約 (UI/透明性用)。"""
+    if critique is None:
+        return ""
+    parts = [*critique.issues, *critique.missing_axes, *critique.grounding_failures]
+    return " / ".join(parts[:3])
 
 
 def apply_ethics(analysis: TownAnalysis | None) -> TownAnalysis | None:
@@ -244,19 +308,35 @@ class WatcherAgent:
                 ),
             )
 
-        parsed = parse_analysis(final_text)
-        analysis = apply_ethics(parsed)
+        draft = parse_analysis(final_text)
+        draft_parsed_ok = draft is not None
+
+        # P2: 自己批判(A1) + 悪魔の代弁者(A9) + 修正。草案がある時のみ、失敗は graceful。
+        critique_note, advocate_note = "", ""
+        if draft is not None:
+            try:
+                draft, critique_note, advocate_note = await self._verify_and_revise(
+                    draft, watch, town_names
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("watcher.verify_failed user=%s err=%s", watch.user_id, exc)
+
+        analysis = apply_ethics(draft)
         n_assessed = len(analysis.town_assessments) if analysis else 0
         note = ""
         if analysis is None:
             # 診断: なぜ空になったか (parse 失敗か倫理ドロップか) を note に残す
-            if parsed is None:
+            if not draft_parsed_ok:
                 note = f"parse_failed: {final_text[:300]}"
                 logger.warning(
                     "watcher.parse_empty user=%s text=%r", watch.user_id, final_text[:300]
                 )
             else:
                 note = "ethics_dropped"
+        else:
+            # 透明性: 検証・反論の要約を analysis に付与 (倫理スキャン後に設定)
+            analysis.critique_note = critique_note
+            analysis.devils_advocate = advocate_note
         if status != "max_iterations":
             status = "ok" if analysis else "empty"
         run_log = _build_run_log(
@@ -271,6 +351,62 @@ class WatcherAgent:
         )
         self._persist(watch.user_id, run_log, analysis)
         return WatcherResult(analysis=analysis, run_log=run_log)
+
+    async def _run_single_agent(self, instruction: str, message: str) -> str:
+        """ツール無しの単発 ADK エージェントを1回回し、最終テキストを返す (critique/advocate/revise 用)。"""
+        import uuid
+
+        import google.genai.types as gat
+        from google.adk import Agent, Runner
+        from google.adk.sessions import InMemorySessionService
+
+        agent = Agent(name="watcher_aux", model=self.model, instruction=instruction, tools=[])
+        ss = InMemorySessionService()
+        sid = uuid.uuid4().hex[:8]
+        await ss.create_session(app_name="watcher_aux", user_id="aux", session_id=sid)
+        runner = Runner(agent=agent, app_name="watcher_aux", session_service=ss)
+        msg = gat.Content(role="user", parts=[gat.Part(text=message)])
+        final_text = ""
+        async for event in runner.run_async(user_id="aux", session_id=sid, new_message=msg):
+            is_final = getattr(event, "is_final_response", lambda: False)()
+            if is_final and event.content and event.content.parts:
+                final_text = event.content.parts[0].text or ""
+        return final_text
+
+    async def _verify_and_revise(
+        self, draft: TownAnalysis, watch: WatchInput, town_names: dict[str, str] | None
+    ) -> tuple[TownAnalysis, str, str]:
+        """Draft を Critic(A1)+Advocate(A9)で検証し、必要なら1回 Revise。
+
+        Returns: (最終 analysis, critique_note, advocate_note)。LLM 失敗時は draft をそのまま。
+        """
+        context = build_watch_user_prompt(
+            watch.user_id,
+            watch.age_group,
+            list(watch.interests),
+            watch.home_municipality_code,
+            list(watch.watched_codes),
+            town_names=town_names,
+        )
+        draft_json = json.dumps(draft.model_dump(), ensure_ascii=False)
+        review_msg = build_review_user_prompt(draft_json, context)
+
+        critique = parse_critique(await self._run_single_agent(CRITIC_PROMPT, review_msg))
+        advocacy = parse_advocacy(await self._run_single_agent(ADVOCATE_PROMPT, review_msg))
+        critique_note = _summarize_critique(critique)
+        advocate_note = advocacy.counter_verdict if advocacy else ""
+
+        if should_revise(critique):
+            crit_json = json.dumps(critique.model_dump(), ensure_ascii=False) if critique else "{}"
+            adv_json = json.dumps(advocacy.model_dump(), ensure_ascii=False) if advocacy else "{}"
+            revise_instr = build_revise_prompt(crit_json, adv_json)
+            revised = parse_analysis(
+                await self._run_single_agent(revise_instr, f"# 草案\n{draft_json}")
+            )
+            if revised is not None:
+                draft = revised
+                logger.info("watcher.revised user=%s", watch.user_id)
+        return draft, critique_note, advocate_note
 
     def _persist(self, user_id: str, run_log: AgentRunLog, analysis: TownAnalysis | None) -> None:
         """repo があれば agent_runs + analysis を永続化 (graceful、無ければ skip)。"""

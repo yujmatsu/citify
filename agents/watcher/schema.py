@@ -96,6 +96,26 @@ class WatchVerdict(BaseModel):
     )
 
 
+class Critique(BaseModel):
+    """Critic(自己批判)の出力 (A1)。草案の根拠・見落とし・引用整合を検証。"""
+
+    issues: list[str] = Field(default_factory=list, description="論理/整合の問題点")
+    missing_axes: list[str] = Field(default_factory=list, description="見落とした評価軸")
+    grounding_failures: list[str] = Field(
+        default_factory=list, description="根拠(引用)が無い/弱い主張"
+    )
+    needs_revision: bool = Field(default=False, description="修正が必要か")
+
+
+class Advocacy(BaseModel):
+    """Devil's Advocate(反論役)の出力 (A9)。反対の結論を主張し弱点を突く。"""
+
+    counter_verdict: str = Field(default="", description="反対の結論(例: 実は小田原が良い)")
+    strongest_points: list[str] = Field(
+        default_factory=list, description="その根拠として最も強い点"
+    )
+
+
 class TownAnalysis(BaseModel):
     """エージェント 1 実行の最終アウトプット (比較 + 生きた結論)。"""
 
@@ -107,6 +127,13 @@ class TownAnalysis(BaseModel):
     open_questions: list[str] = Field(
         default_factory=list,
         description="確定のために何が分かれば良いか (A7: エージェントが認識する不確実性)",
+    )
+    # P2: 検証と反論の透明性 (A1 / A9)
+    critique_note: str = Field(
+        default="", description="自己批判で何を再確認/修正したか (A1、透明性)"
+    )
+    devils_advocate: str = Field(
+        default="", description="反論役が提示した反対視点の要約 (A9、透明性)"
     )
 
 

@@ -9,9 +9,19 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-from agents.watcher.main import WatcherAgent, apply_ethics, parse_analysis
+import pytest
+
+from agents.watcher.main import (
+    WatcherAgent,
+    apply_ethics,
+    parse_advocacy,
+    parse_analysis,
+    parse_critique,
+    should_revise,
+)
 from agents.watcher.schema import (
     AgentRunLog,
+    Critique,
     TownAnalysis,
     TownAssessment,
     WatchInput,
@@ -206,3 +216,89 @@ def test_persist_graceful_on_repo_failure() -> None:
     repo.save_run.side_effect = RuntimeError("firestore down")
     agent = WatcherAgent(repo=repo)
     agent._persist("u", AgentRunLog(run_id="r1", user_id="u"), _analysis())
+
+
+# ============================================================================
+# P2: critique / advocacy / should_revise (純関数)
+# ============================================================================
+
+
+def test_parse_critique_valid() -> None:
+    c = parse_critique(
+        '{"issues":["矛盾A"],"missing_axes":["治安"],"grounding_failures":[],"needs_revision":true}'
+    )
+    assert c is not None and c.needs_revision is True
+    assert "治安" in c.missing_axes
+
+
+def test_parse_advocacy_valid() -> None:
+    a = parse_advocacy(
+        'はい:\n{"counter_verdict":"実は小田原が良い","strongest_points":["住居費が安い"]}'
+    )
+    assert a is not None and a.counter_verdict.startswith("実は")
+
+
+def test_parse_critique_invalid_returns_none() -> None:
+    assert parse_critique("not json") is None
+
+
+def test_should_revise_logic() -> None:
+    assert should_revise(None) is False
+    assert should_revise(Critique(needs_revision=True)) is True
+    assert should_revise(Critique(issues=["x"])) is True  # 指摘あれば修正
+    assert should_revise(Critique()) is False  # 空なら不要
+
+
+# ============================================================================
+# P2: _verify_and_revise オーケストレーション (_run_single_agent を mock)
+# ============================================================================
+
+
+def _watch() -> WatchInput:
+    return WatchInput(
+        user_id="demo-40-49",
+        age_group="40-49",
+        interests=["子育て"],
+        home_municipality_code="11227",
+        watched_codes=["27206"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_verify_and_revise_revises_when_needed(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = WatcherAgent(repo=None)
+    revised = _analysis(headline="再検討の結果、朝霞が安心")
+    calls = [
+        '{"issues":["治安に未言及"],"missing_axes":["治安"],"grounding_failures":[],"needs_revision":true}',
+        '{"counter_verdict":"小田原も捨てがたい","strongest_points":["住居費"]}',
+        json.dumps(revised.model_dump(), ensure_ascii=False),
+    ]
+    it = iter(calls)
+
+    async def _fake(instruction: str, message: str) -> str:
+        return next(it)
+
+    monkeypatch.setattr(agent, "_run_single_agent", _fake)
+    out, crit_note, adv_note = await agent._verify_and_revise(_analysis(), _watch(), None)
+    assert out.verdict.headline == "再検討の結果、朝霞が安心"  # revise 反映
+    assert "治安" in crit_note
+    assert adv_note.startswith("小田原")
+
+
+@pytest.mark.asyncio
+async def test_verify_and_revise_keeps_draft_when_clean(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = WatcherAgent(repo=None)
+    draft = _analysis(headline="据え置きの結論")
+    calls = [
+        '{"issues":[],"missing_axes":[],"grounding_failures":[],"needs_revision":false}',
+        '{"counter_verdict":"","strongest_points":[]}',
+    ]
+    it = iter(calls)
+
+    async def _fake(instruction: str, message: str) -> str:
+        return next(it)
+
+    monkeypatch.setattr(agent, "_run_single_agent", _fake)
+    out, crit_note, adv_note = await agent._verify_and_revise(draft, _watch(), None)
+    assert out.verdict.headline == "据え置きの結論"  # 修正なし
+    assert crit_note == "" and adv_note == ""

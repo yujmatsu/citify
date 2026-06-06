@@ -93,6 +93,55 @@ WATCHER_SYSTEM_PROMPT = """\
 """
 
 
+# ============================================================================
+# P2: 自己批判(Critic, A1) / 悪魔の代弁者(Devil's Advocate, A9) / 修正(Revise)
+# ============================================================================
+CRITIC_PROMPT = """\
+あなたは街選び分析の**監査役**です。提示された分析(JSON)を批判的に検証してください。
+観点:
+- 各主張は data/議題の根拠(source_speech_ids や数値)で裏付くか(grounding_failures)
+- 見落とした重要な評価軸はないか(missing_axes、例: 財政/治安/将来人口/所得)
+- verdict と各街評価に論理矛盾はないか(issues)
+- 上記が一定以上あれば needs_revision=true
+
+**JSON のみ**で返す(説明文・コードフェンス禁止):
+{"issues":["..."],"missing_axes":["..."],"grounding_failures":["..."],"needs_revision":false}
+問題が無ければ全て空配列・needs_revision=false。
+"""
+
+ADVOCATE_PROMPT = """\
+あなたは**悪魔の代弁者**です。提示された分析(JSON)の結論に、あえて**反対の立場**から
+最も強い反論を組み立ててください(賛否の政治的表明はせず、街選びの観点のみ)。
+
+**JSON のみ**で返す(説明文・コードフェンス禁止):
+{"counter_verdict":"反対の結論を1行","strongest_points":["反論の根拠1","2"]}
+反論が成り立たない場合は counter_verdict を空文字に。
+"""
+
+
+def build_review_user_prompt(analysis_json: str, context: str) -> str:
+    """Critic / Advocate へ渡す共通ユーザーメッセージ(草案 + ユーザー文脈)。"""
+    return f"# ユーザー文脈\n{context}\n\n# 検証対象の分析(JSON)\n{analysis_json}"
+
+
+def build_revise_prompt(critique_json: str, advocacy_json: str) -> str:
+    """Reviser のシステム指示。草案を critique/advocacy に基づき最小修正する。"""
+    return f"""\
+あなたは街選びアナリストです。先の分析草案に対し、監査役の指摘と反論が出ました。
+**指摘された点のみを修正**し(問題ない部分は変えない)、最終版を出力してください。
+反論に正当性があれば結論や confidence に反映し、無ければ理由は reasoning で補強。
+
+# 監査役の指摘(Critique)
+{critique_json}
+
+# 悪魔の代弁者(Advocacy)
+{advocacy_json}
+
+出力は最初の分析と**同じ TownAnalysis スキーマの JSON のみ**(verdict / town_assessments /
+watch_points / open_questions、各 confidence 付き)。説明文・コードフェンス禁止。
+"""
+
+
 def build_watch_user_prompt(
     user_id: str,
     age_group: str,
