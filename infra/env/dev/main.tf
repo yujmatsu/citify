@@ -204,10 +204,14 @@ resource "google_cloudbuild_trigger" "api_main" {
 
   service_account = google_service_account.cloud_build_deployer.id
 
-  # apps/api 配下と cloudbuild.yaml の変更時のみ走らせる
-  # (tasks.json / docs / README 等の変更で build を走らせない)
+  # API イメージは apps/api だけでなく agents/ と pkg/ も COPY する
+  # (apps/api/Dockerfile L66-67)。エージェントロジック(agents/**)のみの変更でも
+  # 必ずリビルドするため、これらを included_files に含める。
+  # (含めないと agents/** 変更が本番 API に反映されない — TASK-WATCHERV2 P1/P2 で発覚)
   included_files = [
     "apps/api/**",
+    "agents/**",
+    "pkg/**",
     "cloudbuild.yaml",
   ]
 
