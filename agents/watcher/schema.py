@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -26,13 +26,18 @@ class WatchInput(BaseModel):
         default_factory=list, description="気になる街 (home 含め上限 5)"
     )
 
+    MAX_TOWNS: ClassVar[int] = 5
+
     def all_codes(self) -> list[str]:
-        """home + watched を重複なしで返す (home 先頭)。"""
+        """home + watched を重複なしで返す (home 先頭、上限 MAX_TOWNS で truncate)。
+
+        上限超過は ValidationError で止めず先頭 N 件に truncate (graceful 思想)。
+        """
         seen: list[str] = []
         for c in [self.home_municipality_code, *self.watched_codes]:
             if c and c not in seen:
                 seen.append(c)
-        return seen
+        return seen[: self.MAX_TOWNS]
 
 
 class Discovery(BaseModel):
@@ -64,12 +69,16 @@ class ToolCall(BaseModel):
 class AgentRunLog(BaseModel):
     """1 回の自律実行ログ (agent_runs 相当、透明性 + コスト監視)。"""
 
+    run_id: str = Field(default="", description="一意な実行 ID (logs↔discoveries の join 用)")
     user_id: str
     towns_checked: list[str] = Field(default_factory=list)
     tool_calls: list[ToolCall] = Field(
         default_factory=list, description="LLM が自分で選んで呼んだツール列 = 自律性の証跡"
     )
     n_discoveries: int = 0
+    token_cost: int | None = Field(
+        default=None, description="最終 event の usage (取れなければ None)"
+    )
     status: Literal["ok", "empty", "error", "max_iterations"] = "ok"
     note: str = ""
 

@@ -21,6 +21,8 @@ BQ_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev")
 BQ_DATASET_CURATED = os.getenv("BQ_DATASET_CURATED", "citify_curated")
 BQ_TABLE_SCORED = os.getenv("BQ_TABLE_SCORED_SPEECHES_LATEST", "scored_speeches_latest")
 BQ_TABLE_POP_SERIES = "municipality_population_series"
+BQ_TABLE_STATS = os.getenv("BQ_TABLE_STATS", "municipality_stats")
+MAX_COMPARE_TOWNS = 5
 
 # テスト用に差し替え可能な client factory (None なら本物の BQ client)
 _bq_client_factory: Callable[[], Any] | None = None
@@ -144,3 +146,52 @@ def fetch_population_trend(municipality_code: str) -> dict:
         "latest_actual_year": max((p["year"] for p in census), default=None),
         "projection_2070_change_pct": change,
     }
+
+
+def compare_towns(municipality_codes: list[str]) -> list[dict]:
+    """複数の街の主要統計を並べて比較する。
+
+    ウォッチ中の街(住む街・気になる街)同士を、人口・家賃・子育て・医療・人口増減で
+    横断比較したい時に使う。
+
+    Args:
+        municipality_codes: 比較する 5 桁市区町村コードの list (最大 5 件)
+
+    Returns:
+        街ごとの dict の list。各 dict は municipality_code / population_total /
+        used_apartment_median_price_man_yen / childcare_facility_count /
+        medical_facility_count / population_change_pct を含む。失敗時は空 list。
+    """
+    codes = [c for c in municipality_codes if c][:MAX_COMPARE_TOWNS]
+    if not codes:
+        return []
+    client = _get_bq_client()
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
+    sql = f"""
+        SELECT municipality_code, population_total,
+               used_apartment_median_price_man_yen, childcare_facility_count,
+               medical_facility_count, population_change_pct
+        FROM `{table_fqn}`
+        WHERE municipality_code IN UNNEST(@codes)
+    """  # noqa: S608
+    try:
+        from google.cloud import bigquery
+
+        params = [bigquery.ArrayQueryParameter("codes", "STRING", codes)]
+        rows = client.query(
+            sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
+        ).result(timeout=10)
+        return [
+            {
+                "municipality_code": r["municipality_code"],
+                "population_total": r["population_total"],
+                "used_apartment_median_price_man_yen": r["used_apartment_median_price_man_yen"],
+                "childcare_facility_count": r["childcare_facility_count"],
+                "medical_facility_count": r["medical_facility_count"],
+                "population_change_pct": r["population_change_pct"],
+            }
+            for r in rows
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("watcher.compare_towns.bq_failed codes=%s err=%s", codes, exc)
+        return []

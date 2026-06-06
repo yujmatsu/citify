@@ -77,3 +77,42 @@ def test_population_trend_graceful_on_failure() -> None:
     out = wt.fetch_population_trend("11227")
     assert out["series"] == []
     assert out["projection_2070_change_pct"] is None
+
+
+# ============================================================================
+# compare_towns (Slice 2)
+# ============================================================================
+
+
+def test_compare_towns_returns_per_town_stats() -> None:
+    rows = [
+        {
+            "municipality_code": "13104",
+            "population_total": 349385,
+            "used_apartment_median_price_man_yen": 4900,
+            "childcare_facility_count": 80,
+            "medical_facility_count": 500,
+            "population_change_pct": 3.5,
+        },
+        {
+            "municipality_code": "27100",
+            "population_total": 2752000,
+            "used_apartment_median_price_man_yen": 2600,
+            "childcare_facility_count": 300,
+            "medical_facility_count": 1200,
+            "population_change_pct": -1.2,
+        },
+    ]
+    wt.set_bq_client_factory(lambda: _client_returning(rows))
+    out = wt.compare_towns(["13104", "27100"])
+    assert {r["municipality_code"] for r in out} == {"13104", "27100"}
+    assert out[0]["population_total"] == 349385
+
+
+def test_compare_towns_empty_codes() -> None:
+    assert wt.compare_towns([]) == []
+
+
+def test_compare_towns_graceful_on_failure() -> None:
+    wt.set_bq_client_factory(lambda: _client_returning(RuntimeError("BQ down")))
+    assert wt.compare_towns(["13104"]) == []

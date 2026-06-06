@@ -6,8 +6,10 @@ parse_discoveries / apply_ethics / run-log / schema を検証する。
 
 from __future__ import annotations
 
-from agents.watcher.main import apply_ethics, parse_discoveries
-from agents.watcher.schema import Discovery, WatchInput
+from unittest.mock import MagicMock
+
+from agents.watcher.main import WatcherAgent, apply_ethics, parse_discoveries
+from agents.watcher.schema import AgentRunLog, Discovery, WatchInput
 
 
 def _disc(code="11227", title="新保育補助", why="子育て関心に合致", political=False) -> Discovery:
@@ -36,6 +38,19 @@ def test_all_codes_dedup_home_first() -> None:
         watched_codes=["13104", "11227", "27100"],  # 11227 重複
     )
     assert w.all_codes() == ["11227", "13104", "27100"]  # home 先頭・重複除去
+
+
+def test_all_codes_truncates_to_max5() -> None:
+    # home + 6 watched = 7 → 上限5に truncate (ValidationError でなく graceful)
+    w = WatchInput(
+        user_id="u",
+        age_group="40-49",
+        home_municipality_code="00001",
+        watched_codes=["00002", "00003", "00004", "00005", "00006", "00007"],
+    )
+    codes = w.all_codes()
+    assert len(codes) == 5
+    assert codes[0] == "00001"  # home は残る
 
 
 # ============================================================================
@@ -123,3 +138,32 @@ def test_ethics_mixed_keeps_only_clean() -> None:
     bad = _disc(code="13104", title="絶対に賛成すべき議案")  # "絶対に賛成" マッチ
     out = apply_ethics([clean, bad])
     assert [d.municipality_code for d in out] == ["11227"]
+
+
+# ============================================================================
+# _persist (Slice 2: repo 注入で永続化、None なら skip)
+# ============================================================================
+
+
+def test_persist_skips_when_no_repo() -> None:
+    agent = WatcherAgent(repo=None)
+    # repo=None でも例外なく no-op
+    agent._persist("u", AgentRunLog(run_id="r1", user_id="u"), [_disc()])
+
+
+def test_persist_calls_repo() -> None:
+    repo = MagicMock()
+    agent = WatcherAgent(repo=repo)
+    log = AgentRunLog(run_id="r1", user_id="demo-40-49")
+    discoveries = [_disc()]
+    agent._persist("demo-40-49", log, discoveries)
+    repo.save_run.assert_called_once_with(log)
+    repo.save_discoveries.assert_called_once_with("demo-40-49", "r1", discoveries)
+
+
+def test_persist_graceful_on_repo_failure() -> None:
+    repo = MagicMock()
+    repo.save_run.side_effect = RuntimeError("firestore down")
+    agent = WatcherAgent(repo=repo)
+    # repo 障害でも例外を投げない
+    agent._persist("u", AgentRunLog(run_id="r1", user_id="u"), [_disc()])

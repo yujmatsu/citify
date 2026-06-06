@@ -86,18 +86,22 @@ def apply_ethics(discoveries: list[Discovery]) -> list[Discovery]:
 
 
 def _build_run_log(
+    run_id: str,
     user_id: str,
     towns: list[str],
     tool_calls: list[ToolCall],
     n_discoveries: int,
     status: str = "ok",
     note: str = "",
+    token_cost: int | None = None,
 ) -> AgentRunLog:
     return AgentRunLog(
+        run_id=run_id,
         user_id=user_id,
         towns_checked=towns,
         tool_calls=tool_calls,
         n_discoveries=n_discoveries,
+        token_cost=token_cost,
         status=status,  # type: ignore[arg-type]
         note=note,
     )
@@ -122,10 +126,12 @@ class WatcherAgent:
         project_id: str | None = None,
         model: str = DEFAULT_MODEL,
         location: str = DEFAULT_LOCATION,
+        repo: Any | None = None,
     ) -> None:
         self.project_id = project_id
         self.model = model
         self.location = location
+        self.repo = repo  # WatcherRepository | None。None なら永続化 skip (Slice1 互換)
 
     def _build_agent(self) -> Any:
         """ADK Agent を構築 (tools=[search_speeches, fetch_population_trend])。lazy import。"""
@@ -142,6 +148,7 @@ class WatcherAgent:
             tools=[
                 FunctionTool(func=watcher_tools.search_speeches),
                 FunctionTool(func=watcher_tools.fetch_population_trend),
+                FunctionTool(func=watcher_tools.compare_towns),
             ],
         )
 
@@ -159,16 +166,19 @@ class WatcherAgent:
             os.environ.setdefault("GOOGLE_CLOUD_PROJECT", self.project_id)
 
     async def run(self, watch: WatchInput) -> WatcherResult:
-        """1 ユーザー分の自律実行 → WatcherResult。"""
+        """1 ユーザー分の自律実行 → WatcherResult (repo があれば Firestore 永続化)。"""
+        import uuid
+
         self._ensure_vertex_env()
 
         import google.genai.types as gat
         from google.adk import Runner
         from google.adk.sessions import InMemorySessionService
 
+        run_id = uuid.uuid4().hex
         agent = self._build_agent()
         session_service = InMemorySessionService()
-        app, uid, sid = "watcher", watch.user_id, f"{watch.user_id}-run"
+        app, uid, sid = "watcher", watch.user_id, f"{watch.user_id}-{run_id[:8]}"
         await session_service.create_session(app_name=app, user_id=uid, session_id=sid)
         runner = Runner(agent=agent, app_name=app, session_service=session_service)
 
@@ -183,6 +193,7 @@ class WatcherAgent:
 
         tool_calls: list[ToolCall] = []
         final_text = ""
+        token_cost: int | None = None
         status = "ok"
         try:
             async for event in runner.run_async(user_id=uid, session_id=sid, new_message=msg):
@@ -194,6 +205,11 @@ class WatcherAgent:
                             status = "max_iterations"
                             logger.warning("watcher.max_tool_calls user=%s", watch.user_id)
                             break
+                # token_cost は最終 event の usage を採用 (加算は二重計上の恐れ)
+                usage = getattr(event, "usage_metadata", None)
+                total = getattr(usage, "total_token_count", None) if usage else None
+                if total is not None:
+                    token_cost = total
                 is_final = getattr(event, "is_final_response", lambda: False)()
                 if is_final and event.content and event.content.parts:
                     final_text = event.content.parts[0].text or ""
@@ -202,16 +218,39 @@ class WatcherAgent:
             return WatcherResult(
                 discoveries=[],
                 run_log=_build_run_log(
-                    watch.user_id, watch.all_codes(), tool_calls, 0, "error", str(exc)[:200]
+                    run_id,
+                    watch.user_id,
+                    watch.all_codes(),
+                    tool_calls,
+                    0,
+                    "error",
+                    str(exc)[:200],
+                    token_cost,
                 ),
             )
 
         discoveries = apply_ethics(parse_discoveries(final_text))
         if status != "max_iterations":
             status = "ok" if discoveries else "empty"
-        return WatcherResult(
-            discoveries=discoveries,
-            run_log=_build_run_log(
-                watch.user_id, watch.all_codes(), tool_calls, len(discoveries), status
-            ),
+        run_log = _build_run_log(
+            run_id,
+            watch.user_id,
+            watch.all_codes(),
+            tool_calls,
+            len(discoveries),
+            status,
+            "",
+            token_cost,
         )
+        self._persist(watch.user_id, run_log, discoveries)
+        return WatcherResult(discoveries=discoveries, run_log=run_log)
+
+    def _persist(self, user_id: str, run_log: AgentRunLog, discoveries: list[Discovery]) -> None:
+        """repo があれば agent_runs + discoveries を永続化 (graceful、無ければ skip)。"""
+        if self.repo is None:
+            return
+        try:
+            self.repo.save_run(run_log)
+            self.repo.save_discoveries(user_id, run_log.run_id, discoveries)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("watcher.persist_failed user=%s err=%s", user_id, exc)

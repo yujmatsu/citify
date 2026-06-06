@@ -35,7 +35,12 @@ async def _run(args: argparse.Namespace) -> int:
         home_municipality_code=args.home,
         watched_codes=args.watched,
     )
-    agent = WatcherAgent(project_id=args.project)
+    repo = None
+    if args.persist:
+        from agents.watcher.repo import WatcherRepository
+
+        repo = WatcherRepository()  # 本物の Firestore に保存 (Slice 2 検証)
+    agent = WatcherAgent(project_id=args.project, repo=repo)
     result = await agent.run(watch)
 
     print("=" * 70)
@@ -69,6 +74,7 @@ def main() -> int:
     p.add_argument("--home", default="11227", help="住む街コード")
     p.add_argument("--watched", nargs="*", default=["13104"], help="気になる街コード")
     p.add_argument("--project", default=None)
+    p.add_argument("--persist", action="store_true", help="Firestore に保存 (Slice 2 検証)")
     args = p.parse_args()
     return asyncio.run(_run(args))
 
