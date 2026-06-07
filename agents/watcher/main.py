@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_LOCATION = "us-central1"
-MAX_TOOL_CALLS = 12  # 暴走/コスト防止の上限 (watch街5 × 2-3ツール想定)
+MAX_TOOL_CALLS = 16  # 暴走/コスト防止の上限 (watch街5 × 数ツール + topic_trend 想定で微増)
 
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
