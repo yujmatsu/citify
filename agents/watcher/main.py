@@ -134,7 +134,7 @@ def parse_finding(final_text: str, domain: str) -> SpecialistFinding | None:
     data = _extract_json(final_text)
     if data is None:
         return None
-    data.setdefault("domain", domain)
+    data["domain"] = domain  # LLM が日本語ラベル等を入れても正規キーに強制 (UI マップ整合)
     try:
         return SpecialistFinding.model_validate(data)
     except Exception as exc:  # noqa: BLE001
@@ -157,6 +157,40 @@ def _summarize_critique(critique: Critique | None) -> str:
         return ""
     parts = [*critique.issues, *critique.missing_axes, *critique.grounding_failures]
     return " / ".join(parts[:3])
+
+
+def diff_against_previous(
+    prev: TownAnalysis | None,
+    cur: TownAnalysis,
+    town_names: dict[str, str] | None = None,
+) -> list[str]:
+    """前回分析と今回を比較し、変化を街名で表現した list[str] にする (A3、純関数)。
+
+    文言は揺れるので比較しない。構造化フィールド(推し街・各街 fit_score)中心。
+    prev が None(初回)は空。
+    """
+    if prev is None:
+        return []
+    names = town_names or {}
+
+    def nm(code: str) -> str:
+        return names.get(code) or f"自治体{code}"
+
+    changes: list[str] = []
+    # 推し街の変更
+    if prev.verdict.recommended_code != cur.verdict.recommended_code:
+        before = nm(prev.verdict.recommended_code) if prev.verdict.recommended_code else "未定"
+        after = nm(cur.verdict.recommended_code) if cur.verdict.recommended_code else "未定"
+        if before != after:
+            changes.append(f"推し街が {before} → {after} に変わりました")
+    # 各街の適合度の増減 (同 municipality_code をマッチ)
+    prev_fit = {a.municipality_code: a.fit_score for a in prev.town_assessments}
+    for a in cur.town_assessments:
+        old = prev_fit.get(a.municipality_code)
+        if old is not None and abs(a.fit_score - old) >= 5:
+            arrow = "上昇" if a.fit_score > old else "低下"
+            changes.append(f"{nm(a.municipality_code)}の評価が {old} → {a.fit_score} に{arrow}")
+    return changes
 
 
 def apply_ethics(analysis: TownAnalysis | None) -> TownAnalysis | None:
@@ -255,6 +289,14 @@ class WatcherAgent:
         self._ensure_vertex_env()
         run_id = uuid.uuid4().hex
 
+        # P4: 前回分析を取得 (A3 変化検知 + A2 継続性)。repo 無し(smoke)は None。
+        prev_analysis: TownAnalysis | None = None
+        if self.repo is not None:
+            try:
+                prev_analysis = self.repo.get_latest_analysis(watch.user_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("watcher.prev_fetch_failed user=%s err=%s", watch.user_id, exc)
+
         # P3: 4 専門エージェントを並行ディスパッチ (A5)。各自が自ドメインを自律調査。
         tool_calls: list[ToolCall] = []
         token_cost: int | None = None
@@ -290,8 +332,8 @@ class WatcherAgent:
             self._persist(watch.user_id, run_log, None)
             return WatcherResult(analysis=None, run_log=run_log)
 
-        # Synthesizer: 専門家所見を統合し TownAnalysis 草案
-        draft = await self._synthesize(findings, watch, town_names)
+        # Synthesizer: 専門家所見を統合し TownAnalysis 草案 (A2: 前回結論を継続性のため渡す)
+        draft = await self._synthesize(findings, watch, town_names, prev_analysis)
         draft_parsed_ok = draft is not None
 
         # P2: 自己批判(A1) + 悪魔の代弁者(A9) + 修正。草案がある時のみ、失敗は graceful。
@@ -310,10 +352,11 @@ class WatcherAgent:
         if analysis is None:
             note = "synthesize_failed" if not draft_parsed_ok else "ethics_dropped"
         else:
-            # 透明性: 検証・反論の要約 + 専門家所見を付与 (倫理スキャン後に設定)
+            # 透明性: 検証・反論の要約 + 専門家所見 + 前回からの変化を付与 (倫理スキャン後に設定)
             analysis.critique_note = critique_note
             analysis.devils_advocate = advocate_note
             analysis.specialist_findings = findings
+            analysis.changes_since_last = diff_against_previous(prev_analysis, analysis, town_names)
         status = "ok" if analysis else "empty"
         run_log = _build_run_log(
             run_id,
@@ -397,8 +440,12 @@ class WatcherAgent:
         findings: list[SpecialistFinding],
         watch: WatchInput,
         town_names: dict[str, str] | None,
+        prev_analysis: TownAnalysis | None = None,
     ) -> TownAnalysis | None:
-        """専門家所見を統合し TownAnalysis 草案を生成 (Synthesizer、ツール無し単発)。"""
+        """専門家所見を統合し TownAnalysis 草案を生成 (Synthesizer、ツール無し単発)。
+
+        prev_analysis: 前回の結論。継続性のため文脈に渡す (A2)。
+        """
         context = build_watch_user_prompt(
             watch.user_id,
             watch.age_group,
@@ -407,6 +454,9 @@ class WatcherAgent:
             list(watch.watched_codes),
             town_names=town_names,
         )
+        # A2: 前回結論を継続性のため文脈に追加 (状況が変われば反映、変わらなければ一貫性)
+        if prev_analysis is not None and prev_analysis.verdict.headline:
+            context += f"\n\n# 前回の結論(継続性の参考)\n{prev_analysis.verdict.headline}"
         findings_json = json.dumps([f.model_dump() for f in findings], ensure_ascii=False)
         text = await self._run_single_agent(
             SYNTHESIZER_PROMPT, build_synth_prompt(findings_json, context)

@@ -247,6 +247,23 @@ export default function AgentHomePage(): React.JSX.Element {
 
         {analysis ? (
           <>
+            {/* 前回からの変化 (A3) */}
+            {analysis.changes_since_last.length > 0 && (
+              <section className="space-y-1 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+                <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                  🔔 前回からの変化
+                </h2>
+                <ul className="space-y-0.5 text-sm text-amber-900 dark:text-amber-200">
+                  {analysis.changes_since_last.map((c, i) => (
+                    <li key={i} className="flex gap-1.5">
+                      <span aria-hidden>・</span>
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             {/* 生きた結論 */}
             <VerdictCard
               verdict={analysis.verdict}

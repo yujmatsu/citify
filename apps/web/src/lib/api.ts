@@ -1032,6 +1032,8 @@ export const TownAnalysisSchema = z.object({
   devils_advocate: z.string().default(""),
   // P3: 専門家の所見 (A5)
   specialist_findings: z.array(SpecialistFindingSchema).default([]),
+  // P4: 前回分析からの変化 (A3)
+  changes_since_last: z.array(z.string()).default([]),
 });
 
 export type TownAnalysis = z.infer<typeof TownAnalysisSchema>;

@@ -14,6 +14,7 @@ import pytest
 from agents.watcher.main import (
     WatcherAgent,
     apply_ethics,
+    diff_against_previous,
     parse_advocacy,
     parse_analysis,
     parse_critique,
@@ -300,6 +301,46 @@ def test_parse_finding_valid() -> None:
         "fiscal",
     )
     assert f is not None and f.domain == "fiscal" and f.confidence == "high"
+
+
+def test_parse_finding_forces_canonical_domain() -> None:
+    """LLM が domain に日本語ラベルを入れても正規キーに強制 (UI 整合)。"""
+    f = parse_finding('{"domain":"財政アナリスト","headline":"x","confidence":"high"}', "fiscal")
+    assert f is not None and f.domain == "fiscal"
+
+
+# ============================================================================
+# P4: diff_against_previous (変化検知、純関数)
+# ============================================================================
+
+_NAMES = {"11227": "朝霞市", "27206": "小田原市"}
+
+
+def test_diff_first_run_no_changes() -> None:
+    assert diff_against_previous(None, _analysis(), _NAMES) == []
+
+
+def test_diff_detects_recommended_change() -> None:
+    prev = _analysis()  # recommended_code = 27206
+    cur = _analysis()
+    cur.verdict.recommended_code = "11227"
+    changes = diff_against_previous(prev, cur, _NAMES)
+    assert any("小田原市" in c and "朝霞市" in c for c in changes)
+
+
+def test_diff_detects_fit_score_change() -> None:
+    prev = _analysis()  # 11227 fit 60, 27206 fit 75
+    cur = _analysis()
+    cur.town_assessments[0].fit_score = 70  # 60 → 70
+    changes = diff_against_previous(prev, cur, _NAMES)
+    assert any("朝霞市" in c and "60" in c and "70" in c and "上昇" in c for c in changes)
+
+
+def test_diff_ignores_small_fit_change() -> None:
+    prev = _analysis()
+    cur = _analysis()
+    cur.town_assessments[0].fit_score = 62  # 60 → 62 (< 5、無視)
+    assert diff_against_previous(prev, cur, _NAMES) == []
 
 
 def test_parse_finding_invalid_returns_none() -> None:

@@ -149,6 +149,8 @@ class TownAnalysis(BaseModel):
     )
     # P3: 専門家の所見 (A5、コードで付与。LLM 統合の元データ)
     specialist_findings: list[SpecialistFinding] = Field(default_factory=list)
+    # P4: 前回分析からの変化 (A3、コードで付与)
+    changes_since_last: list[str] = Field(default_factory=list)
 
 
 class ToolCall(BaseModel):
