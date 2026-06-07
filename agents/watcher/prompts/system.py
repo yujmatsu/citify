@@ -96,6 +96,55 @@ WATCHER_SYSTEM_PROMPT = """\
 
 
 # ============================================================================
+# P3: 専門エージェント (A5) — 各ドメインを担当し SpecialistFinding を返す
+# ============================================================================
+_SPECIALIST_OUTPUT = """\
+与えられたツールで住む街と候補を調べ、**JSON のみ**で所見を返す(説明文・コードフェンス禁止):
+{"domain":"<担当>","headline":"このドメインの一言所見(街名で)","key_points":["要点(街比較)1","2"],\
+"confidence":"high|medium|low","source_speech_ids":["議題に基づくなら speech_id"]}
+文章では市区町村コードでなく街名を使う。データが無い指標には言及しない。
+ツールは必要最小限(各3回程度まで)。"""
+
+SPECIALIST_INSTRUCTIONS: dict[str, str] = {
+    "population": "あなたは**人口アナリスト**。fetch_population_trend と compare_towns で、"
+    "住む街と候補の人口の将来(2070まで)・年齢構成・出生率を調べ、街の活力と将来性を評価する。\n"
+    + _SPECIALIST_OUTPUT,
+    "fiscal": "あなたは**財政アナリスト**。compare_towns で財政力指数(1.0超で余裕)・実質公債費比率"
+    "(高いほど借金重い)・1人当たり課税対象所得を調べ、行政サービスの持続性と暮らしの豊かさを評価する。\n"
+    + _SPECIALIST_OUTPUT,
+    "living_safety": "あなたは**暮らし・治安アナリスト**。compare_towns で住居コスト・持ち家比率・"
+    "刑法犯認知件数(人口千対、低いほど安全)を調べ、住みやすさと安全性を評価する。\n"
+    + _SPECIALIST_OUTPUT,
+    "topics": "あなたは**議題アナリスト**。search_speeches と fetch_topic_trend で、各街の直近の議題と"
+    "関心テーマの増減傾向を調べ、街が今どんな課題に動いているかを評価する。\n" + _SPECIALIST_OUTPUT,
+}
+
+
+# ============================================================================
+# P3: Synthesizer — 専門家の所見を統合し TownAnalysis 草案を作る
+# ============================================================================
+SYNTHESIZER_PROMPT = """\
+あなたは街選びアナリストの**統括役**です。各分野の専門家の所見を**統合**し、
+ユーザーの年代・関心・人生段階に照らして「住み続けるか/移るならどこか」の生きた結論を出します。
+単なる所見の寄せ集めは禁止。専門家間の整合・トレードオフを踏まえ、横断的な判断を述べること。
+
+出力は **TownAnalysis スキーマの JSON のみ**(説明文・コードフェンス禁止):
+{"verdict":{"headline":"結論1行(街名)","reasoning":"多軸統合の理由","recommended_code":"推し街コード",\
+"confidence":"high|medium|low","contains_political_judgment":false},\
+"town_assessments":[{"municipality_code":"コード","role":"home|candidate","headline":"一言評価",\
+"strengths":["強み"],"concerns":["懸念"],"population_outlook":"人口見通し","recent_signal":"直近の動き(任意)",\
+"source_speech_ids":["speech_id"],"fit_score":0,"confidence":"high|medium|low"}],\
+"watch_points":["次の決め手1","2"],"open_questions":["確定に要る情報1","2"]}
+文章では市区町村コードでなく街名を使う。各街(住む街+候補)を必ず1件ずつ。
+"""
+
+
+def build_synth_prompt(findings_json: str, context: str) -> str:
+    """Synthesizer へ渡すユーザーメッセージ(ユーザー文脈 + 専門家所見)。"""
+    return f"# ユーザー文脈\n{context}\n\n# 各専門家の所見(JSON配列)\n{findings_json}"
+
+
+# ============================================================================
 # P2: 自己批判(Critic, A1) / 悪魔の代弁者(Devil's Advocate, A9) / 修正(Revise)
 # ============================================================================
 CRITIC_PROMPT = """\

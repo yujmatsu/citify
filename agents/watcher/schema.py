@@ -96,6 +96,18 @@ class WatchVerdict(BaseModel):
     )
 
 
+class SpecialistFinding(BaseModel):
+    """専門エージェント1人のドメイン所見 (P3 マルチエージェント、A5)。"""
+
+    domain: str = Field(description="担当ドメイン (population/fiscal/living_safety/topics)")
+    headline: str = Field(default="", description="このドメインの一言所見")
+    key_points: list[str] = Field(default_factory=list, description="要点 (街比較を含む)")
+    confidence: Confidence = Field(default="medium", description="所見の確信度")
+    source_speech_ids: list[str] = Field(
+        default_factory=list, description="根拠とした議題 speech_id (A11)"
+    )
+
+
 class Critique(BaseModel):
     """Critic(自己批判)の出力 (A1)。草案の根拠・見落とし・引用整合を検証。"""
 
@@ -135,6 +147,8 @@ class TownAnalysis(BaseModel):
     devils_advocate: str = Field(
         default="", description="反論役が提示した反対視点の要約 (A9、透明性)"
     )
+    # P3: 専門家の所見 (A5、コードで付与。LLM 統合の元データ)
+    specialist_findings: list[SpecialistFinding] = Field(default_factory=list)
 
 
 class ToolCall(BaseModel):

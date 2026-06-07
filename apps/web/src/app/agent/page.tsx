@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AutonomyTrace } from "@/components/watcher/autonomy-trace";
+import { SpecialistFindings } from "@/components/watcher/specialist-findings";
 import { TownAssessmentCard } from "@/components/watcher/town-assessment-card";
 import { TownRadar } from "@/components/watcher/town-radar";
 import { VerdictCard } from "@/components/watcher/verdict-card";
@@ -253,6 +254,9 @@ export default function AgentHomePage(): React.JSX.Element {
                 recommendedCode ? nameOf(recommendedCode) : undefined
               }
             />
+
+            {/* 専門エージェントの所見 (A5 マルチエージェント) */}
+            <SpecialistFindings findings={analysis.specialist_findings} />
 
             {/* 検証と反論 (A1 自己批判 / A9 悪魔の代弁者) */}
             {(analysis.critique_note || analysis.devils_advocate) && (

@@ -17,11 +17,14 @@ from agents.watcher.main import (
     parse_advocacy,
     parse_analysis,
     parse_critique,
+    parse_finding,
     should_revise,
 )
 from agents.watcher.schema import (
     AgentRunLog,
     Critique,
+    SpecialistFinding,
+    ToolCall,
     TownAnalysis,
     TownAssessment,
     WatchInput,
@@ -283,6 +286,74 @@ async def test_verify_and_revise_revises_when_needed(monkeypatch: pytest.MonkeyP
     assert out.verdict.headline == "再検討の結果、朝霞が安心"  # revise 反映
     assert "治安" in crit_note
     assert adv_note.startswith("小田原")
+
+
+# ============================================================================
+# P3: parse_finding / マルチエージェント run() オーケストレーション
+# ============================================================================
+
+
+def test_parse_finding_valid() -> None:
+    f = parse_finding(
+        '{"headline":"財政は朝霞が安定","key_points":["財政力 朝霞0.98 > 小田原0.95"],'
+        '"confidence":"high","source_speech_ids":[]}',
+        "fiscal",
+    )
+    assert f is not None and f.domain == "fiscal" and f.confidence == "high"
+
+
+def test_parse_finding_invalid_returns_none() -> None:
+    assert parse_finding("not json", "fiscal") is None
+
+
+@pytest.mark.asyncio
+async def test_run_multi_agent_orchestration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run() が 4専門家 → synth → critique/advocate を回し analysis を組み立てる。"""
+    agent = WatcherAgent(repo=None)
+
+    async def fake_spec(
+        domain: str, watch: WatchInput, town_names: dict[str, str] | None
+    ) -> tuple[SpecialistFinding, list[ToolCall], int | None]:
+        return (
+            SpecialistFinding(domain=domain, headline=f"{domain}所見", confidence="medium"),
+            [ToolCall(tool="compare_towns")],
+            10,
+        )
+
+    monkeypatch.setattr(agent, "_run_specialist", fake_spec)
+
+    synth = json.dumps(_analysis().model_dump(), ensure_ascii=False)
+    critique = '{"issues":[],"missing_axes":[],"grounding_failures":[],"needs_revision":false}'
+    advocacy = '{"counter_verdict":"","strongest_points":[]}'
+    seq = iter([synth, critique, advocacy])
+
+    async def fake_single(instruction: str, message: str) -> str:
+        return next(seq)
+
+    monkeypatch.setattr(agent, "_run_single_agent", fake_single)
+
+    res = await agent.run(_watch())
+    assert res.run_log.status == "ok"
+    assert res.analysis is not None
+    # 4専門家の所見が付与され、tool_calls も集約される
+    assert len(res.analysis.specialist_findings) == 4
+    assert len(res.run_log.tool_calls) == 4
+    assert res.analysis.verdict.headline  # synth 由来
+
+
+@pytest.mark.asyncio
+async def test_run_empty_when_all_specialists_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = WatcherAgent(repo=None)
+
+    async def fake_spec(
+        domain: str, watch: WatchInput, town_names: dict[str, str] | None
+    ) -> tuple[None, list[ToolCall], None]:
+        return (None, [], None)
+
+    monkeypatch.setattr(agent, "_run_specialist", fake_spec)
+    res = await agent.run(_watch())
+    assert res.analysis is None
+    assert res.run_log.status == "empty"
 
 
 @pytest.mark.asyncio

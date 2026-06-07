@@ -23,27 +23,38 @@ from agents._shared.forbidden import find_forbidden_matches
 from .prompts.system import (
     ADVOCATE_PROMPT,
     CRITIC_PROMPT,
-    WATCHER_SYSTEM_PROMPT,
+    SPECIALIST_INSTRUCTIONS,
+    SYNTHESIZER_PROMPT,
     build_review_user_prompt,
     build_revise_prompt,
+    build_synth_prompt,
     build_watch_user_prompt,
 )
 from .schema import (
     Advocacy,
     AgentRunLog,
     Critique,
+    SpecialistFinding,
     ToolCall,
     TownAnalysis,
     WatcherResult,
     WatchInput,
 )
 
+# P3: 専門エージェントと担当ツール (A5)。各ドメインは tool 部分集合で自ドメインを調査。
+SPECIALIST_TOOLS: dict[str, tuple[str, ...]] = {
+    "population": ("fetch_population_trend", "compare_towns"),
+    "fiscal": ("compare_towns",),
+    "living_safety": ("compare_towns",),
+    "topics": ("search_speeches", "fetch_topic_trend"),
+}
+SPECIALIST_DOMAINS: tuple[str, ...] = ("population", "fiscal", "living_safety", "topics")
+MAX_SPECIALIST_TOOL_CALLS = 4  # 専門家1人あたりのツール上限
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_LOCATION = "us-central1"
-MAX_TOOL_CALLS = 16  # 暴走/コスト防止の上限 (watch街5 × 数ツール + topic_trend 想定で微増)
-
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -115,6 +126,19 @@ def parse_advocacy(final_text: str) -> Advocacy | None:
         return Advocacy.model_validate(data)
     except Exception as exc:  # noqa: BLE001
         logger.warning("watcher.advocacy_invalid err=%s", exc)
+        return None
+
+
+def parse_finding(final_text: str, domain: str) -> SpecialistFinding | None:
+    """専門エージェント応答 (JSON) を SpecialistFinding に。失敗は None (graceful)。"""
+    data = _extract_json(final_text)
+    if data is None:
+        return None
+    data.setdefault("domain", domain)
+    try:
+        return SpecialistFinding.model_validate(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("watcher.finding_invalid domain=%s err=%s", domain, exc)
         return None
 
 
@@ -205,26 +229,6 @@ class WatcherAgent:
         self.location = location
         self.repo = repo  # WatcherRepository | None。None なら永続化 skip (Slice1 互換)
 
-    def _build_agent(self) -> Any:
-        """ADK Agent を構築 (tools=[search_speeches, fetch_population_trend])。lazy import。"""
-        from google.adk import Agent
-        from google.adk.tools import FunctionTool
-
-        from . import tools as watcher_tools
-
-        return Agent(
-            name="machi_watcher",
-            description="ユーザー専属の自律型マイ街エージェント。watch街の議題から本人に意味ある発見を見つける。",
-            model=self.model,
-            instruction=WATCHER_SYSTEM_PROMPT,
-            tools=[
-                FunctionTool(func=watcher_tools.search_speeches),
-                FunctionTool(func=watcher_tools.fetch_population_trend),
-                FunctionTool(func=watcher_tools.compare_towns),
-                FunctionTool(func=watcher_tools.fetch_topic_trend),
-            ],
-        )
-
     def _ensure_vertex_env(self) -> None:
         """ADK google_llm が Vertex AI(ADC 認証)を使うよう env を設定。
 
@@ -245,70 +249,49 @@ class WatcherAgent:
 
         town_names: コード→街名。出力文章で街名を使わせるためにプロンプトへ渡す(任意)。
         """
+        import asyncio
         import uuid
 
         self._ensure_vertex_env()
-
-        import google.genai.types as gat
-        from google.adk import Runner
-        from google.adk.sessions import InMemorySessionService
-
         run_id = uuid.uuid4().hex
-        agent = self._build_agent()
-        session_service = InMemorySessionService()
-        app, uid, sid = "watcher", watch.user_id, f"{watch.user_id}-{run_id[:8]}"
-        await session_service.create_session(app_name=app, user_id=uid, session_id=sid)
-        runner = Runner(agent=agent, app_name=app, session_service=session_service)
 
-        prompt = build_watch_user_prompt(
-            watch.user_id,
-            watch.age_group,
-            list(watch.interests),
-            watch.home_municipality_code,
-            list(watch.watched_codes),
-            town_names=town_names,
-        )
-        msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
-
+        # P3: 4 専門エージェントを並行ディスパッチ (A5)。各自が自ドメインを自律調査。
         tool_calls: list[ToolCall] = []
-        final_text = ""
         token_cost: int | None = None
-        status = "ok"
-        try:
-            async for event in runner.run_async(user_id=uid, session_id=sid, new_message=msg):
-                for part in getattr(getattr(event, "content", None), "parts", []) or []:
-                    fc = getattr(part, "function_call", None)
-                    if fc:
-                        tool_calls.append(ToolCall(tool=fc.name, args=dict(fc.args or {})))
-                        if len(tool_calls) > MAX_TOOL_CALLS:
-                            status = "max_iterations"
-                            logger.warning("watcher.max_tool_calls user=%s", watch.user_id)
-                            break
-                # token_cost は最終 event の usage を採用 (加算は二重計上の恐れ)
-                usage = getattr(event, "usage_metadata", None)
-                total = getattr(usage, "total_token_count", None) if usage else None
-                if total is not None:
-                    token_cost = total
-                is_final = getattr(event, "is_final_response", lambda: False)()
-                if is_final and event.content and event.content.parts:
-                    final_text = event.content.parts[0].text or ""
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("watcher.run_failed user=%s err=%s", watch.user_id, exc)
-            return WatcherResult(
-                analysis=None,
-                run_log=_build_run_log(
-                    run_id,
-                    watch.user_id,
-                    watch.all_codes(),
-                    tool_calls,
-                    0,
-                    "error",
-                    str(exc)[:200],
-                    token_cost,
-                ),
-            )
+        results = await asyncio.gather(
+            *[self._run_specialist(d, watch, town_names) for d in SPECIALIST_DOMAINS],
+            return_exceptions=True,
+        )
+        findings: list[SpecialistFinding] = []
+        for r in results:
+            if isinstance(r, BaseException) or r is None:
+                if isinstance(r, BaseException):
+                    logger.warning("watcher.specialist_failed err=%s", r)
+                continue
+            finding, tcalls, tcost = r
+            tool_calls.extend(tcalls)
+            if tcost is not None:
+                token_cost = (token_cost or 0) + tcost
+            if finding is not None:
+                findings.append(finding)
 
-        draft = parse_analysis(final_text)
+        # 専門家全滅 → 空 (graceful)
+        if not findings:
+            run_log = _build_run_log(
+                run_id,
+                watch.user_id,
+                watch.all_codes(),
+                tool_calls,
+                0,
+                "empty",
+                "no_specialist_findings",
+                token_cost,
+            )
+            self._persist(watch.user_id, run_log, None)
+            return WatcherResult(analysis=None, run_log=run_log)
+
+        # Synthesizer: 専門家所見を統合し TownAnalysis 草案
+        draft = await self._synthesize(findings, watch, town_names)
         draft_parsed_ok = draft is not None
 
         # P2: 自己批判(A1) + 悪魔の代弁者(A9) + 修正。草案がある時のみ、失敗は graceful。
@@ -325,20 +308,13 @@ class WatcherAgent:
         n_assessed = len(analysis.town_assessments) if analysis else 0
         note = ""
         if analysis is None:
-            # 診断: なぜ空になったか (parse 失敗か倫理ドロップか) を note に残す
-            if not draft_parsed_ok:
-                note = f"parse_failed: {final_text[:300]}"
-                logger.warning(
-                    "watcher.parse_empty user=%s text=%r", watch.user_id, final_text[:300]
-                )
-            else:
-                note = "ethics_dropped"
+            note = "synthesize_failed" if not draft_parsed_ok else "ethics_dropped"
         else:
-            # 透明性: 検証・反論の要約を analysis に付与 (倫理スキャン後に設定)
+            # 透明性: 検証・反論の要約 + 専門家所見を付与 (倫理スキャン後に設定)
             analysis.critique_note = critique_note
             analysis.devils_advocate = advocate_note
-        if status != "max_iterations":
-            status = "ok" if analysis else "empty"
+            analysis.specialist_findings = findings
+        status = "ok" if analysis else "empty"
         run_log = _build_run_log(
             run_id,
             watch.user_id,
@@ -351,6 +327,91 @@ class WatcherAgent:
         )
         self._persist(watch.user_id, run_log, analysis)
         return WatcherResult(analysis=analysis, run_log=run_log)
+
+    async def _run_specialist(
+        self, domain: str, watch: WatchInput, town_names: dict[str, str] | None
+    ) -> tuple[SpecialistFinding | None, list[ToolCall], int | None]:
+        """1 専門エージェント(ツール付き)を回し SpecialistFinding を返す。失敗は (None,[],None)。"""
+        import google.genai.types as gat
+        from google.adk import Runner
+        from google.adk.sessions import InMemorySessionService
+
+        tool_calls: list[ToolCall] = []
+        token_cost: int | None = None
+        try:
+            agent = self._build_specialist_agent(domain)
+            ss = InMemorySessionService()
+            app, sid = f"spec_{domain}", watch.user_id
+            await ss.create_session(app_name=app, user_id=watch.user_id, session_id=sid)
+            runner = Runner(agent=agent, app_name=app, session_service=ss)
+            prompt = build_watch_user_prompt(
+                watch.user_id,
+                watch.age_group,
+                list(watch.interests),
+                watch.home_municipality_code,
+                list(watch.watched_codes),
+                town_names=town_names,
+            )
+            msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
+            final_text = ""
+            async for event in runner.run_async(
+                user_id=watch.user_id, session_id=sid, new_message=msg
+            ):
+                for part in getattr(getattr(event, "content", None), "parts", []) or []:
+                    fc = getattr(part, "function_call", None)
+                    if fc:
+                        tool_calls.append(ToolCall(tool=fc.name, args=dict(fc.args or {})))
+                        if len(tool_calls) > MAX_SPECIALIST_TOOL_CALLS:
+                            logger.warning("watcher.specialist_max domain=%s", domain)
+                            break
+                usage = getattr(event, "usage_metadata", None)
+                total = getattr(usage, "total_token_count", None) if usage else None
+                if total is not None:
+                    token_cost = total
+                is_final = getattr(event, "is_final_response", lambda: False)()
+                if is_final and event.content and event.content.parts:
+                    final_text = event.content.parts[0].text or ""
+            return parse_finding(final_text, domain), tool_calls, token_cost
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("watcher.specialist_run_failed domain=%s err=%s", domain, exc)
+            return None, tool_calls, token_cost
+
+    def _build_specialist_agent(self, domain: str) -> Any:
+        """ドメイン別の専門 ADK エージェント (instruction + tool 部分集合)。lazy import。"""
+        from google.adk import Agent
+        from google.adk.tools import FunctionTool
+
+        from . import tools as watcher_tools
+
+        tool_funcs = [getattr(watcher_tools, name) for name in SPECIALIST_TOOLS.get(domain, ())]
+        return Agent(
+            name=f"specialist_{domain}",
+            description=f"{domain} ドメインの専門アナリスト",
+            model=self.model,
+            instruction=SPECIALIST_INSTRUCTIONS.get(domain, ""),
+            tools=[FunctionTool(func=f) for f in tool_funcs],
+        )
+
+    async def _synthesize(
+        self,
+        findings: list[SpecialistFinding],
+        watch: WatchInput,
+        town_names: dict[str, str] | None,
+    ) -> TownAnalysis | None:
+        """専門家所見を統合し TownAnalysis 草案を生成 (Synthesizer、ツール無し単発)。"""
+        context = build_watch_user_prompt(
+            watch.user_id,
+            watch.age_group,
+            list(watch.interests),
+            watch.home_municipality_code,
+            list(watch.watched_codes),
+            town_names=town_names,
+        )
+        findings_json = json.dumps([f.model_dump() for f in findings], ensure_ascii=False)
+        text = await self._run_single_agent(
+            SYNTHESIZER_PROMPT, build_synth_prompt(findings_json, context)
+        )
+        return parse_analysis(text)
 
     async def _run_single_agent(self, instruction: str, message: str) -> str:
         """ツール無しの単発 ADK エージェントを1回回し、最終テキストを返す (critique/advocate/revise 用)。"""

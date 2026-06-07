@@ -1012,6 +1012,16 @@ export const WatchVerdictSchema = z.object({
 
 export type WatchVerdict = z.infer<typeof WatchVerdictSchema>;
 
+// P3: 専門エージェントの所見 (A5)
+export const SpecialistFindingSchema = z.object({
+  domain: z.string(),
+  headline: z.string().default(""),
+  key_points: z.array(z.string()).default([]),
+  confidence: z.enum(["high", "medium", "low"]).default("medium"),
+  source_speech_ids: z.array(z.string()).default([]),
+});
+export type SpecialistFinding = z.infer<typeof SpecialistFindingSchema>;
+
 export const TownAnalysisSchema = z.object({
   verdict: WatchVerdictSchema,
   town_assessments: z.array(TownAssessmentSchema).default([]),
@@ -1020,6 +1030,8 @@ export const TownAnalysisSchema = z.object({
   // P2: 検証と反論の透明性 (A1 / A9)
   critique_note: z.string().default(""),
   devils_advocate: z.string().default(""),
+  // P3: 専門家の所見 (A5)
+  specialist_findings: z.array(SpecialistFindingSchema).default([]),
 });
 
 export type TownAnalysis = z.infer<typeof TownAnalysisSchema>;
