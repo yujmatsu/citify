@@ -82,6 +82,7 @@ class MunicipalityCandidate(BaseModel):
     childcare_facility_count: int | None = None
     medical_facility_count: int | None = None
     population_change_pct: float | None = None  # e-Stat 直近国勢調査ベース (TASK-POPFIX)
+    financial_capability_index: float | None = None  # 財政力指数 (TASK-FISCAL、SSDS)
     matched_interests: list[Interest] = Field(
         default_factory=list, description="どの interest 軸に hit したか"
     )

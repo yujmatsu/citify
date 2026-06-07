@@ -361,6 +361,12 @@ export default function AgentHomePage(): React.JSX.Element {
         <footer className="pt-2 text-center text-xs text-zinc-500">
           <p className="flex flex-wrap justify-center gap-4">
             <Link
+              href="/concierge"
+              className="font-medium text-blue-600 underline hover:text-blue-800 dark:text-blue-400"
+            >
+              💬 もっと相談する
+            </Link>
+            <Link
               href="/feed"
               className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
             >

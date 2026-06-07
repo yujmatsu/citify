@@ -574,6 +574,20 @@ class MunicipalityStats(BaseModel):
         default=None,
         description="不動産情報ライブラリ URL (引用元)",
     )
+    # TASK-FISCAL: 社会・人口統計体系 (統計でみる市区町村のすがた) 由来 5 指標
+    financial_capability_index: float | None = Field(
+        default=None, description="財政力指数 (1.0超で財政的余裕。特別区等は null)"
+    )
+    real_debt_service_ratio_pct: float | None = Field(
+        default=None, description="実質公債費比率 (%、高いほど借金が重い)"
+    )
+    taxable_income_per_capita_yen: int | None = Field(
+        default=None, description="1人当たり課税対象所得 (円)"
+    )
+    homeownership_rate_pct: float | None = Field(default=None, description="持ち家比率 (%)")
+    crime_rate_per_1000: float | None = Field(
+        default=None, description="刑法犯認知件数 (人口千対、低いほど安全)"
+    )
 
 
 class CityDashboardResponse(BaseModel):
@@ -695,7 +709,12 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
             childcare_facility_count,
             kindergarten_count,
             nursery_count,
-            reinfolib_source_url
+            reinfolib_source_url,
+            financial_capability_index,
+            real_debt_service_ratio_pct,
+            taxable_income_per_capita_yen,
+            homeownership_rate_pct,
+            crime_rate_per_1000
         FROM `{table_fqn}`
         WHERE municipality_code = @muni
         LIMIT 1
@@ -743,6 +762,11 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
         kindergarten_count=r.get("kindergarten_count"),
         nursery_count=r.get("nursery_count"),
         reinfolib_source_url=r.get("reinfolib_source_url"),
+        financial_capability_index=r.get("financial_capability_index"),
+        real_debt_service_ratio_pct=r.get("real_debt_service_ratio_pct"),
+        taxable_income_per_capita_yen=r.get("taxable_income_per_capita_yen"),
+        homeownership_rate_pct=r.get("homeownership_rate_pct"),
+        crime_rate_per_1000=r.get("crime_rate_per_1000"),
     )
     _STATS_CACHE.set(municipality_code, stats)
     return stats

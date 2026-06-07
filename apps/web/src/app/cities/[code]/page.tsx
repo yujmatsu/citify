@@ -3,12 +3,16 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { AgeStructureBar } from "@/components/age-structure-bar";
 import { FeedCard } from "@/components/feed-card";
 import { PopulationTrendChart } from "@/components/population-trend-chart";
+import { TownRadar } from "@/components/watcher/town-radar";
 import {
   fetchCityDashboard,
+  fetchCompareStats,
   fetchPopulationTrend,
   type CityDashboardResponse,
+  type CompareStatsResponse,
   type MunicipalityStats,
   type PopulationTrendResponse,
 } from "@/lib/api";
@@ -124,6 +128,22 @@ function CityDashboardView({
     };
   }, [data.municipality_code]);
 
+  // 暮らし・財政レーダー (TASK-FISCAL): 全国分布での位置を単一市で表示 (失敗時は非表示)
+  const [radar, setRadar] = useState<CompareStatsResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchCompareStats([data.municipality_code])
+      .then((r) => {
+        if (!cancelled) setRadar(r);
+      })
+      .catch(() => {
+        if (!cancelled) setRadar(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.municipality_code]);
+
   return (
     <main className="flex flex-1 flex-col px-6 pb-24 pt-6 sm:px-10 sm:py-10">
       <div className="mx-auto w-full max-w-2xl space-y-8">
@@ -189,6 +209,17 @@ function CityDashboardView({
             <p className="text-[10px] leading-relaxed text-zinc-400">
               {trend.source_note}
             </p>
+          </section>
+        )}
+
+        {/* 年齢構成 (設計B B2c) */}
+        {data.stats && <AgeStructureBar stats={data.stats} />}
+
+        {/* 暮らし・財政の全国比較レーダー (TASK-FISCAL) */}
+        {radar && radar.towns.length > 0 && (
+          <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="text-lg font-semibold">📐 暮らし・財政の全国での位置</h2>
+            <TownRadar data={radar} />
           </section>
         )}
 

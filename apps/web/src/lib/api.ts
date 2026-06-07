@@ -319,6 +319,12 @@ export const MunicipalityStatsSchema = z.object({
   kindergarten_count: z.number().int().nullable().optional(),
   nursery_count: z.number().int().nullable().optional(),
   reinfolib_source_url: z.string().nullable().optional(),
+  // TASK-FISCAL: 社会・人口統計体系 由来 5 指標
+  financial_capability_index: z.number().nullable().optional(),
+  real_debt_service_ratio_pct: z.number().nullable().optional(),
+  taxable_income_per_capita_yen: z.number().int().nullable().optional(),
+  homeownership_rate_pct: z.number().nullable().optional(),
+  crime_rate_per_1000: z.number().nullable().optional(),
 });
 
 export type MunicipalityStats = z.infer<typeof MunicipalityStatsSchema>;
@@ -411,6 +417,7 @@ export const MunicipalityCandidateSchema = z.object({
   childcare_facility_count: z.number().int().nullable().optional(),
   medical_facility_count: z.number().int().nullable().optional(),
   population_change_pct: z.number().nullable().optional(),
+  financial_capability_index: z.number().nullable().optional(),
   matched_interests: z.array(z.string()).default([]),
   summary_text: z.string().default(""),
 });

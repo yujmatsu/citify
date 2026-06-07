@@ -201,10 +201,16 @@ export default function ConciergePage() {
             🤖 街診断コンシェルジュ
           </h1>
           <p className="text-sm text-zinc-500">
-            あなたの状況に合う自治体を、マルチエージェント AI が 1,917
-            自治体から診断します。年代 / 関心軸 / 予算 / 家族構成
-            を自然言語で伝えてください。
+            マイ街エージェントの結論を、対話でさらに深掘り。あなたの状況に合う自治体を
+            人口・**財政力**・子育て・住居などから AI が診断します。年代 / 関心軸 / 予算 /
+            家族構成を自然言語で伝えてください。
           </p>
+          <Link
+            href="/agent"
+            className="inline-block text-xs text-emerald-600 underline hover:text-emerald-800 dark:text-emerald-400"
+          >
+            ← マイ街エージェント(住み続ける?移る?)に戻る
+          </Link>
         </header>
 
         {/* チャット履歴 */}
@@ -613,6 +619,15 @@ function CandidateCards({
               </div>
             )}
           </div>
+          {c.financial_capability_index != null && (
+            <div className="mt-1 text-[11px] text-zinc-500">
+              💰 財政力指数{" "}
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                {c.financial_capability_index.toFixed(2)}
+              </span>
+              <span className="text-zinc-400">（1.0超で財政的余裕）</span>
+            </div>
+          )}
           <div className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
             {c.summary_text}
           </div>

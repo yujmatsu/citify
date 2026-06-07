@@ -162,6 +162,7 @@ def _row_to_candidate(
         childcare_facility_count=row.get("childcare_facility_count"),
         medical_facility_count=row.get("medical_facility_count"),
         population_change_pct=row.get("population_change_pct"),
+        financial_capability_index=row.get("financial_capability_index"),
         matched_interests=matched_interests,
         summary_text=_format_summary(row),
     )
@@ -183,6 +184,8 @@ def _format_summary(row: dict[str, Any]) -> str:
     if row.get("population_change_pct") is not None:
         growth = row["population_change_pct"]
         parts.append(f"人口増減率 {growth:+.1f}%")
+    if row.get("financial_capability_index") is not None:
+        parts.append(f"財政力指数 {row['financial_capability_index']:.2f}")
     return " / ".join(parts)
 
 
@@ -221,7 +224,7 @@ def search_municipalities(
             childcare_facility_count, kindergarten_count, nursery_count,
             medical_facility_count, medical_hospital_count, medical_clinic_count,
             emergency_shelter_count,
-            population_change_pct
+            population_change_pct, financial_capability_index
         FROM `{table_fqn}`
         WHERE {where}
     """  # noqa: S608

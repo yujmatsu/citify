@@ -52,61 +52,32 @@ export default function Home() {
             >
               フィードを見る
             </Link>
-            <div className="flex flex-wrap justify-center gap-4 text-sm text-zinc-500">
-              <Link
-                href="/concierge"
-                className="font-medium text-blue-700 underline hover:text-blue-900 dark:text-blue-300 dark:hover:text-blue-200"
-              >
-                🤖 街診断 Concierge
-              </Link>
-              <Link
-                href="/compare"
-                className="font-medium text-emerald-700 underline hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-200"
-              >
-                🔀 比較ビュー
-              </Link>
-              <Link
-                href="/heatmap"
-                className="font-medium text-violet-700 underline hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-200"
-              >
-                🗾 全国ヒートマップ
-              </Link>
-              <Link
-                href="/timeline"
-                className="font-medium text-rose-700 underline hover:text-rose-900 dark:text-rose-300 dark:hover:text-rose-200"
-              >
-                🕰 議論タイムライン
-              </Link>
-              <Link
-                href="/forecast"
-                className="font-medium text-orange-700 underline hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-200"
-              >
-                📈 議題件数の推移と予測
-              </Link>
-              <Link
-                href="/admin/scrapers"
-                className="font-medium text-sky-700 underline hover:text-sky-900 dark:text-sky-300 dark:hover:text-sky-200"
-              >
-                🩺 Scraper Health (admin)
-              </Link>
-              <Link
-                href="/admin/costs"
-                className="font-medium text-teal-700 underline hover:text-teal-900 dark:text-teal-300 dark:hover:text-teal-200"
-              >
-                💸 Cost Health (admin)
-              </Link>
-              <Link
-                href="/municipalities"
-                className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
-              >
-                マイ自治体
-              </Link>
-              <Link
-                href="/onboarding"
-                className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
-              >
-                ペルソナを変更
-              </Link>
+            <div className="space-y-4 pt-2 text-left">
+              <LinkGroup
+                title="街を知る・選ぶ"
+                links={[
+                  { href: "/concierge", label: "💬 街診断コンシェルジュ" },
+                  { href: "/municipalities", label: "🏙️ 街さがし・マイ自治体" },
+                  { href: "/compare", label: "🔀 比較ビュー" },
+                  { href: "/heatmap", label: "🗾 全国ヒートマップ" },
+                ]}
+              />
+              <LinkGroup
+                title="動きを見る"
+                links={[
+                  { href: "/timeline", label: "🕰 議論タイムライン" },
+                  { href: "/forecast", label: "📈 議題件数の推移と予測" },
+                ]}
+              />
+              <LinkGroup
+                title="設定・管理"
+                muted
+                links={[
+                  { href: "/onboarding", label: "⚙️ 年代・関心・街を変更" },
+                  { href: "/admin/scrapers", label: "🩺 Scraper Health" },
+                  { href: "/admin/costs", label: "💸 Cost Health" },
+                ]}
+              />
             </div>
           </div>
         ) : (
@@ -119,5 +90,38 @@ export default function Home() {
         )}
       </div>
     </main>
+  );
+}
+
+function LinkGroup({
+  title,
+  links,
+  muted,
+}: {
+  title: string;
+  links: { href: string; label: string }[];
+  muted?: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+        {title}
+      </p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+        {links.map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            className={
+              muted
+                ? "text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+                : "font-medium text-zinc-700 underline hover:text-zinc-900 dark:text-zinc-200"
+            }
+          >
+            {l.label}
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
