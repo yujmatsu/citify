@@ -892,6 +892,14 @@ _FISCAL_RADAR_METRICS: tuple[tuple[str, str, str], ...] = (
     ("real_debt_service_ratio_pct", "財政健全度", "lower"),
     ("crime_rate_per_1000", "治安", "lower"),
 )
+# TASK-CITYDATA: 暮らしの正規化指標 (規模に依らず全国比較可能なものだけ。
+# 病院数/学校数/保育在所児数は実数=規模比例のためレーダーに入れずカード表示)。
+_LIVING_RADAR_METRICS: tuple[tuple[str, str, str], ...] = (
+    ("doctors_per_100k", "医療", "higher"),
+    ("unemployment_rate_pct", "雇用", "lower"),
+    ("dwelling_area_sqm", "住まい", "higher"),
+)
+_RADAR_METRICS: tuple[tuple[str, str, str], ...] = _FISCAL_RADAR_METRICS + _LIVING_RADAR_METRICS
 # 将来人口は別ソース (municipality_population_series の 2070 予測 / 直近実績比)。
 # 結論が引用する人口見通しと同じ数字を軸にして「根拠の見える化」を担保する。
 _FUTURE_POP_KEY = "future_population_change_pct"
@@ -942,7 +950,7 @@ def _load_national_fiscal() -> dict[str, list[float]]:
     cached = _SSDS_NATIONAL_CACHE.get("all")
     if cached is not None:
         return cached
-    cols = [m[0] for m in _FISCAL_RADAR_METRICS]
+    cols = [m[0] for m in _RADAR_METRICS]
     arrays: dict[str, list[float]] = {c: [] for c in cols}
     try:
         client = _get_bq_client()
@@ -976,6 +984,16 @@ def _percentile_score(value: Any, sorted_vals: list[float], direction: str) -> f
     return round(pct if direction == "higher" else 100.0 - pct, 1)
 
 
+def _median(sorted_vals: list[float]) -> float | None:
+    """ソート済み配列の中央値 (全国基準値として併記、レーダーの解釈性確保)。"""
+    n = len(sorted_vals)
+    if n == 0:
+        return None
+    mid = n // 2
+    med = sorted_vals[mid] if n % 2 else (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
+    return round(med, 2)
+
+
 @app.get("/v1/cities/compare-stats")
 async def get_compare_stats(
     response: Response,
@@ -995,7 +1013,7 @@ async def get_compare_stats(
     if cached is not None:
         return cached
 
-    cols = [m[0] for m in _FISCAL_RADAR_METRICS]
+    cols = [m[0] for m in _RADAR_METRICS]
     raw_by_code: dict[str, dict[str, Any]] = {}
     try:
         from google.cloud import bigquery
@@ -1017,16 +1035,25 @@ async def get_compare_stats(
     national = _load_national_fiscal()
     future_pop = _load_future_pop_change()
     future_sorted = sorted(future_pop.values())
-    metrics_meta = [{"key": k, "label": lbl, "direction": d} for k, lbl, d in _FISCAL_RADAR_METRICS]
+    metrics_meta = [
+        {"key": k, "label": lbl, "direction": d, "national_median": _median(national.get(k, []))}
+        for k, lbl, d in _RADAR_METRICS
+    ]
     # 将来人口を軸に追加 (結論の主要根拠を可視化)。所得の次に配置。
     metrics_meta.insert(
-        2, {"key": _FUTURE_POP_KEY, "label": _FUTURE_POP_LABEL, "direction": "higher"}
+        2,
+        {
+            "key": _FUTURE_POP_KEY,
+            "label": _FUTURE_POP_LABEL,
+            "direction": "higher",
+            "national_median": _median(future_sorted),
+        },
     )
     towns = []
     for code in code_list:
         raw = raw_by_code.get(code, {})
         values: dict[str, dict[str, Any]] = {}
-        for k, _lbl, d in _FISCAL_RADAR_METRICS:
+        for k, _lbl, d in _RADAR_METRICS:
             rv = raw.get(k)
             values[k] = {
                 "raw": float(rv) if isinstance(rv, int | float) else None,

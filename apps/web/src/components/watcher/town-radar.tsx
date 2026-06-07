@@ -27,6 +27,13 @@ function formatRaw(key: string, raw: number | null): string {
       return `${raw > 0 ? "+" : ""}${raw}%`;
     case "crime_rate_per_1000":
       return `${raw}`;
+    // TASK-CITYDATA: 暮らしの指標
+    case "doctors_per_100k":
+      return `${Math.round(raw)}`;
+    case "unemployment_rate_pct":
+      return `${raw}%`;
+    case "dwelling_area_sqm":
+      return `${raw}㎡`;
     default:
       return `${raw}`;
   }
@@ -174,6 +181,9 @@ export function TownRadar({
                   {t.municipality_name}
                 </th>
               ))}
+              <th className="px-2 py-1.5 text-right font-medium text-zinc-400">
+                全国中央値
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -193,6 +203,9 @@ export function TownRadar({
                     {formatRaw(m.key, t.values[m.key]?.raw ?? null)}
                   </td>
                 ))}
+                <td className="px-2 py-1.5 text-right tabular-nums text-zinc-400">
+                  {formatRaw(m.key, m.national_median ?? null)}
+                </td>
               </tr>
             ))}
           </tbody>

@@ -5,7 +5,7 @@ _percentile_score (純関数) を検証。BQ I/O は対象外。
 
 from __future__ import annotations
 
-from apps.api.main import _percentile_score
+from apps.api.main import _median, _percentile_score
 
 
 def test_percentile_higher_is_better() -> None:
@@ -25,3 +25,10 @@ def test_percentile_lower_is_better_inverts() -> None:
 def test_percentile_none_and_empty() -> None:
     assert _percentile_score(None, [1.0, 2.0], "higher") is None
     assert _percentile_score(3.0, [], "higher") is None
+
+
+def test_median_odd_even_empty() -> None:
+    # TASK-CITYDATA: 全国中央値 (レーダー併記)
+    assert _median([1.0, 2.0, 3.0]) == 2.0
+    assert _median([1.0, 2.0, 3.0, 4.0]) == 2.5
+    assert _median([]) is None

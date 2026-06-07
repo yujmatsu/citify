@@ -1115,6 +1115,7 @@ export const CompareStatMetricSchema = z.object({
   key: z.string(),
   label: z.string(),
   direction: z.enum(["higher", "lower"]),
+  national_median: z.number().nullable().optional(),
 });
 export type CompareStatMetric = z.infer<typeof CompareStatMetricSchema>;
 

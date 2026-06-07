@@ -423,14 +423,7 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
           : undefined,
     });
   }
-  // TASK-CITYDATA: 完全失業率
-  if (stats.unemployment_rate_pct != null) {
-    cards.push({
-      label: "💼 完全失業率",
-      value: `${stats.unemployment_rate_pct.toFixed(1)}%`,
-    });
-  }
-  // TASK-CITYDATA: 第3次産業比率
+  // TASK-CITYDATA: 第3次産業比率 (良し悪しの方向性がなく嗜好次第のためレーダーには入れずカード)
   if (stats.tertiary_industry_pct != null) {
     cards.push({
       label: "🏢 第3次産業",
@@ -438,14 +431,7 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
       sub: "就業者に占める割合",
     });
   }
-  // TASK-CITYDATA: 1住宅延べ面積
-  if (stats.dwelling_area_sqm != null) {
-    cards.push({
-      label: "📐 住まいの広さ",
-      value: `${stats.dwelling_area_sqm.toFixed(1)} ㎡`,
-      sub: "1住宅当たり延べ面積",
-    });
-  }
+  // NOTE: 完全失業率(雇用)・1住宅延べ面積(住まい) は「街比較レーダー」の軸に集約したためカードからは除外。
   // TASK-CITYDATA: 昼夜間人口比率
   if (stats.day_night_pop_ratio != null) {
     cards.push({
