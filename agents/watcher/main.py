@@ -184,10 +184,11 @@ def diff_against_previous(
         if before != after:
             changes.append(f"推し街が {before} → {after} に変わりました")
     # 各街の適合度の増減 (同 municipality_code をマッチ)
+    # fit_score は LLM 生成でゆらぐため、しきい値 10 以上の変化のみ「変化」とみなす(ノイズ抑制)
     prev_fit = {a.municipality_code: a.fit_score for a in prev.town_assessments}
     for a in cur.town_assessments:
         old = prev_fit.get(a.municipality_code)
-        if old is not None and abs(a.fit_score - old) >= 5:
+        if old is not None and abs(a.fit_score - old) >= 10:
             arrow = "上昇" if a.fit_score > old else "低下"
             changes.append(f"{nm(a.municipality_code)}の評価が {old} → {a.fit_score} に{arrow}")
     return changes

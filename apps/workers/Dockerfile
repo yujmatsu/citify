@@ -36,7 +36,9 @@ RUN uv pip install --no-cache \
     google-cloud-logging google-cloud-secret-manager \
     google-cloud-bigquery google-cloud-storage \
     google-cloud-aiplatform google-cloud-pubsub \
+    google-cloud-firestore \
     google-genai \
+    google-adk \
     structlog \
     feedparser \
     beautifulsoup4 lxml

@@ -119,6 +119,16 @@ locals {
       memory = "512Mi"
       cpu    = "1"
     }
+    # Watcher v2 P5: マイ街エージェント日次先回り。全 watchlist を実行し analysis を更新(変化検知込み)。
+    # pipeline(translator〜bq-sink)の後に走るよう schedule 後ろ。ADK マルチエージェントで重いため 1Gi。
+    watcher-daily = {
+      command = ["python", "-m", "agents.watcher.daily_job"]
+      args = [
+        "--project-id", "citify-dev",
+      ]
+      memory = "1Gi"
+      cpu    = "1"
+    }
   }
 }
 

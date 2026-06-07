@@ -55,6 +55,20 @@ class WatcherRepository:
             logger.warning("watcher_repo.get_watchlist_failed user=%s err=%s", user_id, exc)
             return None
 
+    def list_all_watchlists(self) -> list[WatchInput]:
+        """全ユーザーのウォッチ街を取得 (日次Job用、A3/P5)。失敗は空 list (graceful)。"""
+        try:
+            out: list[WatchInput] = []
+            for doc in self._client().collection(FIRESTORE_WATCHLIST).stream():
+                try:
+                    out.append(WatchInput.model_validate(doc.to_dict() or {}))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("watcher_repo.watchlist_parse_failed err=%s", exc)
+            return out
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("watcher_repo.list_all_watchlists_failed err=%s", exc)
+            return []
+
     def save_watchlist(self, watch: WatchInput) -> bool:
         try:
             self._client().collection(FIRESTORE_WATCHLIST).document(_safe(watch.user_id)).set(
