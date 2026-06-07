@@ -18,6 +18,17 @@
     "owned_homes": { "stats_data_id": "0000020208", "cd_cat01": "H1310" },
     "dwellings": { "stats_data_id": "0000020208", "cd_cat01": "H1101" },
     "crime_count": { "stats_data_id": "0000020211", "cd_cat01": "K4201" },
-    "population": { "stats_data_id": "0000020201", "cd_cat01": "A1101" }
+    "population": { "stats_data_id": "0000020201", "cd_cat01": "A1101" },
+    "hospitals": { "stats_data_id": "0000020209", "cd_cat01": "I5101" },
+    "doctors": { "stats_data_id": "0000020209", "cd_cat01": "I6100" },
+    "labor_force": { "stats_data_id": "0000020206", "cd_cat01": "F1101" },
+    "unemployed": { "stats_data_id": "0000020206", "cd_cat01": "F1107" },
+    "employed": { "stats_data_id": "0000020206", "cd_cat01": "F1102" },
+    "tertiary_workers": { "stats_data_id": "0000020206", "cd_cat01": "F2221" },
+    "dwelling_area": { "stats_data_id": "0000020208", "cd_cat01": "H2130" },
+    "day_night_pop_ratio": { "stats_data_id": "0000020201", "cd_cat01": "A6108" },
+    "elementary_schools": { "stats_data_id": "0000020205", "cd_cat01": "E2101" },
+    "junior_high_schools": { "stats_data_id": "0000020205", "cd_cat01": "E3101" },
+    "nursery_children": { "stats_data_id": "0000020210", "cd_cat01": "J2506" }
   }
 }

@@ -72,7 +72,8 @@ def _api_call(
     root = next((v for v in body.values() if isinstance(v, dict)), {})
     result = root.get("RESULT", {})
     status = result.get("STATUS", -1)
-    if status not in (0, 1):
+    # API仕様 v3.0: STATUS 0〜2 は正常終了、100以上がエラー
+    if status not in (0, 1, 2):
         raise RuntimeError(
             f"e-Stat API error endpoint={endpoint} status={status} msg={result.get('ERROR_MSG')}"
         )
@@ -291,7 +292,47 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         crime, pop = g("crime_count", code), g("population", code)
         crime_rate = round(crime / pop * 1000, 2) if crime is not None and pop else None
 
-        rows.append([code, fci, rdsr, income_pc, own_rate, crime_rate, year, src])
+        # TASK-CITYDATA 追加8指標 (派生は分母0/欠損で None)
+        doctors, hospitals = g("doctors", code), g("hospitals", code)
+        doctors_per_100k = round(doctors / pop * 100000, 1) if doctors is not None and pop else None
+        labor_force, unemployed = g("labor_force", code), g("unemployed", code)
+        unemployment_rate = (
+            round(unemployed / labor_force * 100, 1)
+            if unemployed is not None and labor_force
+            else None
+        )
+        employed, tertiary = g("employed", code), g("tertiary_workers", code)
+        tertiary_pct = (
+            round(tertiary / employed * 100, 1) if tertiary is not None and employed else None
+        )
+        dwelling_area = g("dwelling_area", code)
+        day_night = g("day_night_pop_ratio", code)
+        elem, junior = g("elementary_schools", code), g("junior_high_schools", code)
+        school_count = (
+            int((elem or 0) + (junior or 0)) if (elem is not None or junior is not None) else None
+        )
+        nursery_children = g("nursery_children", code)
+
+        rows.append(
+            [
+                code,
+                fci,
+                rdsr,
+                income_pc,
+                own_rate,
+                crime_rate,
+                doctors_per_100k,
+                int(hospitals) if hospitals is not None else None,
+                unemployment_rate,
+                tertiary_pct,
+                dwelling_area,
+                day_night,
+                school_count,
+                int(nursery_children) if nursery_children is not None else None,
+                year,
+                src,
+            ]
+        )
 
     with args.output.open("w", encoding="utf-8", newline="") as f:
         w = _csv.writer(f)
@@ -303,6 +344,14 @@ def cmd_fetch(args: argparse.Namespace) -> int:
                 "taxable_income_per_capita_yen",
                 "homeownership_rate_pct",
                 "crime_rate_per_1000",
+                "doctors_per_100k",
+                "ssds_hospital_count",
+                "unemployment_rate_pct",
+                "tertiary_industry_pct",
+                "dwelling_area_sqm",
+                "day_night_pop_ratio",
+                "school_count",
+                "nursery_children",
                 "ssds_data_year",
                 "ssds_source_url",
             ]

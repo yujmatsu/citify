@@ -411,27 +411,58 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
       accent: v >= 0 ? "positive" : "negative",
     });
   }
-  // Phase F v3: 医療機関
-  if (stats.medical_facility_count != null && stats.medical_facility_count > 0) {
-    const hospital = stats.medical_hospital_count ?? 0;
-    const clinic = stats.medical_clinic_count ?? 0;
+  // 医療 (TASK-CITYDATA: SSDS の信頼値。旧 reinfolib 周辺集計 medical_facility_count は
+  // スケールずれ(例 4909件)があるため不使用に切替)
+  if (stats.ssds_hospital_count != null) {
     cards.push({
-      label: "🏥 周辺地域の医療機関",
-      value: `${formatNumber(stats.medical_facility_count)} か所`,
-      sub: `病院 ${hospital} / 診療所 ${clinic}`,
+      label: "🏥 医療",
+      value: `病院 ${stats.ssds_hospital_count} 院`,
+      sub:
+        stats.doctors_per_100k != null
+          ? `医師 ${stats.doctors_per_100k.toFixed(0)} 人/10万人`
+          : undefined,
     });
   }
-  // Phase F v3: 保育園・幼稚園
-  if (
-    stats.childcare_facility_count != null &&
-    stats.childcare_facility_count > 0
-  ) {
-    const k = stats.kindergarten_count ?? 0;
-    const n = stats.nursery_count ?? 0;
+  // TASK-CITYDATA: 完全失業率
+  if (stats.unemployment_rate_pct != null) {
     cards.push({
-      label: "👶 保育・幼児教育施設",
-      value: `${formatNumber(stats.childcare_facility_count)} 施設`,
-      sub: `幼稚園 ${k} / 保育園他 ${n}`,
+      label: "💼 完全失業率",
+      value: `${stats.unemployment_rate_pct.toFixed(1)}%`,
+    });
+  }
+  // TASK-CITYDATA: 第3次産業比率
+  if (stats.tertiary_industry_pct != null) {
+    cards.push({
+      label: "🏢 第3次産業",
+      value: `${stats.tertiary_industry_pct.toFixed(1)}%`,
+      sub: "就業者に占める割合",
+    });
+  }
+  // TASK-CITYDATA: 1住宅延べ面積
+  if (stats.dwelling_area_sqm != null) {
+    cards.push({
+      label: "📐 住まいの広さ",
+      value: `${stats.dwelling_area_sqm.toFixed(1)} ㎡`,
+      sub: "1住宅当たり延べ面積",
+    });
+  }
+  // TASK-CITYDATA: 昼夜間人口比率
+  if (stats.day_night_pop_ratio != null) {
+    cards.push({
+      label: "🚆 昼夜間人口比",
+      value: stats.day_night_pop_ratio.toFixed(1),
+      sub: stats.day_night_pop_ratio < 95 ? "ベッドタウン傾向" : "職住近接傾向",
+    });
+  }
+  // TASK-CITYDATA: 小中学校数
+  if (stats.school_count != null) {
+    cards.push({ label: "🏫 小中学校", value: `${stats.school_count} 校` });
+  }
+  // TASK-CITYDATA: 保育所在所児数
+  if (stats.nursery_children != null) {
+    cards.push({
+      label: "👶 保育所在所児",
+      value: `${formatNumber(stats.nursery_children)} 人`,
     });
   }
 

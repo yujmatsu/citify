@@ -32,8 +32,21 @@ _FLOAT_COLS = (
     "real_debt_service_ratio_pct",
     "homeownership_rate_pct",
     "crime_rate_per_1000",
+    # TASK-CITYDATA 追加 (FLOAT)
+    "doctors_per_100k",
+    "unemployment_rate_pct",
+    "tertiary_industry_pct",
+    "dwelling_area_sqm",
+    "day_night_pop_ratio",
 )
-_INT_COLS = ("taxable_income_per_capita_yen", "ssds_data_year")
+_INT_COLS = (
+    "taxable_income_per_capita_yen",
+    "ssds_data_year",
+    # TASK-CITYDATA 追加 (INTEGER)
+    "ssds_hospital_count",
+    "school_count",
+    "nursery_children",
+)
 
 
 def _parse_float(value: str | None) -> float | None:
@@ -60,8 +73,13 @@ def _parse_str(value: str | None) -> str | None:
     return s if s else None
 
 
+# PK 以外の全 SSDS 列 (load/schema/MERGE で共通利用、列追加はここに集約)
+_STR_COLS = ("ssds_source_url",)
+_VALUE_COLS = (*_FLOAT_COLS, *_INT_COLS, *_STR_COLS, "ssds_loaded_at")
+
+
 def load_normalized_csv(csv_path: Path) -> list[dict[str, object]]:
-    """ssds_indicators_normalized.csv を読み、BQ 投入用 dict list を返す。"""
+    """ssds_indicators_normalized.csv を読み、BQ 投入用 dict list を返す (列タプル駆動)。"""
     now = dt.datetime.now(dt.UTC).isoformat()
     rows: list[dict[str, object]] = []
     with csv_path.open("r", encoding="utf-8") as f:
@@ -70,31 +88,20 @@ def load_normalized_csv(csv_path: Path) -> list[dict[str, object]]:
             raw_code = (raw.get("municipality_code") or "").strip()
             if not raw_code:
                 continue
-            code = raw_code.zfill(5)
-            rows.append(
-                {
-                    "municipality_code": code,
-                    "financial_capability_index": _parse_float(
-                        raw.get("financial_capability_index")
-                    ),
-                    "real_debt_service_ratio_pct": _parse_float(
-                        raw.get("real_debt_service_ratio_pct")
-                    ),
-                    "taxable_income_per_capita_yen": _parse_int(
-                        raw.get("taxable_income_per_capita_yen")
-                    ),
-                    "homeownership_rate_pct": _parse_float(raw.get("homeownership_rate_pct")),
-                    "crime_rate_per_1000": _parse_float(raw.get("crime_rate_per_1000")),
-                    "ssds_data_year": _parse_int(raw.get("ssds_data_year")),
-                    "ssds_source_url": _parse_str(raw.get("ssds_source_url")),
-                    "ssds_loaded_at": now,
-                }
-            )
+            row: dict[str, object] = {"municipality_code": raw_code.zfill(5)}
+            for c in _FLOAT_COLS:
+                row[c] = _parse_float(raw.get(c))
+            for c in _INT_COLS:
+                row[c] = _parse_int(raw.get(c))
+            for c in _STR_COLS:
+                row[c] = _parse_str(raw.get(c))
+            row["ssds_loaded_at"] = now
+            rows.append(row)
     return rows
 
 
 def write_to_bq(rows: list[dict[str, object]], project: str, dataset: str, table: str) -> None:
-    """一時テーブルに upload → MERGE UPDATE で SSDS 列のみ更新。"""
+    """一時テーブルに upload → MERGE UPDATE で SSDS 列のみ更新 (列タプル駆動)。"""
     import io
     import json
 
@@ -104,17 +111,12 @@ def write_to_bq(rows: list[dict[str, object]], project: str, dataset: str, table
     table_ref = f"{project}.{dataset}.{table}"
     tmp_ref = f"{project}.{dataset}._tmp_ssds_load"
 
-    schema = [
-        bigquery.SchemaField("municipality_code", "STRING", mode="REQUIRED"),
-        bigquery.SchemaField("financial_capability_index", "FLOAT", mode="NULLABLE"),
-        bigquery.SchemaField("real_debt_service_ratio_pct", "FLOAT", mode="NULLABLE"),
-        bigquery.SchemaField("taxable_income_per_capita_yen", "INTEGER", mode="NULLABLE"),
-        bigquery.SchemaField("homeownership_rate_pct", "FLOAT", mode="NULLABLE"),
-        bigquery.SchemaField("crime_rate_per_1000", "FLOAT", mode="NULLABLE"),
-        bigquery.SchemaField("ssds_data_year", "INTEGER", mode="NULLABLE"),
-        bigquery.SchemaField("ssds_source_url", "STRING", mode="NULLABLE"),
-        bigquery.SchemaField("ssds_loaded_at", "TIMESTAMP", mode="NULLABLE"),
-    ]
+    schema = [bigquery.SchemaField("municipality_code", "STRING", mode="REQUIRED")]
+    schema += [bigquery.SchemaField(c, "FLOAT", mode="NULLABLE") for c in _FLOAT_COLS]
+    schema += [bigquery.SchemaField(c, "INTEGER", mode="NULLABLE") for c in _INT_COLS]
+    schema += [bigquery.SchemaField(c, "STRING", mode="NULLABLE") for c in _STR_COLS]
+    schema.append(bigquery.SchemaField("ssds_loaded_at", "TIMESTAMP", mode="NULLABLE"))
+
     job_config = bigquery.LoadJobConfig(
         schema=schema,
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
@@ -129,20 +131,14 @@ def write_to_bq(rows: list[dict[str, object]], project: str, dataset: str, table
     logger.info("loaded %d rows into temp %s", len(rows), tmp_ref)
 
     # MERGE UPDATE-only (既存の e-Stat / Reinfolib 列は壊さない)
+    set_clause = ",\n      ".join(f"{c} = S.{c}" for c in _VALUE_COLS)
     merge_sql = f"""
     MERGE INTO `{table_ref}` T
     USING `{tmp_ref}` S
     ON T.municipality_code = S.municipality_code
     WHEN MATCHED THEN UPDATE SET
-      financial_capability_index = S.financial_capability_index,
-      real_debt_service_ratio_pct = S.real_debt_service_ratio_pct,
-      taxable_income_per_capita_yen = S.taxable_income_per_capita_yen,
-      homeownership_rate_pct = S.homeownership_rate_pct,
-      crime_rate_per_1000 = S.crime_rate_per_1000,
-      ssds_data_year = S.ssds_data_year,
-      ssds_source_url = S.ssds_source_url,
-      ssds_loaded_at = S.ssds_loaded_at
-    """
+      {set_clause}
+    """  # noqa: S608 — 列名は固定タプル
     merge_job = client.query(merge_sql)
     merge_job.result()
     logger.info("MERGE done dml_affected=%s", merge_job.num_dml_affected_rows)

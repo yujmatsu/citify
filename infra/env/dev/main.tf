@@ -481,6 +481,15 @@ resource "google_bigquery_table" "municipality_stats" {
     { name = "ssds_data_year", type = "INTEGER", mode = "NULLABLE", description = "SSDS 公表年度 (統計でみる市区町村のすがた)" },
     { name = "ssds_source_url", type = "STRING", mode = "NULLABLE", description = "e-Stat 社会・人口統計体系 URL (引用元)" },
     { name = "ssds_loaded_at", type = "TIMESTAMP", mode = "NULLABLE", description = "SSDS データ最終取得時刻" },
+    # ----- TASK-CITYDATA: SSDS 追加8指標 (街の状況) -----
+    { name = "doctors_per_100k", type = "FLOAT", mode = "NULLABLE", description = "医師数 (人口10万対、SSDS I6100/A1101)" },
+    { name = "ssds_hospital_count", type = "INTEGER", mode = "NULLABLE", description = "病院数 (SSDS I5101、reinfolib 医療施設数の信頼版置換)" },
+    { name = "unemployment_rate_pct", type = "FLOAT", mode = "NULLABLE", description = "完全失業率 (%、SSDS F1107/F1101)" },
+    { name = "tertiary_industry_pct", type = "FLOAT", mode = "NULLABLE", description = "第3次産業就業者比率 (%、SSDS F2221/F1102)" },
+    { name = "dwelling_area_sqm", type = "FLOAT", mode = "NULLABLE", description = "1住宅当たり延べ面積 (㎡、SSDS H2130)" },
+    { name = "day_night_pop_ratio", type = "FLOAT", mode = "NULLABLE", description = "昼夜間人口比率 (100未満=ベッドタウン、SSDS A6108)" },
+    { name = "school_count", type = "INTEGER", mode = "NULLABLE", description = "小中学校数 (SSDS E2101+E3101)" },
+    { name = "nursery_children", type = "INTEGER", mode = "NULLABLE", description = "保育所等在所児数 (SSDS J2506)" },
   ])
 
   labels = merge(local.common_labels, { purpose = "city_dashboard_stats" })

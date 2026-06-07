@@ -588,6 +588,17 @@ class MunicipalityStats(BaseModel):
     crime_rate_per_1000: float | None = Field(
         default=None, description="刑法犯認知件数 (人口千対、低いほど安全)"
     )
+    # TASK-CITYDATA: SSDS 追加8指標 (街の状況)
+    doctors_per_100k: float | None = Field(default=None, description="医師数 (人口10万対)")
+    ssds_hospital_count: int | None = Field(default=None, description="病院数 (SSDS、信頼版)")
+    unemployment_rate_pct: float | None = Field(default=None, description="完全失業率 (%)")
+    tertiary_industry_pct: float | None = Field(default=None, description="第3次産業就業者比率 (%)")
+    dwelling_area_sqm: float | None = Field(default=None, description="1住宅当たり延べ面積 (㎡)")
+    day_night_pop_ratio: float | None = Field(
+        default=None, description="昼夜間人口比率 (100未満=ベッドタウン)"
+    )
+    school_count: int | None = Field(default=None, description="小中学校数")
+    nursery_children: int | None = Field(default=None, description="保育所等在所児数")
 
 
 class CityDashboardResponse(BaseModel):
@@ -714,7 +725,15 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
             real_debt_service_ratio_pct,
             taxable_income_per_capita_yen,
             homeownership_rate_pct,
-            crime_rate_per_1000
+            crime_rate_per_1000,
+            doctors_per_100k,
+            ssds_hospital_count,
+            unemployment_rate_pct,
+            tertiary_industry_pct,
+            dwelling_area_sqm,
+            day_night_pop_ratio,
+            school_count,
+            nursery_children
         FROM `{table_fqn}`
         WHERE municipality_code = @muni
         LIMIT 1
@@ -767,6 +786,14 @@ def _fetch_municipality_stats(municipality_code: str) -> MunicipalityStats | Non
         taxable_income_per_capita_yen=r.get("taxable_income_per_capita_yen"),
         homeownership_rate_pct=r.get("homeownership_rate_pct"),
         crime_rate_per_1000=r.get("crime_rate_per_1000"),
+        doctors_per_100k=r.get("doctors_per_100k"),
+        ssds_hospital_count=r.get("ssds_hospital_count"),
+        unemployment_rate_pct=r.get("unemployment_rate_pct"),
+        tertiary_industry_pct=r.get("tertiary_industry_pct"),
+        dwelling_area_sqm=r.get("dwelling_area_sqm"),
+        day_night_pop_ratio=r.get("day_night_pop_ratio"),
+        school_count=r.get("school_count"),
+        nursery_children=r.get("nursery_children"),
     )
     _STATS_CACHE.set(municipality_code, stats)
     return stats

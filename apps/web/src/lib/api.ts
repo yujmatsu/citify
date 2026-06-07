@@ -325,6 +325,15 @@ export const MunicipalityStatsSchema = z.object({
   taxable_income_per_capita_yen: z.number().int().nullable().optional(),
   homeownership_rate_pct: z.number().nullable().optional(),
   crime_rate_per_1000: z.number().nullable().optional(),
+  // TASK-CITYDATA: SSDS 追加8指標
+  doctors_per_100k: z.number().nullable().optional(),
+  ssds_hospital_count: z.number().int().nullable().optional(),
+  unemployment_rate_pct: z.number().nullable().optional(),
+  tertiary_industry_pct: z.number().nullable().optional(),
+  dwelling_area_sqm: z.number().nullable().optional(),
+  day_night_pop_ratio: z.number().nullable().optional(),
+  school_count: z.number().int().nullable().optional(),
+  nursery_children: z.number().int().nullable().optional(),
 });
 
 export type MunicipalityStats = z.infer<typeof MunicipalityStatsSchema>;

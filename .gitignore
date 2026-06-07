@@ -59,3 +59,5 @@ scrapers/**/fixtures/*.html.test
 # 派生 CSV (population_series_census_history.csv) をコミットすれば再現性は確保。
 infra/seed/da06*.xlsx
 !infra/seed/da0614.xlsx
+# e-Stat API 仕様 + 取得可能データ一覧 (参照用、git には上げない)
+infra/seed/e-stat/
