@@ -195,14 +195,22 @@ export function TownRadar({
                 <td className="py-1.5 pr-2 text-zinc-600 dark:text-zinc-400">
                   {m.label}
                 </td>
-                {towns.map((t) => (
-                  <td
-                    key={t.municipality_code}
-                    className="px-2 py-1.5 text-right tabular-nums"
-                  >
-                    {formatRaw(m.key, t.values[m.key]?.raw ?? null)}
-                  </td>
-                ))}
+                {towns.map((t) => {
+                  const v = t.values[m.key];
+                  return (
+                    <td
+                      key={t.municipality_code}
+                      className="px-2 py-1.5 text-right tabular-nums"
+                    >
+                      <div>{formatRaw(m.key, v?.raw ?? null)}</div>
+                      {v?.rank != null && v?.total != null && (
+                        <div className="text-[10px] font-normal text-zinc-400">
+                          {v.rank}位/{v.total}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
                 <td className="px-2 py-1.5 text-right tabular-nums text-zinc-400">
                   {formatRaw(m.key, m.national_median ?? null)}
                 </td>
@@ -210,6 +218,9 @@ export function TownRadar({
             ))}
           </tbody>
         </table>
+        <p className="mt-1 text-[10px] text-zinc-400">
+          「○位/△」は全国順位（1位＝最良）。母数は指標ごとにデータのある市区町村数。
+        </p>
       </div>
 
       {!anyScore && (

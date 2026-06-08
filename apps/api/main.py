@@ -984,6 +984,24 @@ def _percentile_score(value: Any, sorted_vals: list[float], direction: str) -> f
     return round(pct if direction == "higher" else 100.0 - pct, 1)
 
 
+def _rank(value: Any, sorted_vals: list[float], direction: str) -> dict[str, int] | None:
+    """value の全国順位 (1始まり、良い方向で1位) と母数 {rank, total} を返す。
+
+    direction=higher は値が大きいほど上位、lower は小さいほど上位。タイは上位側に揃える。
+    """
+    import bisect
+
+    if value is None or not sorted_vals:
+        return None
+    v = float(value)
+    total = len(sorted_vals)
+    if direction == "higher":
+        rank = total - bisect.bisect_right(sorted_vals, v) + 1
+    else:
+        rank = bisect.bisect_left(sorted_vals, v) + 1
+    return {"rank": max(1, min(rank, total)), "total": total}
+
+
 def _median(sorted_vals: list[float]) -> float | None:
     """ソート済み配列の中央値 (全国基準値として併記、レーダーの解釈性確保)。"""
     n = len(sorted_vals)
@@ -1055,14 +1073,20 @@ async def get_compare_stats(
         values: dict[str, dict[str, Any]] = {}
         for k, _lbl, d in _RADAR_METRICS:
             rv = raw.get(k)
+            rk = _rank(rv, national.get(k, []), d)
             values[k] = {
                 "raw": float(rv) if isinstance(rv, int | float) else None,
                 "score": _percentile_score(rv, national.get(k, []), d),
+                "rank": rk["rank"] if rk else None,
+                "total": rk["total"] if rk else None,
             }
         fv = future_pop.get(code)
+        fr = _rank(fv, future_sorted, "higher")
         values[_FUTURE_POP_KEY] = {
             "raw": fv,
             "score": _percentile_score(fv, future_sorted, "higher"),
+            "rank": fr["rank"] if fr else None,
+            "total": fr["total"] if fr else None,
         }
         towns.append(
             {"municipality_code": code, "municipality_name": _muni_label(code), "values": values}

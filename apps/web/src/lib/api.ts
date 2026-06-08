@@ -1122,6 +1122,8 @@ export type CompareStatMetric = z.infer<typeof CompareStatMetricSchema>;
 export const CompareStatValueSchema = z.object({
   raw: z.number().nullable(),
   score: z.number().nullable(),
+  rank: z.number().int().nullable().optional(),
+  total: z.number().int().nullable().optional(),
 });
 
 export const CompareStatTownSchema = z.object({
