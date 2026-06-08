@@ -19,7 +19,7 @@ import {
   type Persona,
   savePersona,
 } from "@/lib/persona";
-import { putWatchlist } from "@/lib/api";
+import { extractPreferences, putWatchlist } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const AGE_LABEL: Record<AgeGroup, string> = {
@@ -56,6 +56,34 @@ export default function OnboardingPage(): React.JSX.Element {
   const [household, setHousehold] = useState<Household | null>(null);
   const [budgetMan, setBudgetMan] = useState<number | null>(null);
   const [context, setContext] = useState("");
+  // F: AI抽出のハイブリッド入口
+  const [extractText, setExtractText] = useState("");
+  const [extracting, setExtracting] = useState(false);
+
+  async function handleExtract() {
+    if (!extractText.trim()) return;
+    setExtracting(true);
+    try {
+      const ex = await extractPreferences(extractText);
+      const validInterests = (INTERESTS as readonly string[]);
+      const ints = ex.interests.filter((i): i is Interest =>
+        validInterests.includes(i),
+      );
+      setInterests(new Set(ints));
+      setPriorities(
+        ex.priorities.filter((p): p is Interest => ints.includes(p as Interest)),
+      );
+      if (ex.household && (HOUSEHOLDS as readonly string[]).includes(ex.household)) {
+        setHousehold(ex.household as Household);
+      }
+      setBudgetMan(ex.budget_man);
+      setContext(ex.background_summary || extractText.trim());
+    } catch (err) {
+      console.error("extract failed", err);
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   // step3: 街選択
   const [munis, setMunis] = useState<Municipality[]>([]);
@@ -231,6 +259,38 @@ export default function OnboardingPage(): React.JSX.Element {
                 複数選択 OK・あとから変更可能です ({interests.size} 個選択中)
               </p>
             </header>
+
+            {/* F: 文章で話す → AIが整理して下のフォームを自動入力 (確認・編集は手動) */}
+            <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+              <p className="text-sm font-medium">
+                ✨ 文章で話す{" "}
+                <span className="text-zinc-400">(AIが整理して下に自動入力)</span>
+              </p>
+              <textarea
+                value={extractText}
+                onChange={(e) => setExtractText(e.target.value)}
+                rows={3}
+                placeholder="例: 東京の家賃が苦しい。子どもがいて、医療と子育て環境を一番重視したい。予算は3000万くらい。"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+              />
+              <button
+                type="button"
+                onClick={handleExtract}
+                disabled={extracting || !extractText.trim()}
+                className={cn(
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  extracting || !extractText.trim()
+                    ? "bg-zinc-200 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
+                    : "bg-emerald-600 text-white hover:bg-emerald-700",
+                )}
+              >
+                {extracting ? "整理中… (10〜20秒)" : "AIで整理して下に反映"}
+              </button>
+              <p className="text-[11px] text-zinc-400">
+                反映後、下の項目を確認・修正できます（AIが最終決定はしません）。
+              </p>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               {INTERESTS.map((i) => (
                 <button

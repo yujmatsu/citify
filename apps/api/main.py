@@ -3218,6 +3218,36 @@ async def run_watcher(
     }
 
 
+# TASK-ONBOARDING (F): 自由記述から移住の前提を抽出 (フォーム自動プリフィル用)
+class PreferenceExtractBody(BaseModel):
+    """POST /v1/preferences/extract の body。"""
+
+    text: str = Field(min_length=1, max_length=2000, description="ユーザーの自由記述")
+
+
+@app.post("/v1/preferences/extract")
+async def extract_preferences_endpoint(body: PreferenceExtractBody) -> dict:
+    """自由記述から {interests, priorities, household, budget_man, background_summary} を抽出。
+
+    オンボーディングのフォームを自動プリフィルする (ユーザーが必ず確認・編集)。失敗時は空。
+    """
+    from agents.preferences.extract import extract_preferences
+
+    try:
+        extracted = await extract_preferences(body.text)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("preferences.extract_failed err=%s", exc)
+        extracted = {
+            "interests": [],
+            "priorities": [],
+            "household": "",
+            "budget_man": None,
+            "background_summary": "",
+        }
+    logger.info("preferences.extract.done interests=%d", len(extracted.get("interests", [])))
+    return {"extracted": extracted}
+
+
 # 移住アクションプラン (TASK-ACTIONPLAN): Watcher 分析を行動プランに変換 (run_id でキャッシュ)
 _PLAN_CACHE = _TTLCache(maxsize=512, ttl_sec=3600.0)
 

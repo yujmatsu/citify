@@ -1230,6 +1230,37 @@ export async function runWatcher(
   );
 }
 
+// ----- 前提整理: 自由記述抽出 (TASK-ONBOARDING / F) -----
+export const ExtractedPreferencesSchema = z.object({
+  interests: z.array(z.string()).default([]),
+  priorities: z.array(z.string()).default([]),
+  household: z.string().default(""),
+  budget_man: z.number().nullable().default(null),
+  background_summary: z.string().default(""),
+});
+export type ExtractedPreferences = z.infer<typeof ExtractedPreferencesSchema>;
+
+const ExtractResponseSchema = z.object({
+  extracted: ExtractedPreferencesSchema,
+});
+
+/** 自由記述から移住の前提を抽出 (フォーム自動プリフィル用)。失敗時は空。 */
+export async function extractPreferences(
+  text: string,
+): Promise<ExtractedPreferences> {
+  const res = await fetchJson(
+    `${API_BASE}/v1/preferences/extract`,
+    ExtractResponseSchema,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      cache: "no-store",
+    },
+  );
+  return res.extracted;
+}
+
 // ----- 移住アクションプラン (TASK-ACTIONPLAN) -----
 export const OfficialLinkSchema = z.object({
   label: z.string(),
