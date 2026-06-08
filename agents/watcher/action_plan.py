@@ -23,8 +23,6 @@ import csv
 import logging
 from pathlib import Path
 
-from pydantic import BaseModel, Field
-
 from agents._shared.forbidden import find_forbidden_matches
 from agents.watcher.schema import ActionPlan, OfficialLink, TownAnalysis, TownAssessment
 
@@ -38,7 +36,8 @@ DEFAULT_LOCATION = "us-central1"
 PORTAL_NAME = "全国移住ナビ（ニッポン移住・交流ナビ）"
 PORTAL_URL = "https://www.iju-join.jp/"
 
-_SEED_PATH = Path(__file__).resolve().parents[2] / "infra" / "seed" / "relocation_links.csv"
+# API イメージに同梱されるよう agents/watcher/data 配下に置く (Dockerfile は infra/ を COPY しない)
+_SEED_PATH = Path(__file__).resolve().parent / "data" / "relocation_links.csv"
 _LINKS_CACHE: dict[str, tuple[str, str]] | None = None
 MAX_REASONS = 6
 
@@ -140,12 +139,6 @@ def assemble_action_plan(
     )
 
 
-class _VisitChecklist(BaseModel):
-    """generate_visit_checklist の response_schema (JSON モード強制用)。"""
-
-    items: list[str] = Field(default_factory=list)
-
-
 def _build_checklist_prompt(rec: TownAssessment, name: str, mode: str) -> str:
     ctx = (
         f"街: {name}\n"
@@ -182,33 +175,41 @@ async def generate_visit_checklist(
     from google.adk import Agent, Runner
     from google.adk.sessions import InMemorySessionService
 
+    # 実績ある watcher synth と同じく response_mime_type のみ (response_schema は ADK Agent 経由だと
+    # 構造化出力が text に乗らず空になることがあるため使わない)。JSON 崩れ対策に最大2回試行。
+    prompt = _build_checklist_prompt(rec, name, mode)
     try:
         agent = Agent(
             name="action_plan_checklist",
             model=model,
-            instruction="現地確認チェックリストを JSON で返すアシスタント。",
+            instruction="現地確認チェックリストを JSON のみで返すアシスタント。",
             tools=[],
             generate_content_config=gat.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=_VisitChecklist,
+                response_mime_type="application/json"
             ),
         )
-        ss = InMemorySessionService()
-        sid = uuid.uuid4().hex[:8]
-        await ss.create_session(app_name="action_plan", user_id="aux", session_id=sid)
-        runner = Runner(agent=agent, app_name="action_plan", session_service=ss)
-        msg = gat.Content(
-            role="user", parts=[gat.Part(text=_build_checklist_prompt(rec, name, mode))]
+        runner = Runner(
+            agent=agent, app_name="action_plan", session_service=InMemorySessionService()
         )
-        final_text = ""
-        async for event in runner.run_async(user_id="aux", session_id=sid, new_message=msg):
-            if getattr(event, "is_final_response", lambda: False)() and event.content:
-                final_text = event.content.parts[0].text or ""
+        items: list[str] = []
+        for _attempt in range(2):
+            sid = uuid.uuid4().hex[:8]
+            await runner.session_service.create_session(
+                app_name="action_plan", user_id="aux", session_id=sid
+            )
+            msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
+            final_text = ""
+            async for event in runner.run_async(user_id="aux", session_id=sid, new_message=msg):
+                if getattr(event, "is_final_response", lambda: False)() and event.content:
+                    final_text = event.content.parts[0].text or ""
+            items = _parse_checklist(final_text)
+            if items:
+                break
     except Exception as exc:  # noqa: BLE001
         logger.warning("generate_visit_checklist failed: %s", exc)
         return []
 
-    return _filter_forbidden(_parse_checklist(final_text))
+    return _filter_forbidden(items)
 
 
 def _filter_forbidden(items: list[str]) -> list[str]:
