@@ -50,6 +50,7 @@ SPECIALIST_TOOLS: dict[str, tuple[str, ...]] = {
 }
 SPECIALIST_DOMAINS: tuple[str, ...] = ("population", "fiscal", "living_safety", "topics")
 MAX_SPECIALIST_TOOL_CALLS = 4  # 専門家1人あたりのツール上限
+_SYNTH_MAX_ATTEMPTS = 3  # Synthesizer の最大試行回数 (解析失敗時のみ再実行し空振りを抑制)
 
 logger = logging.getLogger(__name__)
 
@@ -460,13 +461,16 @@ class WatcherAgent:
             context += f"\n\n# 前回の結論(継続性の参考)\n{prev_analysis.verdict.headline}"
         findings_json = json.dumps([f.model_dump() for f in findings], ensure_ascii=False)
         synth_msg = build_synth_prompt(findings_json, context)
-        text = await self._run_single_agent(SYNTHESIZER_PROMPT, synth_msg)
-        parsed = parse_analysis(text)
-        # 統合は結論の要なので、解析失敗時のみ1回だけ再試行 (空振り status=empty を抑制)
-        if parsed is None:
-            logger.info("watcher.synthesize_retry user=%s", watch.user_id)
+        # 統合は結論の要。解析失敗は LLM のサンプリング変動が主因(同入力で成否が割れる)なので
+        # 最大3回まで再試行し空振り(status=empty)を実質排除する。失敗時のみ追加実行。
+        parsed: TownAnalysis | None = None
+        for attempt in range(_SYNTH_MAX_ATTEMPTS):
+            if attempt:
+                logger.info("watcher.synthesize_retry user=%s attempt=%d", watch.user_id, attempt)
             text = await self._run_single_agent(SYNTHESIZER_PROMPT, synth_msg)
             parsed = parse_analysis(text)
+            if parsed is not None:
+                break
         return parsed
 
     async def _run_single_agent(self, instruction: str, message: str) -> str:
