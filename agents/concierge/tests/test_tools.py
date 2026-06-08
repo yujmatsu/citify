@@ -60,16 +60,25 @@ def test_interest_hits_子育て_returns_false_when_childcare_zero() -> None:
     assert _interest_hits("子育て", {"childcare_facility_count": 0}) is False
 
 
-def test_interest_hits_医療_returns_true_when_medical_positive() -> None:
-    assert _interest_hits("医療", {"medical_facility_count": 100}) is True
+def test_interest_hits_医療_uses_ssds_not_legacy() -> None:
+    # SSDS 病院数 or 医師密度で hit。旧 medical_facility_count(4909問題)は使わない
+    assert _interest_hits("医療", {"ssds_hospital_count": 5}) is True
+    assert _interest_hits("医療", {"doctors_per_100k": 180.0}) is True
+    assert _interest_hits("医療", {"medical_facility_count": 100}) is False
+
+
+def test_interest_hits_雇用_uses_unemployment_rate() -> None:
+    # 雇用は SSDS 完全失業率データで判定 (旧: 人口変動 proxy)
+    assert _interest_hits("雇用", {"unemployment_rate_pct": 3.4}) is True
+    assert _interest_hits("雇用", {"population_change_pct": 5.0}) is False
 
 
 def test_interest_hits_proxy_interests_use_population_growth() -> None:
-    """結婚/雇用/税/起業/移住 は population_change で proxy 判定。"""
+    """結婚/税/起業/移住 は population_change で proxy 判定。"""
     # -5% growth (within -10%) → hit
     assert _interest_hits("結婚", {"population_change_pct": -5.0}) is True
     # -20% growth → not hit
-    assert _interest_hits("雇用", {"population_change_pct": -20.0}) is False
+    assert _interest_hits("税", {"population_change_pct": -20.0}) is False
 
 
 def test_interest_match_score_distinct_thresholds() -> None:
@@ -141,7 +150,7 @@ def test_build_constraint_where_multiple_clauses_combined() -> None:
     )
     # 3 clauses 全てが含まれる (順序問わず)
     assert "childcare_facility_count >= @min_childcare" in where
-    assert "medical_facility_count >= @min_medical" in where
+    assert "ssds_hospital_count >= @min_medical" in where
     assert "population_change_pct > 0" in where
     # 結果 params に 2 個 (growth は SQL 内 hard-code、param 不要)
     assert "min_childcare" in params
@@ -159,7 +168,8 @@ def test_format_summary_with_all_fields() -> None:
         "youth_share_pct": 18.5,
         "used_apartment_median_price_man_yen": 4200,
         "childcare_facility_count": 45,
-        "medical_facility_count": 220,
+        "ssds_hospital_count": 12,
+        "doctors_per_100k": 180.0,
         "population_change_pct": -12.3,
     }
     text = _format_summary(row)
@@ -167,7 +177,8 @@ def test_format_summary_with_all_fields() -> None:
     assert "若者 18.5%" in text
     assert "4,200 万円" in text
     assert "保育施設 45 件" in text
-    assert "医療機関 220 件" in text
+    assert "病院 12 院" in text
+    assert "医師 180 人/10万" in text
     assert "-12.3%" in text
 
 

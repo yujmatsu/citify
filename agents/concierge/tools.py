@@ -71,7 +71,8 @@ def _build_constraint_where(c: ConstraintFilter) -> tuple[str, dict[str, Any]]:
         clauses.append("childcare_facility_count >= @min_childcare")
         params["min_childcare"] = ("INT64", c.min_childcare_count)
     if c.min_medical_count is not None:
-        clauses.append("medical_facility_count >= @min_medical")
+        # 医療は SSDS 病院数 (ssds_hospital_count) で判定。旧 medical_facility_count(4909問題)は退役
+        clauses.append("ssds_hospital_count >= @min_medical")
         params["min_medical"] = ("INT64", c.min_medical_count)
     if c.min_population is not None:
         clauses.append("population_total >= @min_pop")
@@ -106,17 +107,25 @@ def _interest_match_score(matched: list[str]) -> float:
 def _interest_hits(interest: Interest, row: dict[str, Any]) -> bool:
     """1 つの interest が row の統計に hit するか判定。"""
     if interest == "住居":
-        return row.get("used_apartment_median_price_man_yen") is not None
+        # 住居コスト or 住まいの広さ(SSDS)のいずれかデータがあれば hit
+        return (
+            row.get("used_apartment_median_price_man_yen") is not None
+            or row.get("dwelling_area_sqm") is not None
+        )
     if interest == "子育て":
         return (row.get("childcare_facility_count") or 0) > 0
     if interest == "医療":
-        return (row.get("medical_facility_count") or 0) > 0
+        # SSDS 病院数 or 医師密度。旧 medical_facility_count(4909問題)は使わない
+        return (row.get("ssds_hospital_count") or 0) > 0 or row.get("doctors_per_100k") is not None
     if interest == "教育":
         return (row.get("kindergarten_count") or 0) > 0
     if interest == "防災":
         return (row.get("emergency_shelter_count") or 0) > 0
-    # 結婚 / 雇用 / 税 / 起業 / 移住 は stats で直接判定不可、人口変動で proxy
-    if interest in ("結婚", "雇用", "税", "起業", "移住"):
+    if interest == "雇用":
+        # SSDS 完全失業率データがあれば hit (旧: 人口変動 proxy)
+        return row.get("unemployment_rate_pct") is not None
+    # 結婚 / 税 / 起業 / 移住 は stats で直接判定不可、人口変動で proxy
+    if interest in ("結婚", "税", "起業", "移住"):
         growth = row.get("population_change_pct")
         return growth is not None and growth > -10  # -10% 以内なら住みやすいと proxy 判定
     return False
@@ -160,7 +169,10 @@ def _row_to_candidate(
         youth_share_pct=row.get("youth_share_pct"),
         used_apartment_median_price_man_yen=row.get("used_apartment_median_price_man_yen"),
         childcare_facility_count=row.get("childcare_facility_count"),
-        medical_facility_count=row.get("medical_facility_count"),
+        doctors_per_100k=row.get("doctors_per_100k"),
+        ssds_hospital_count=row.get("ssds_hospital_count"),
+        unemployment_rate_pct=row.get("unemployment_rate_pct"),
+        dwelling_area_sqm=row.get("dwelling_area_sqm"),
         population_change_pct=row.get("population_change_pct"),
         financial_capability_index=row.get("financial_capability_index"),
         matched_interests=matched_interests,
@@ -179,8 +191,15 @@ def _format_summary(row: dict[str, Any]) -> str:
         parts.append(f"中古マンション中央値 {row['used_apartment_median_price_man_yen']:,} 万円")
     if row.get("childcare_facility_count") is not None:
         parts.append(f"保育施設 {row['childcare_facility_count']} 件")
-    if row.get("medical_facility_count") is not None:
-        parts.append(f"医療機関 {row['medical_facility_count']} 件")
+    # 医療は SSDS 信頼値 (病院数・医師密度)。旧 medical_facility_count(4909問題)は使わない
+    if row.get("ssds_hospital_count") is not None:
+        parts.append(f"病院 {row['ssds_hospital_count']} 院")
+    if row.get("doctors_per_100k") is not None:
+        parts.append(f"医師 {row['doctors_per_100k']:.0f} 人/10万")
+    if row.get("unemployment_rate_pct") is not None:
+        parts.append(f"完全失業率 {row['unemployment_rate_pct']:.1f}%")
+    if row.get("dwelling_area_sqm") is not None:
+        parts.append(f"住まいの広さ {row['dwelling_area_sqm']:.0f}㎡")
     if row.get("population_change_pct") is not None:
         growth = row["population_change_pct"]
         parts.append(f"人口増減率 {growth:+.1f}%")
@@ -222,7 +241,8 @@ def search_municipalities(
             population_total, youth_share_pct,
             used_apartment_median_price_man_yen,
             childcare_facility_count, kindergarten_count, nursery_count,
-            medical_facility_count, medical_hospital_count, medical_clinic_count,
+            ssds_hospital_count, doctors_per_100k,
+            unemployment_rate_pct, dwelling_area_sqm,
             emergency_shelter_count,
             population_change_pct, financial_capability_index
         FROM `{table_fqn}`
@@ -427,7 +447,10 @@ def fetch_city_dashboard(
                     "elderly_share_pct",
                     "used_apartment_median_price_man_yen",
                     "childcare_facility_count",
-                    "medical_facility_count",
+                    "ssds_hospital_count",
+                    "doctors_per_100k",
+                    "unemployment_rate_pct",
+                    "dwelling_area_sqm",
                     "emergency_shelter_count",
                     "population_change_pct",
                 )

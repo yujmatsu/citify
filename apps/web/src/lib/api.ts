@@ -424,7 +424,11 @@ export const MunicipalityCandidateSchema = z.object({
   youth_share_pct: z.number().nullable().optional(),
   used_apartment_median_price_man_yen: z.number().nullable().optional(),
   childcare_facility_count: z.number().int().nullable().optional(),
-  medical_facility_count: z.number().int().nullable().optional(),
+  // 医療は SSDS 信頼値に統一 (旧 medical_facility_count は退役)
+  doctors_per_100k: z.number().nullable().optional(),
+  ssds_hospital_count: z.number().int().nullable().optional(),
+  unemployment_rate_pct: z.number().nullable().optional(),
+  dwelling_area_sqm: z.number().nullable().optional(),
   population_change_pct: z.number().nullable().optional(),
   financial_capability_index: z.number().nullable().optional(),
   matched_interests: z.array(z.string()).default([]),

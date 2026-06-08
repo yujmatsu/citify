@@ -38,7 +38,7 @@ class ConstraintFilter(BaseModel):
     min_medical_count: int | None = Field(
         default=None,
         ge=0,
-        description="医療機関数の下限。これより少ない自治体は除外",
+        description="病院数(SSDS)の下限。これより少ない自治体は除外",
     )
     min_population: int | None = Field(
         default=None,
@@ -80,7 +80,11 @@ class MunicipalityCandidate(BaseModel):
     youth_share_pct: float | None = None
     used_apartment_median_price_man_yen: float | None = None
     childcare_facility_count: int | None = None
-    medical_facility_count: int | None = None
+    # 医療は SSDS 信頼値に統一 (旧 medical_facility_count=4909問題は退役、カルテ/Watcher と整合)
+    doctors_per_100k: float | None = None  # 医師数・人口10万対 (SSDS)
+    ssds_hospital_count: int | None = None  # 病院数 (SSDS)
+    unemployment_rate_pct: float | None = None  # 完全失業率% (SSDS)
+    dwelling_area_sqm: float | None = None  # 1住宅延べ面積㎡ (SSDS)
     population_change_pct: float | None = None  # e-Stat 直近国勢調査ベース (TASK-POPFIX)
     financial_capability_index: float | None = None  # 財政力指数 (TASK-FISCAL、SSDS)
     matched_interests: list[Interest] = Field(
