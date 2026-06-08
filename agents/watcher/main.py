@@ -459,10 +459,15 @@ class WatcherAgent:
         if prev_analysis is not None and prev_analysis.verdict.headline:
             context += f"\n\n# 前回の結論(継続性の参考)\n{prev_analysis.verdict.headline}"
         findings_json = json.dumps([f.model_dump() for f in findings], ensure_ascii=False)
-        text = await self._run_single_agent(
-            SYNTHESIZER_PROMPT, build_synth_prompt(findings_json, context)
-        )
-        return parse_analysis(text)
+        synth_msg = build_synth_prompt(findings_json, context)
+        text = await self._run_single_agent(SYNTHESIZER_PROMPT, synth_msg)
+        parsed = parse_analysis(text)
+        # 統合は結論の要なので、解析失敗時のみ1回だけ再試行 (空振り status=empty を抑制)
+        if parsed is None:
+            logger.info("watcher.synthesize_retry user=%s", watch.user_id)
+            text = await self._run_single_agent(SYNTHESIZER_PROMPT, synth_msg)
+            parsed = parse_analysis(text)
+        return parsed
 
     async def _run_single_agent(self, instruction: str, message: str) -> str:
         """ツール無しの単発 ADK エージェントを1回回し、最終テキストを返す (critique/advocate/revise 用)。"""
@@ -472,7 +477,18 @@ class WatcherAgent:
         from google.adk import Agent, Runner
         from google.adk.sessions import InMemorySessionService
 
-        agent = Agent(name="watcher_aux", model=self.model, instruction=instruction, tools=[])
+        # JSON モード: ツール無しの補助エージェント(synthesize/critique/advocate/revise)は
+        # 必ず JSON を返すので、構文上妥当な JSON を強制し parse 失敗(synthesize_failed)を防ぐ。
+        # ※ tools 付きの専門家エージェントは function-calling と非互換のため適用しない。
+        agent = Agent(
+            name="watcher_aux",
+            model=self.model,
+            instruction=instruction,
+            tools=[],
+            generate_content_config=gat.GenerateContentConfig(
+                response_mime_type="application/json"
+            ),
+        )
         ss = InMemorySessionService()
         sid = uuid.uuid4().hex[:8]
         await ss.create_session(app_name="watcher_aux", user_id="aux", session_id=sid)
