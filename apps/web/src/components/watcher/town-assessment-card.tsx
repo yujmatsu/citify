@@ -112,6 +112,14 @@ export function TownAssessmentCard({
           ))}
         </div>
       )}
+
+      {/* 判断→事実への橋渡し: エージェントの評価から街カルテ(全国順位・客観データ)へ */}
+      <Link
+        href={`/cities/${assessment.municipality_code}`}
+        className="inline-flex text-xs font-medium text-zinc-500 underline decoration-dotted hover:text-emerald-700 dark:text-zinc-400 dark:hover:text-emerald-400"
+      >
+        📊 {muni} の全国順位・客観データを見る →
+      </Link>
     </article>
   );
 }

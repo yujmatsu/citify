@@ -228,6 +228,7 @@ function CityDashboardView({
         {radarError && !radar && (
           <SectionLoadError label="暮らし・財政の全国での位置" />
         )}
+        {!radar && !radarError && <RadarSkeleton />}
 
         {/* ② 人口推移 (TASK-POPTREND: 国勢調査実績 + XKT013 将来推計 2025-2070) — 街の未来 */}
         {trend && trend.series.length >= 2 && (
@@ -361,6 +362,23 @@ function CityDashboardView({
   );
 }
 
+/**
+ * 最上部(まとめ+レーダー)のロード中プレースホルダ。
+ * radar は dashboard と独立 fetch のため、高さを予約して CLS(レイアウトシフト)を防ぐ。
+ */
+function RadarSkeleton(): React.JSX.Element {
+  return (
+    <div aria-hidden className="animate-pulse space-y-8">
+      <div className="h-28 rounded-2xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900" />
+      <div className="flex flex-col items-center gap-4 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="h-5 w-48 rounded bg-zinc-100 dark:bg-zinc-800" />
+        <div className="h-56 w-56 rounded-full bg-zinc-100 dark:bg-zinc-800" />
+        <div className="h-40 w-full rounded bg-zinc-100 dark:bg-zinc-800" />
+      </div>
+    </div>
+  );
+}
+
 /** セクション単位の読み込み失敗を無言で消さずに知らせる軽い注記。 */
 function SectionLoadError({ label }: { label: string }): React.JSX.Element {
   return (
@@ -394,47 +412,65 @@ function RadarSummary({
 
   if (items.length === 0) return null;
 
-  const strengths = [...items]
-    .filter((i) => i.topPct < 50)
+  // 価値判断(強み/弱み)を避け「全国で高い/低い」と記述的に提示。
+  // 中央値付近の僅差を二分しないよう、上位/下位33%に明確に入る項目だけを採用する。
+  const highItems = [...items]
+    .filter((i) => i.topPct <= 33)
     .sort((a, b) => a.topPct - b.topPct)
-    .slice(0, 3);
-  const weaknesses = [...items]
-    .filter((i) => i.topPct > 50)
+    .slice(0, 4);
+  const lowItems = [...items]
+    .filter((i) => i.topPct >= 67)
     .sort((a, b) => b.topPct - a.topPct)
-    .slice(0, 3);
+    .slice(0, 4);
 
-  const fmtStrong = (i: { label: string; topPct: number }) =>
-    `${i.label}(上位${Math.max(1, Math.round(i.topPct))}%)`;
-  const fmtWeak = (i: { label: string; topPct: number }) =>
-    `${i.label}(下位${Math.max(1, Math.round(100 - i.topPct))}%)`;
+  const fmtHigh = (i: { label: string; topPct: number }) =>
+    `${i.label}（上位${Math.max(1, Math.round(i.topPct))}%）`;
+  const fmtLow = (i: { label: string; topPct: number }) =>
+    `${i.label}（下位${Math.max(1, Math.round(100 - i.topPct))}%）`;
 
   return (
-    <section className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6 dark:border-emerald-900 dark:bg-emerald-950/40">
-      <h2 className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
-        📌 {cityName} のまとめ
+    <section className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-6 dark:border-zinc-700 dark:bg-zinc-900">
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+        📊 {cityName} の全国順位でみた特徴
       </h2>
-      {strengths.length > 0 && (
+      {highItems.length > 0 && (
         <p className="text-sm leading-relaxed">
-          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-            🟢 強み
+          <span className="font-semibold text-sky-700 dark:text-sky-400">
+            <span aria-hidden>↑</span> 全国で高い側
           </span>{" "}
           <span className="text-zinc-700 dark:text-zinc-200">
-            {strengths.map(fmtStrong).join(" ・ ")}
+            {highItems.map(fmtHigh).join(" ・ ")}
           </span>
         </p>
       )}
-      {weaknesses.length > 0 && (
+      {lowItems.length > 0 && (
         <p className="text-sm leading-relaxed">
-          <span className="font-semibold text-amber-700 dark:text-amber-400">
-            🟠 注意
+          <span className="font-semibold text-zinc-500 dark:text-zinc-400">
+            <span aria-hidden>↓</span> 全国で低い側
           </span>{" "}
           <span className="text-zinc-700 dark:text-zinc-200">
-            {weaknesses.map(fmtWeak).join(" ・ ")}
+            {lowItems.map(fmtLow).join(" ・ ")}
           </span>
         </p>
       )}
-      <p className="text-xs text-zinc-400">
-        全国順位データから自動生成しています（価値判断は含みません）。詳しくは下の各指標をご覧ください。
+      {highItems.length === 0 && lowItems.length === 0 && (
+        <p className="text-sm text-zinc-700 dark:text-zinc-200">
+          各指標は全国的に平均的な水準の項目が多い街です。
+        </p>
+      )}
+      <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+        これは全国順位にもとづく{" "}
+        <span className="font-semibold">客観的な事実</span>{" "}
+        のまとめです（住みやすさの優劣ではありません）。あなたの関心や複数候補をふまえた{" "}
+        <span className="font-semibold">総合的な判断</span>{" "}
+        は{" "}
+        <Link
+          href="/agent"
+          className="font-medium text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400"
+        >
+          マイ街エージェント →
+        </Link>{" "}
+        が行います。
       </p>
     </section>
   );
