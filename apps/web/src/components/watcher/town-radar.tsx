@@ -160,8 +160,9 @@ export function TownRadar({
             </span>
           ))}
         </div>
-        <p className="mt-1 text-[10px] text-zinc-400">
-          外側ほど良い（全国の中での位置＝パーセンタイル）
+        <p className="mt-1 text-xs text-zinc-400">
+          外側ほど全国で上位（指標ごとの望ましい方向で算出。財政力・所得・医療などは高い側、
+          負債・治安は低い側を上位とした）
         </p>
       </div>
 
@@ -204,8 +205,11 @@ export function TownRadar({
                     >
                       <div>{formatRaw(m.key, v?.raw ?? null)}</div>
                       {v?.rank != null && v?.total != null && (
-                        <div className="text-[10px] font-normal text-zinc-400">
-                          {v.rank}位/{v.total}
+                        <div className="text-[11px] font-normal leading-tight text-zinc-400">
+                          上位{Math.max(1, Math.round((v.rank / v.total) * 100))}%
+                          <span className="block">
+                            {v.rank}位/{v.total}
+                          </span>
                         </div>
                       )}
                     </td>
@@ -218,8 +222,8 @@ export function TownRadar({
             ))}
           </tbody>
         </table>
-        <p className="mt-1 text-[10px] text-zinc-400">
-          「○位/△」は全国順位（1位＝最良）。母数は指標ごとにデータのある市区町村数。
+        <p className="mt-1 text-xs text-zinc-400">
+          「上位X%」「○位/△」は全国での位置（1位＝最も上位）。母数は指標ごとにデータのある市区町村数。
         </p>
       </div>
 

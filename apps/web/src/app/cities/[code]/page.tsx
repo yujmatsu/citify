@@ -112,32 +112,49 @@ function CityDashboardView({
     return Object.entries(data.interest_counts).sort((a, b) => b[1] - a[1]);
   }, [data.interest_counts]);
 
-  // 人口推移 (TASK-POPTREND) はダッシュボードと独立に取得 (失敗時は非表示)
+  // 議題セクションの開閉 (初期は3件のみ表示してスクロール長を抑える)
+  const [showAllSpeeches, setShowAllSpeeches] = useState(false);
+
+  // 人口推移 (TASK-POPTREND) はダッシュボードと独立に取得。失敗時は無言で消さず注記を出す
   const [trend, setTrend] = useState<PopulationTrendResponse | null>(null);
+  const [trendError, setTrendError] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetchPopulationTrend(data.municipality_code)
       .then((t) => {
-        if (!cancelled) setTrend(t);
+        if (!cancelled) {
+          setTrend(t);
+          setTrendError(false);
+        }
       })
       .catch(() => {
-        if (!cancelled) setTrend(null);
+        if (!cancelled) {
+          setTrend(null);
+          setTrendError(true);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [data.municipality_code]);
 
-  // 暮らし・財政レーダー (TASK-FISCAL): 全国分布での位置を単一市で表示 (失敗時は非表示)
+  // 暮らし・財政レーダー (TASK-FISCAL): 全国分布での位置を単一市で表示
   const [radar, setRadar] = useState<CompareStatsResponse | null>(null);
+  const [radarError, setRadarError] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetchCompareStats([data.municipality_code])
       .then((r) => {
-        if (!cancelled) setRadar(r);
+        if (!cancelled) {
+          setRadar(r);
+          setRadarError(false);
+        }
       })
       .catch(() => {
-        if (!cancelled) setRadar(null);
+        if (!cancelled) {
+          setRadar(null);
+          setRadarError(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -169,16 +186,18 @@ function CityDashboardView({
           )}
         </div>
 
-        {/* ヘッダー */}
+        {/* ヘッダー: マイ自治体か候補かで文言を出し分け (user_id は技術識別子のため非表示) */}
         <header className="space-y-2">
           <p className="text-sm text-zinc-500">
-            あなたの街、今こうなっています
+            {isRegistered
+              ? "あなたの街、今こうなっています"
+              : "候補として見ている街"}
           </p>
           <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-            🏙️ {data.municipality_name}
+            <span aria-hidden>🏙️</span> {data.municipality_name}
           </h1>
           <p className="text-sm text-zinc-500">
-            あなた ({persona.user_id}) 向けに採点された議題:{" "}
+            あなたの関心に沿って採点された議題:{" "}
             <span className="font-semibold text-zinc-800 dark:text-zinc-200">
               {data.total_speeches} 件
             </span>
@@ -191,8 +210,13 @@ function CityDashboardView({
           )}
         </header>
 
-        {/* 表示順 (街選び判断フロー): 結論=全国での位置 → 未来(人口推移) → 構造(年齢構成)
-            → 個別事実(街のかたち) → Citify独自(関心軸別議題)。逆ピラミッド構成。 */}
+        {/* 表示順 (街選び判断フロー): まとめ → 結論=全国での位置 → 未来(人口推移)
+            → 構造(年齢構成) → 個別事実(街のかたち) → Citify独自(関心軸別議題)。 */}
+
+        {/* ⓪ 自動まとめ — 全国順位データから強み/弱みを機械生成 (結論を最初に) */}
+        {radar && radar.towns.length > 0 && (
+          <RadarSummary data={radar} cityName={data.municipality_name} />
+        )}
 
         {/* ① 暮らし・財政の全国比較レーダー (TASK-FISCAL) — 結論的な全体像を先頭に */}
         {radar && radar.towns.length > 0 && (
@@ -200,6 +224,9 @@ function CityDashboardView({
             <h2 className="text-lg font-semibold">📐 暮らし・財政の全国での位置</h2>
             <TownRadar data={radar} />
           </section>
+        )}
+        {radarError && !radar && (
+          <SectionLoadError label="暮らし・財政の全国での位置" />
         )}
 
         {/* ② 人口推移 (TASK-POPTREND: 国勢調査実績 + XKT013 将来推計 2025-2070) — 街の未来 */}
@@ -214,11 +241,12 @@ function CityDashboardView({
               )}
             </div>
             <PopulationTrendChart data={trend} />
-            <p className="text-[10px] leading-relaxed text-zinc-400">
+            <p className="text-xs leading-relaxed text-zinc-400">
               {trend.source_note}
             </p>
           </section>
         )}
+        {trendError && !trend && <SectionLoadError label="人口推移" />}
 
         {/* ③ 年齢構成 (設計B B2c) — 街の構造 */}
         {data.stats && <AgeStructureBar stats={data.stats} />}
@@ -268,17 +296,23 @@ function CityDashboardView({
           </section>
         )}
 
-        {/* CTA: 比較ビュー */}
-        {isRegistered &&
-          persona.municipality_codes.filter((c) => c !== "00000").length >=
-            2 && (
+        {/* CTA: 比較ビュー (街選びの核なので常時表示。登録2件未満なら追加へ誘導) */}
+        {(() => {
+          const registeredCount = persona.municipality_codes.filter(
+            (c) => c !== "00000",
+          ).length;
+          const canCompare = registeredCount >= 2;
+          return (
             <Link
-              href="/compare"
+              href={canCompare ? "/compare" : "/municipalities"}
               className="block rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-center text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
             >
-              🔀 他の街と比較してみる →
+              {canCompare
+                ? "🔀 他の街と並べて比較する →"
+                : "🔀 他の街を追加して比較する →"}
             </Link>
-          )}
+          );
+        })()}
 
         {/* 注目の議題 */}
         <section className="space-y-3">
@@ -294,21 +328,134 @@ function CityDashboardView({
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-3">
-              {data.top_speeches.map((item) => (
-                <FeedCard key={item.speech_id} item={item} />
-              ))}
-            </div>
+            <>
+              <div className="flex flex-col gap-3">
+                {(showAllSpeeches
+                  ? data.top_speeches
+                  : data.top_speeches.slice(0, 3)
+                ).map((item) => (
+                  <FeedCard key={item.speech_id} item={item} />
+                ))}
+              </div>
+              {data.top_speeches.length > 3 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllSpeeches((v) => !v)}
+                  className="w-full rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                >
+                  {showAllSpeeches
+                    ? "閉じる"
+                    : `もっと見る（残り ${data.top_speeches.length - 3} 件）`}
+                </button>
+              )}
+            </>
           )}
         </section>
 
         {/* 倫理表記 */}
-        <p className="pb-8 text-center text-[10px] text-zinc-500">
+        <p className="pb-8 text-center text-xs text-zinc-500">
           AI が説明用に翻訳・採点しました。投票推奨・政治的判断は含みません。
         </p>
       </div>
     </main>
   );
+}
+
+/** セクション単位の読み込み失敗を無言で消さずに知らせる軽い注記。 */
+function SectionLoadError({ label }: { label: string }): React.JSX.Element {
+  return (
+    <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+      ⚠️ {label}を読み込めませんでした。時間をおいて再度お試しください。
+    </section>
+  );
+}
+
+/**
+ * 街カルテ冒頭の自動まとめ。レーダー(全国順位)データから相対的な強み/弱みを機械生成。
+ * 中央値(上位50%)より上を強み、下を注意点として上位3つずつ提示。LLM不使用・コスト0。
+ */
+function RadarSummary({
+  data,
+  cityName,
+}: {
+  data: CompareStatsResponse;
+  cityName: string;
+}): React.JSX.Element | null {
+  const town = data.towns[0];
+  if (!town) return null;
+
+  const items = data.metrics
+    .map((m) => {
+      const v = town.values[m.key];
+      if (v?.rank == null || v?.total == null || v.total <= 0) return null;
+      return { label: m.label, topPct: (v.rank / v.total) * 100 };
+    })
+    .filter((x): x is { label: string; topPct: number } => x !== null);
+
+  if (items.length === 0) return null;
+
+  const strengths = [...items]
+    .filter((i) => i.topPct < 50)
+    .sort((a, b) => a.topPct - b.topPct)
+    .slice(0, 3);
+  const weaknesses = [...items]
+    .filter((i) => i.topPct > 50)
+    .sort((a, b) => b.topPct - a.topPct)
+    .slice(0, 3);
+
+  const fmtStrong = (i: { label: string; topPct: number }) =>
+    `${i.label}(上位${Math.max(1, Math.round(i.topPct))}%)`;
+  const fmtWeak = (i: { label: string; topPct: number }) =>
+    `${i.label}(下位${Math.max(1, Math.round(100 - i.topPct))}%)`;
+
+  return (
+    <section className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6 dark:border-emerald-900 dark:bg-emerald-950/40">
+      <h2 className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+        📌 {cityName} のまとめ
+      </h2>
+      {strengths.length > 0 && (
+        <p className="text-sm leading-relaxed">
+          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+            🟢 強み
+          </span>{" "}
+          <span className="text-zinc-700 dark:text-zinc-200">
+            {strengths.map(fmtStrong).join(" ・ ")}
+          </span>
+        </p>
+      )}
+      {weaknesses.length > 0 && (
+        <p className="text-sm leading-relaxed">
+          <span className="font-semibold text-amber-700 dark:text-amber-400">
+            🟠 注意
+          </span>{" "}
+          <span className="text-zinc-700 dark:text-zinc-200">
+            {weaknesses.map(fmtWeak).join(" ・ ")}
+          </span>
+        </p>
+      )}
+      <p className="text-xs text-zinc-400">
+        全国順位データから自動生成しています（価値判断は含みません）。詳しくは下の各指標をご覧ください。
+      </p>
+    </section>
+  );
+}
+
+// 街のかたちカードのテーマ分類 (認知負荷を下げるためのグルーピング)
+const STATS_GROUP_POP = "人口・世帯";
+const STATS_GROUP_HOME = "住まい・防災";
+const STATS_GROUP_LIFE = "医療・教育・経済";
+const STATS_GROUP_ORDER = [
+  STATS_GROUP_POP,
+  STATS_GROUP_HOME,
+  STATS_GROUP_LIFE,
+] as const;
+
+function statsGroupFor(label: string): string {
+  if (/総人口|15-29|人口変動|高齢化|総世帯|出生|予測人口/.test(label)) {
+    return STATS_GROUP_POP;
+  }
+  if (/マンション|㎡単価|避難所/.test(label)) return STATS_GROUP_HOME;
+  return STATS_GROUP_LIFE;
 }
 
 function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element {
@@ -463,7 +610,7 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
         <h2 className="text-sm font-semibold text-zinc-500">
           📊 街のかたち (客観統計)
         </h2>
-        <div className="flex flex-wrap items-baseline gap-2 text-[10px] text-zinc-400">
+        <div className="flex flex-wrap items-baseline gap-2 text-[11px] text-zinc-400">
           {stats.source_url && (
             <a
               href={stats.source_url}
@@ -486,34 +633,69 @@ function StatsCards({ stats }: { stats: MunicipalityStats }): React.JSX.Element 
           )}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {cards.map((card) => (
-          <div
-            key={card.label}
-            className={cn(
-              "rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800",
-              card.accent === "positive" &&
-                "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
-              card.accent === "negative" &&
-                "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950",
-            )}
+      {STATS_GROUP_ORDER.map((group, gi) => {
+        const groupCards = cards.filter((c) => statsGroupFor(c.label) === group);
+        if (groupCards.length === 0) return null;
+        return (
+          <details
+            key={group}
+            open={gi === 0}
+            className="group rounded-xl border border-zinc-200 dark:border-zinc-700"
           >
-            <p className="text-[10px] text-zinc-500">{card.label}</p>
-            <p
-              className={cn(
-                "text-lg font-semibold tabular-nums leading-tight",
-                card.accent === "positive" && "text-emerald-700 dark:text-emerald-300",
-                card.accent === "negative" && "text-rose-700 dark:text-rose-300",
-              )}
-            >
-              {card.value}
-            </p>
-            {card.sub && (
-              <p className="text-[10px] text-zinc-400">{card.sub}</p>
-            )}
-          </div>
-        ))}
-      </div>
+            <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              <span>
+                {group}
+                <span className="ml-1 font-normal text-zinc-400">
+                  ({groupCards.length})
+                </span>
+              </span>
+              <span className="text-zinc-400 transition-transform group-open:rotate-180">
+                ▾
+              </span>
+            </summary>
+            <div className="grid grid-cols-2 gap-2 px-3 pb-3 sm:grid-cols-3">
+              {groupCards.map((card) => (
+                <div
+                  key={card.label}
+                  className={cn(
+                    "rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800",
+                    card.accent === "positive" &&
+                      "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
+                    card.accent === "negative" &&
+                      "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950",
+                  )}
+                >
+                  <p className="text-[11px] text-zinc-500">{card.label}</p>
+                  <p
+                    className={cn(
+                      "text-lg font-semibold tabular-nums leading-tight",
+                      card.accent === "positive" &&
+                        "text-emerald-700 dark:text-emerald-300",
+                      card.accent === "negative" &&
+                        "text-rose-700 dark:text-rose-300",
+                    )}
+                  >
+                    {card.value}
+                    {card.accent === "positive" && (
+                      <span aria-hidden className="ml-0.5 text-xs">
+                        ↑
+                      </span>
+                    )}
+                    {card.accent === "negative" && (
+                      <span aria-hidden className="ml-0.5 text-xs">
+                        ↓
+                      </span>
+                    )}
+                  </p>
+                  {card.sub && (
+                    <p className="text-[11px] text-zinc-400">{card.sub}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        );
+      })}
       {/* Phase F 倫理ガード: 防災 link は自治体公式ハザードマップに誘導 */}
       {stats.emergency_shelter_official_link && (
         <p className="text-[10px] text-zinc-500">
