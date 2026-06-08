@@ -29,11 +29,27 @@ export const INTERESTS = [
 ] as const;
 export type Interest = (typeof INTERESTS)[number];
 
+// TASK-ONBOARDING: 前提整理 (B 家族構成)
+export const HOUSEHOLDS = ["single", "couple", "family_kids", "other"] as const;
+export type Household = (typeof HOUSEHOLDS)[number];
+export const HOUSEHOLD_LABELS: Record<Household, string> = {
+  single: "単身",
+  couple: "夫婦・パートナー",
+  family_kids: "子どもがいる世帯",
+  other: "その他",
+};
+
 export const PersonaSchema = z.object({
   user_id: z.string(),
   age_group: z.enum(AGE_GROUPS),
   interests: z.array(z.enum(INTERESTS)).default([]),
   municipality_codes: z.array(z.string()).default([]),
+  // TASK-ONBOARDING: 前提整理 (全て省略可・後方互換)
+  priorities: z.array(z.enum(INTERESTS)).default([]), // A: 上位3順位 (interests の部分集合)
+  household: z.enum(HOUSEHOLDS).nullable().default(null), // B
+  budget_man: z.number().nullable().default(null), // B: 中古マンション/家賃上限(万円)
+  area_pref: z.array(z.string()).default([]), // B: 希望都道府県コード(2桁)
+  free_form_context: z.string().default(""), // C: 移住の背景・動機
 });
 
 export type Persona = z.infer<typeof PersonaSchema>;
@@ -64,6 +80,11 @@ export const DEMO_PERSONA: Persona = {
   age_group: "25-29",
   interests: ["住居", "雇用", "税", "子育て"],
   municipality_codes: ["33000", "00000"],
+  priorities: ["子育て", "住居"],
+  household: null,
+  budget_man: null,
+  area_pref: ["33"],
+  free_form_context: "",
 };
 
 // ============================================================================

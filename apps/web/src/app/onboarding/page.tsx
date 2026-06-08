@@ -10,8 +10,11 @@ import {
 } from "@/lib/municipalities";
 import {
   AGE_GROUPS,
+  HOUSEHOLD_LABELS,
+  HOUSEHOLDS,
   INTERESTS,
   type AgeGroup,
+  type Household,
   type Interest,
   type Persona,
   savePersona,
@@ -48,6 +51,11 @@ export default function OnboardingPage(): React.JSX.Element {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [ageGroup, setAgeGroup] = useState<AgeGroup | null>(null);
   const [interests, setInterests] = useState<Set<Interest>>(new Set());
+  // TASK-ONBOARDING: 前提整理 (A 優先順位 / B 制約 / C 背景)
+  const [priorities, setPriorities] = useState<Interest[]>([]); // 上位3順位
+  const [household, setHousehold] = useState<Household | null>(null);
+  const [budgetMan, setBudgetMan] = useState<number | null>(null);
+  const [context, setContext] = useState("");
 
   // step3: 街選択
   const [munis, setMunis] = useState<Municipality[]>([]);
@@ -74,9 +82,22 @@ export default function OnboardingPage(): React.JSX.Element {
   function toggleInterest(i: Interest) {
     setInterests((prev) => {
       const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
+      if (next.has(i)) {
+        next.delete(i);
+        setPriorities((p) => p.filter((x) => x !== i)); // 関心を外したら優先順位からも除去
+      } else {
+        next.add(i);
+      }
       return next;
+    });
+  }
+
+  // A: 選択済み関心の中から上位3つを順位付け (タップ順に①②③、再タップで解除)
+  function togglePriority(i: Interest) {
+    setPriorities((prev) => {
+      if (prev.includes(i)) return prev.filter((x) => x !== i);
+      if (prev.length >= 3) return prev;
+      return [...prev, i];
     });
   }
 
@@ -101,12 +122,26 @@ export default function OnboardingPage(): React.JSX.Element {
     if (!ageGroup || !homeSel) return;
     const userId = `demo-${ageGroup}`;
     const interestList = Array.from(interests);
+    // B: 希望エリア = 選んだ街の都道府県コード(先頭2桁、国会00は除外)を一意化
+    const areaPref = Array.from(
+      new Set(
+        [homeSel, ...watched]
+          .map((c) => c.slice(0, 2))
+          .filter((p) => p !== "00"),
+      ),
+    );
     const persona: Persona = {
       user_id: userId,
       age_group: ageGroup,
       interests: interestList,
       // [住む街, ...気になる街] 順 (persona.homeCode/watchedCodes が解釈)
       municipality_codes: [homeSel, ...watched],
+      // TASK-ONBOARDING: 前提整理 (省略時は default)
+      priorities: priorities.filter((p) => interests.has(p)),
+      household,
+      budget_man: budgetMan,
+      area_pref: areaPref,
+      free_form_context: context.trim(),
     };
     savePersona(persona);
     // ウォッチ街を backend にも保存 (best-effort、失敗してもホームへ)
@@ -133,7 +168,7 @@ export default function OnboardingPage(): React.JSX.Element {
         <div className="flex items-center justify-center gap-3 text-xs text-zinc-500">
           <StepLabel active={step >= 1} text="1. 年代" />
           <span>—</span>
-          <StepLabel active={step >= 2} text="2. 関心軸" />
+          <StepLabel active={step >= 2} text="2. 関心・前提" />
           <span>—</span>
           <StepLabel active={step >= 3} text="3. 街" />
         </div>
@@ -210,6 +245,103 @@ export default function OnboardingPage(): React.JSX.Element {
                 </button>
               ))}
             </div>
+
+            {/* A: 上位3順位 (関心を1つ以上選んだら表示・任意) */}
+            {interests.size > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  特に重視する順に上位3つ{" "}
+                  <span className="text-zinc-400">(任意・タップ順に①②③)</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {Array.from(interests).map((i) => {
+                    const rank = priorities.indexOf(i);
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => togglePriority(i)}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm transition-colors",
+                          rank >= 0
+                            ? "border-emerald-500 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950"
+                            : "border-zinc-300 dark:border-zinc-700",
+                        )}
+                      >
+                        {rank >= 0 && (
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                            {["①", "②", "③"][rank]}
+                          </span>
+                        )}
+                        <span aria-hidden>{INTEREST_EMOJI[i]}</span>
+                        {i}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* B: 家族構成 (任意) */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                家族構成 <span className="text-zinc-400">(任意)</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {HOUSEHOLDS.map((h) => (
+                  <button
+                    key={h}
+                    type="button"
+                    onClick={() => setHousehold(household === h ? null : h)}
+                    className={cn(
+                      "rounded-xl border px-3 py-2 text-sm transition-colors",
+                      household === h
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                        : "border-zinc-300 dark:border-zinc-700",
+                    )}
+                  >
+                    {HOUSEHOLD_LABELS[h]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* B: 住まいの予算 (任意) */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="budget">
+                住まいの予算上限{" "}
+                <span className="text-zinc-400">(任意・万円)</span>
+              </label>
+              <input
+                id="budget"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={budgetMan ?? ""}
+                onChange={(e) =>
+                  setBudgetMan(e.target.value === "" ? null : Number(e.target.value))
+                }
+                placeholder="例: 3000"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-base outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </div>
+
+            {/* C: 移住の背景 (任意) */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="ctx">
+                移住を考えている背景{" "}
+                <span className="text-zinc-400">(任意)</span>
+              </label>
+              <textarea
+                id="ctx"
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                rows={3}
+                placeholder="例: 東京の家賃が苦しく、子育てしやすい街に移りたい"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-base outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </div>
+
             <div className="flex gap-3">
               <button
                 type="button"
@@ -338,6 +470,32 @@ export default function OnboardingPage(): React.JSX.Element {
                 );
               })}
             </ul>
+
+            {/* E: 結果サマリー (自己理解の payoff) */}
+            <div className="space-y-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <p className="font-semibold">📝 あなたのまとめ</p>
+              {priorities.length > 0 ? (
+                <p>
+                  重視:{" "}
+                  {priorities
+                    .map((p, idx) => `${["①", "②", "③"][idx]}${p}`)
+                    .join(" ")}
+                </p>
+              ) : (
+                interests.size > 0 && (
+                  <p>関心: {Array.from(interests).join("・")}</p>
+                )
+              )}
+              {household && <p>家族構成: {HOUSEHOLD_LABELS[household]}</p>}
+              {budgetMan != null && (
+                <p>予算上限: {budgetMan.toLocaleString()} 万円</p>
+              )}
+              <p>
+                住む街: {homeSel ? nameOf(homeSel) : "未選択"}
+                {watched.length > 0 &&
+                  ` / 候補: ${watched.map(nameOf).join("・")}`}
+              </p>
+            </div>
 
             <div className="flex gap-3">
               <button
