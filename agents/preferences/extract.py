@@ -20,6 +20,7 @@ from agents.relevance.schema import ALL_INTERESTS
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_LOCATION = "us-central1"
 _HOUSEHOLDS = ("single", "couple", "family_kids", "other")
 _INTEREST_SET = set(ALL_INTERESTS)
 
@@ -97,10 +98,24 @@ def _parse_extracted(final_text: str) -> dict:
     }
 
 
+def _ensure_vertex_env() -> None:
+    """ADK が Vertex AI バックエンドを使うよう明示 (未設定だと Developer API=APIキー要求で失敗)。
+
+    Watcher 等は自身の初期化で設定するが、extract は独立呼び出しなので同様に設定する。
+    """
+    import os
+
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", DEFAULT_LOCATION)
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev"))
+
+
 async def extract_preferences(text: str, model: str = DEFAULT_MODEL) -> dict:
     """自由記述から前提を抽出。失敗時は空(フォーム手入力にフォールバック)。"""
     if not text or not text.strip():
         return _parse_extracted("")
+
+    _ensure_vertex_env()
 
     import uuid
 
