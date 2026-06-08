@@ -130,6 +130,9 @@ def test_compare_towns_returns_per_town_stats() -> None:
     assert out[0]["financial_capability_index"] == 0.98
     assert out[0]["taxable_income_per_capita_yen"] == 3947780
     assert out[0]["crime_rate_per_1000"] == 13.5
+    # Fix2: 廃止した medical_facility_count は返さない / national_rank を付与
+    assert "medical_facility_count" not in out[0]
+    assert isinstance(out[0]["national_rank"], dict)
 
 
 def test_compare_towns_missing_columns_become_null() -> None:
@@ -138,11 +141,44 @@ def test_compare_towns_missing_columns_become_null() -> None:
     wt.set_bq_client_factory(lambda: _client_returning(rows))
     out = wt.compare_towns(["13104"])
     assert out[0]["youth_share_pct"] is None
-    assert out[0]["medical_facility_count"] is None
+    assert out[0]["doctors_per_100k"] is None
 
 
 def test_compare_towns_empty_codes() -> None:
     assert wt.compare_towns([]) == []
+
+
+def _client_seq(result_sets: list[list[dict]]) -> MagicMock:
+    """query() 呼び出しごとに別の結果セットを返す client (town 用 + national 用)。"""
+    client = MagicMock()
+    queries = []
+    for rs in result_sets:
+        q = MagicMock()
+        q.result.return_value = iter(rs)
+        queries.append(q)
+    client.query.side_effect = queries
+    return client
+
+
+def test_national_top_pct_matches_karte_logic() -> None:
+    # Fix1: 街カルテ compare-stats と同じ「上位X%」算出 (1=最上位)
+    vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+    assert wt._national_top_pct(5.0, vals, "higher") == 20  # 最大=上位20% (rank1/5)
+    assert wt._national_top_pct(1.0, vals, "higher") == 100
+    assert wt._national_top_pct(1.0, vals, "lower") == 20  # 最小=上位 (低いほど良い)
+    assert wt._national_top_pct(5.0, vals, "lower") == 100
+    assert wt._national_top_pct(None, vals, "higher") is None
+    assert wt._national_top_pct(3.0, [], "higher") is None
+
+
+def test_compare_towns_attaches_national_rank() -> None:
+    # 街の生値 + 全国分布 → national_rank が「上位X%」で付く
+    town_rows = [{"municipality_code": "13104", "financial_capability_index": 0.98}]
+    national_rows = [{"financial_capability_index": v} for v in (0.2, 0.4, 0.6, 0.8, 0.98)]
+    wt.set_bq_client_factory(lambda: _client_seq([town_rows, national_rows]))
+    out = wt.compare_towns(["13104"])
+    # 0.98 は5件中の最上位 → 上位20%
+    assert out[0]["national_rank"]["財政力"] == "上位20%"
 
 
 # ============================================================================

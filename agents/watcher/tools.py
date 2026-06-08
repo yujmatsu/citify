@@ -10,12 +10,26 @@ BQ クライアントは lazy init (concierge/tools.py と同パターン)。テ
 
 from __future__ import annotations
 
+import bisect
 import logging
 import os
 from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# 街カルテ(/v1/cities/compare-stats)と同一定義の指標 (列, 日本語ラベル, 良い方向)。
+# compare_towns はこの全国順位を付与し、エージェントとカルテの判断レンズを揃える。
+_RANKED_METRICS: tuple[tuple[str, str, str], ...] = (
+    ("financial_capability_index", "財政力", "higher"),
+    ("taxable_income_per_capita_yen", "所得", "higher"),
+    ("homeownership_rate_pct", "持ち家", "higher"),
+    ("real_debt_service_ratio_pct", "財政健全度", "lower"),
+    ("crime_rate_per_1000", "治安", "lower"),
+    ("doctors_per_100k", "医療", "higher"),
+    ("unemployment_rate_pct", "雇用", "lower"),
+    ("dwelling_area_sqm", "住まい", "higher"),
+)
 
 BQ_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev")
 BQ_DATASET_CURATED = os.getenv("BQ_DATASET_CURATED", "citify_curated")
@@ -221,11 +235,15 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         population_change_pct(直近変化) / population_2050_estimated(2050年推計人口) /
         population_change_2025_2050_pct(2025→2050の増減率) /
         used_apartment_median_price_man_yen(中古マンション中央値・万円) /
-        childcare_facility_count(子育て施設数) / medical_facility_count(医療施設数) /
+        childcare_facility_count(子育て施設数) /
         financial_capability_index(財政力指数、1.0超で財政的余裕) /
         real_debt_service_ratio_pct(実質公債費比率%、借金の重さ) /
         taxable_income_per_capita_yen(1人当たり課税対象所得・円) /
-        homeownership_rate_pct(持ち家比率%) / crime_rate_per_1000(刑法犯認知件数・人口千対)。
+        homeownership_rate_pct(持ち家比率%) / crime_rate_per_1000(刑法犯認知件数・人口千対) /
+        doctors_per_100k(医師数・人口10万対) / unemployment_rate_pct(完全失業率%) /
+        dwelling_area_sqm(1住宅延べ面積・㎡)。
+        さらに各街に national_rank: {指標ラベル: "上位X%"} を付与する(街カルテと同じ全国順位)。
+        **生値の高低だけで良し悪しを断定せず、この national_rank で「全国で高い/低い」を評価すること。**
         失敗時は空 list。値が無い項目は null (財政指標は特別区等で欠損あり)。
     """
     codes = [c for c in municipality_codes if c][:MAX_COMPARE_TOWNS]
@@ -239,10 +257,10 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
                population_change_pct, population_2050_estimated,
                population_change_2025_2050_pct,
                used_apartment_median_price_man_yen, childcare_facility_count,
-               medical_facility_count,
                financial_capability_index, real_debt_service_ratio_pct,
                taxable_income_per_capita_yen, homeownership_rate_pct,
-               crime_rate_per_1000
+               crime_rate_per_1000,
+               doctors_per_100k, unemployment_rate_pct, dwelling_area_sqm
         FROM `{table_fqn}`
         WHERE municipality_code IN UNNEST(@codes)
     """  # noqa: S608
@@ -257,12 +275,14 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         "population_change_2025_2050_pct",
         "used_apartment_median_price_man_yen",
         "childcare_facility_count",
-        "medical_facility_count",
         "financial_capability_index",
         "real_debt_service_ratio_pct",
         "taxable_income_per_capita_yen",
         "homeownership_rate_pct",
         "crime_rate_per_1000",
+        "doctors_per_100k",
+        "unemployment_rate_pct",
+        "dwelling_area_sqm",
     )
     try:
         from google.cloud import bigquery
@@ -271,7 +291,60 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         rows = client.query(
             sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
         ).result(timeout=10)
-        return [{c: r.get(c) for c in cols} for r in rows]
+        towns = [{c: r.get(c) for c in cols} for r in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning("watcher.compare_towns.bq_failed codes=%s err=%s", codes, exc)
         return []
+
+    # 各街に全国順位 national_rank を付与 (街カルテと同じレンズ。失敗時は graceful に省略)
+    national = _load_national_distributions(client)
+    for town in towns:
+        ranks: dict[str, str] = {}
+        for col, label, direction in _RANKED_METRICS:
+            top_pct = _national_top_pct(town.get(col), national.get(col, ()), direction)
+            if top_pct is not None:
+                ranks[label] = f"上位{top_pct}%"
+        town["national_rank"] = ranks
+    return towns
+
+
+def _load_national_distributions(client: Any) -> dict[str, list[float]]:
+    """全市区町村の _RANKED_METRICS 各列をソート済み配列で返す (全国順位算出用)。
+
+    街カルテ(_load_national_fiscal)と同じ母集合 (00000 と都道府県/政令市集計を除外)。
+    null は除外。失敗時は空配列 (national_rank は付かないだけで raw 値は返る)。
+    """
+    cols = [m[0] for m in _RANKED_METRICS]
+    arrays: dict[str, list[float]] = {c: [] for c in cols}
+    table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_TABLE_STATS}"
+    sql = (  # noqa: S608 — 列名は固定リテラル
+        f"SELECT {', '.join(cols)} FROM `{table_fqn}` "
+        "WHERE municipality_code != '00000' "
+        "AND SUBSTR(municipality_code, 3) NOT IN ('000', '001', '002')"
+    )
+    try:
+        for r in client.query(sql).result(timeout=15):
+            for c in cols:
+                v = r.get(c)
+                if v is not None:
+                    arrays[c].append(float(v))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("watcher.compare_towns.national_load_failed err=%s", exc)
+        return {c: [] for c in cols}
+    for c in cols:
+        arrays[c].sort()
+    return arrays
+
+
+def _national_top_pct(value: Any, sorted_vals: list[float], direction: str) -> int | None:
+    """value の全国「上位X%」(1=最上位)。街カルテ compare-stats と同じ算出方法。"""
+    if value is None or not sorted_vals:
+        return None
+    n = len(sorted_vals)
+    v = float(value)
+    if direction == "higher":
+        rank = n - bisect.bisect_right(sorted_vals, v) + 1
+    else:
+        rank = bisect.bisect_left(sorted_vals, v) + 1
+    rank = max(1, min(rank, n))
+    return max(1, round(rank / n * 100))

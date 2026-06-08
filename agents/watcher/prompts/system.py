@@ -103,6 +103,8 @@ _SPECIALIST_OUTPUT = """\
 {"domain":"<担当>","headline":"このドメインの一言所見(街名で)","key_points":["要点(街比較)1","2"],\
 "confidence":"high|medium|low","source_speech_ids":["議題に基づくなら speech_id"]}
 文章では市区町村コードでなく街名を使う。データが無い指標には言及しない。
+compare_towns を使うときは、生値の高低で良し悪しを断定せず、各街の national_rank
+(全国順位「上位X%」)で「全国で高い/低い」を評価する(街カルテと同じ基準に揃える)。
 ツールは必要最小限(各3回程度まで)。"""
 
 SPECIALIST_INSTRUCTIONS: dict[str, str] = {
@@ -113,6 +115,7 @@ SPECIALIST_INSTRUCTIONS: dict[str, str] = {
     "(高いほど借金重い)・1人当たり課税対象所得を調べ、行政サービスの持続性と暮らしの豊かさを評価する。\n"
     + _SPECIALIST_OUTPUT,
     "living_safety": "あなたは**暮らし・治安アナリスト**。compare_towns で住居コスト・持ち家比率・"
+    "住まいの広さ(1住宅延べ面積)・医療(医師数・人口10万対)・雇用(完全失業率)・"
     "刑法犯認知件数(人口千対、低いほど安全)を調べ、住みやすさと安全性を評価する。\n"
     + _SPECIALIST_OUTPUT,
     "topics": "あなたは**議題アナリスト**。search_speeches と fetch_topic_trend で、各街の直近の議題と"
