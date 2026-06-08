@@ -153,6 +153,37 @@ class TownAnalysis(BaseModel):
     changes_since_last: list[str] = Field(default_factory=list)
 
 
+class OfficialLink(BaseModel):
+    """移住アクションプランの公式/信頼ポータルへの誘導リンク (TASK-ACTIONPLAN)。"""
+
+    label: str
+    url: str
+
+
+class ActionPlan(BaseModel):
+    """移住アクションプラン (TASK-ACTIONPLAN)。Watcher の結論を行動に変換した持ち帰り1枚。
+
+    結論は生成せず TownAnalysis を再利用 (4つ目の結論を作らない)。生成は visit_checklist のみ。
+    mode=stay は「住み続ける」推奨時の据え置きモード (窓口非表示・訪問→自街再点検)。
+    """
+
+    mode: Literal["relocate", "stay"] = "relocate"
+    recommended_code: str
+    recommended_name: str
+    role: Literal["home", "candidate"] = "candidate"
+    decision_summary: str = Field(default="", description="結論 1 行 (verdict.headline 再利用)")
+    reasons: list[str] = Field(default_factory=list, description="なぜこの街か (再利用)")
+    open_questions: list[str] = Field(default_factory=list, description="残る確認事項 (再利用)")
+    visit_checklist: list[str] = Field(
+        default_factory=list, description="現地で確認すべき街固有の項目 (生成)"
+    )
+    official_links: list[OfficialLink] = Field(
+        default_factory=list, description="移住相談窓口/信頼ポータル (stay は空)"
+    )
+    run_id: str = Field(default="", description="元になった分析の run_id (キャッシュ鍵)")
+    generated_at: str = Field(default="", description="生成時刻 ISO8601")
+
+
 class ToolCall(BaseModel):
     """エージェントが自律的に実行したツール呼び出し 1 回の記録 (①の自律証跡)。"""
 

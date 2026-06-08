@@ -3207,3 +3207,66 @@ async def run_watcher(
         "run_log": result.run_log.model_dump(),
         "analysis": result.analysis.model_dump() if result.analysis else None,
     }
+
+
+# 移住アクションプラン (TASK-ACTIONPLAN): Watcher 分析を行動プランに変換 (run_id でキャッシュ)
+_PLAN_CACHE = _TTLCache(maxsize=512, ttl_sec=3600.0)
+
+
+@app.get("/v1/watcher/{user_id}/plan")
+async def get_watcher_action_plan(
+    user_id: str,
+    response: Response,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict:
+    """移住アクションプラン (最新分析の出口)。分析未生成なら plan=null。
+
+    結論は生成せず Watcher の TownAnalysis を再利用。生成は訪問チェックリストのみ。
+    run_id でキャッシュ (同じ分析なら再生成しない)。
+    """
+    _require_watcher_user(user_id, x_user_id)
+    response.headers["Cache-Control"] = "private, max-age=0, no-cache"
+
+    from agents.watcher.action_plan import (
+        DEFAULT_MODEL,
+        assemble_action_plan,
+        generate_visit_checklist,
+        select_recommended,
+    )
+
+    repo = _get_watcher_repo()
+    analysis = repo.get_latest_analysis(user_id)
+    if analysis is None:
+        return {"user_id": user_id, "plan": None}
+
+    latest = repo.get_latest_run(user_id)
+    run_id = latest.run_id if latest else ""
+    cache_key = ("plan", user_id, run_id)
+    if run_id:
+        cached = _PLAN_CACHE.get(cache_key)
+        if cached is not None:
+            return {"user_id": user_id, "plan": cached.model_dump()}
+
+    sel = select_recommended(analysis)
+    if sel is None:
+        return {"user_id": user_id, "plan": None}
+    rec, mode = sel
+    name = _muni_label(rec.municipality_code)
+    model = getattr(_get_watcher_agent(), "model", None) or DEFAULT_MODEL
+    checklist = await generate_visit_checklist(rec, name, mode, model=model)
+    generated_at = datetime.now(UTC).isoformat()
+    plan = assemble_action_plan(
+        analysis, {rec.municipality_code: name}, checklist, run_id, generated_at
+    )
+    if plan is None:
+        return {"user_id": user_id, "plan": None}
+    if run_id:
+        _PLAN_CACHE.set(cache_key, plan)
+    logger.info(
+        "watcher.plan.done user_id=%s mode=%s code=%s checklist=%d",
+        user_id,
+        plan.mode,
+        plan.recommended_code,
+        len(plan.visit_checklist),
+    )
+    return {"user_id": user_id, "plan": plan.model_dump()}

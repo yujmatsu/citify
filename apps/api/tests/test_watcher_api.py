@@ -277,3 +277,42 @@ def test_run_without_body_and_no_watchlist_400(
 def test_run_forbidden(client: TestClient, fake_repo: _FakeRepo, fake_agent: _FakeAgent) -> None:
     res = client.post(f"/v1/watcher/{UID}/run", headers={"x-user-id": "x"})
     assert res.status_code == 403
+
+
+# ============================================================================
+# GET action plan (TASK-ACTIONPLAN)
+# ============================================================================
+
+
+def test_get_plan_empty_is_200(client: TestClient, fake_repo: _FakeRepo) -> None:
+    res = client.get(f"/v1/watcher/{UID}/plan", headers=AUTH)
+    assert res.status_code == 200
+    assert res.json()["plan"] is None
+
+
+def test_get_plan_returns_action_plan(
+    client: TestClient,
+    fake_repo: _FakeRepo,
+    fake_agent: _FakeAgent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_repo.analysis = _analysis()  # recommended_code=27100 (candidate)
+    fake_repo.latest = _run_log()
+
+    async def _fake_checklist(rec, name, mode, model="x"):  # noqa: ANN001, ANN202, ARG001
+        return ["朝の通勤帯の混雑を見る"]
+
+    monkeypatch.setattr("agents.watcher.action_plan.generate_visit_checklist", _fake_checklist)
+    res = client.get(f"/v1/watcher/{UID}/plan", headers=AUTH)
+    assert res.status_code == 200
+    plan = res.json()["plan"]
+    assert plan is not None
+    assert plan["mode"] == "relocate"
+    assert plan["recommended_code"] == "27100"
+    assert plan["visit_checklist"] == ["朝の通勤帯の混雑を見る"]
+    assert plan["decision_summary"].startswith("今は小田原")
+    assert len(plan["official_links"]) >= 1  # 27100=大阪市 は seed あり
+
+
+def test_get_plan_forbidden_without_header(client: TestClient, fake_repo: _FakeRepo) -> None:
+    assert client.get(f"/v1/watcher/{UID}/plan").status_code == 403

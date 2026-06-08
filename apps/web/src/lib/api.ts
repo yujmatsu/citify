@@ -1219,3 +1219,75 @@ export async function runWatcher(
     },
   );
 }
+
+// ----- 移住アクションプラン (TASK-ACTIONPLAN) -----
+export const OfficialLinkSchema = z.object({
+  label: z.string(),
+  url: z.string(),
+});
+export type OfficialLink = z.infer<typeof OfficialLinkSchema>;
+
+export const ActionPlanSchema = z.object({
+  mode: z.enum(["relocate", "stay"]).default("relocate"),
+  recommended_code: z.string(),
+  recommended_name: z.string(),
+  role: z.enum(["home", "candidate"]).default("candidate"),
+  decision_summary: z.string().default(""),
+  reasons: z.array(z.string()).default([]),
+  open_questions: z.array(z.string()).default([]),
+  visit_checklist: z.array(z.string()).default([]),
+  official_links: z.array(OfficialLinkSchema).default([]),
+  run_id: z.string().default(""),
+  generated_at: z.string().default(""),
+});
+export type ActionPlan = z.infer<typeof ActionPlanSchema>;
+
+export const ActionPlanResponseSchema = z.object({
+  user_id: z.string(),
+  plan: ActionPlanSchema.nullable().default(null),
+});
+export type ActionPlanResponse = z.infer<typeof ActionPlanResponseSchema>;
+
+/** 移住アクションプラン (最新分析の出口) を取得。分析未生成なら plan=null。 */
+export async function fetchActionPlan(
+  userId: string,
+): Promise<ActionPlanResponse> {
+  return fetchJson(
+    `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/plan`,
+    ActionPlanResponseSchema,
+    { headers: watcherHeaders(userId), cache: "no-store" },
+  );
+}
+
+/**
+ * アクションプランを家族共有用の平文に整形 (純関数、テスト対象)。
+ * checked はチェック済み項目を [x] にする (持ち帰り用)。
+ */
+export function formatActionPlanForCopy(
+  plan: ActionPlan,
+  checked?: { questions?: Set<string>; visit?: Set<string> },
+): string {
+  const lines: string[] = [];
+  const mark = (text: string, set?: Set<string>) =>
+    `${set?.has(text) ? "[x]" : "[ ]"} ${text}`;
+  lines.push(`■ 移住アクションプラン: ${plan.recommended_name}`);
+  if (plan.decision_summary) lines.push(plan.decision_summary);
+  if (plan.reasons.length) {
+    lines.push("", "【決め手】");
+    for (const r of plan.reasons) lines.push(`・${r}`);
+  }
+  if (plan.open_questions.length) {
+    lines.push("", "【残る確認事項】");
+    for (const q of plan.open_questions) lines.push(mark(q, checked?.questions));
+  }
+  if (plan.visit_checklist.length) {
+    lines.push("", "【現地で確かめる】");
+    for (const v of plan.visit_checklist) lines.push(mark(v, checked?.visit));
+  }
+  if (plan.official_links.length) {
+    lines.push("", "【相談窓口】");
+    for (const l of plan.official_links) lines.push(`・${l.label}: ${l.url}`);
+  }
+  lines.push("", "※ AIが中立な検討材料として作成。最終判断はご自身の価値観で。");
+  return lines.join("\n");
+}

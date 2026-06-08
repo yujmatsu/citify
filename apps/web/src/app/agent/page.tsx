@@ -272,6 +272,14 @@ export default function AgentHomePage(): React.JSX.Element {
               }
             />
 
+            {/* 出口: この結論を行動に変える移住アクションプランへ (TASK-ACTIONPLAN) */}
+            <Link
+              href="/plan"
+              className="block rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-center text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
+            >
+              📋 この結論を「次にやること」に — 移住アクションプランを作る →
+            </Link>
+
             {/* 専門エージェントの所見 (A5 マルチエージェント) */}
             <SpecialistFindings findings={analysis.specialist_findings} />
 
