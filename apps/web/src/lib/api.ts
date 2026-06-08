@@ -456,6 +456,11 @@ export type ConciergeRequest = {
     interests?: string[];
     municipality_codes?: string[];
     free_form_context?: string;
+    // TASK-ONBOARDING: 前提整理 (optional・後方互換)
+    priorities?: string[];
+    household?: string;
+    budget_man?: number | null;
+    area_pref?: string[];
   };
 };
 
@@ -1105,6 +1110,11 @@ export type WatchlistBody = {
   interests: string[];
   home_municipality_code: string;
   watched_codes: string[];
+  // TASK-ONBOARDING: 前提整理 (全て optional・後方互換)
+  priorities?: string[];
+  household?: string;
+  budget_man?: number | null;
+  free_form_context?: string;
 };
 
 export const WatcherRunResponseSchema = z.object({

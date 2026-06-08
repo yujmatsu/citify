@@ -396,6 +396,10 @@ class WatcherAgent:
                 watch.home_municipality_code,
                 list(watch.watched_codes),
                 town_names=town_names,
+                priorities=list(watch.priorities),
+                household=watch.household,
+                budget_man=watch.budget_man,
+                free_form_context=watch.free_form_context,
             )
             msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
             final_text = ""
@@ -455,6 +459,10 @@ class WatcherAgent:
             watch.home_municipality_code,
             list(watch.watched_codes),
             town_names=town_names,
+            priorities=list(watch.priorities),
+            household=watch.household,
+            budget_man=watch.budget_man,
+            free_form_context=watch.free_form_context,
         )
         # A2: 前回結論を継続性のため文脈に追加 (状況が変われば反映、変わらなければ一貫性)
         if prev_analysis is not None and prev_analysis.verdict.headline:
@@ -519,6 +527,10 @@ class WatcherAgent:
             watch.home_municipality_code,
             list(watch.watched_codes),
             town_names=town_names,
+            priorities=list(watch.priorities),
+            household=watch.household,
+            budget_man=watch.budget_man,
+            free_form_context=watch.free_form_context,
         )
         draft_json = json.dumps(draft.model_dump(), ensure_ascii=False)
         review_msg = build_review_user_prompt(draft_json, context)

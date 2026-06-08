@@ -108,6 +108,10 @@ class SearchMunicipalitiesArgs(BaseModel):
     constraints: ConstraintFilter | None = Field(
         default=None, description="絞り込み制約 (optional、None なら全自治体対象)"
     )
+    priorities: list[Interest] = Field(
+        default_factory=list,
+        description="特に重視する関心軸 上位3 (順位順、match_score の重み付けに使用)",
+    )
     limit: int = Field(default=5, ge=1, le=20, description="返却件数 (default 5)")
 
 
@@ -241,6 +245,13 @@ class UserPersonaInput(BaseModel):
         max_length=500,
         description="フリー記述 (例: '介護で実家に戻る予定')、Concierge の判断材料",
     )
+    # TASK-ONBOARDING: 前提整理 (全て省略可・後方互換)
+    priorities: list[Interest] = Field(
+        default_factory=list, description="特に重視する関心軸 上位3 (順位順)"
+    )
+    household: str = Field(default="", description="家族構成 single/couple/family_kids/other")
+    budget_man: int | None = Field(default=None, description="住まいの予算上限 (万円)")
+    area_pref: list[str] = Field(default_factory=list, description="希望都道府県コード (2桁)")
 
 
 class ToolCallLog(BaseModel):

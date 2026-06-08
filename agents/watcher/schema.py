@@ -25,6 +25,13 @@ class WatchInput(BaseModel):
     watched_codes: list[str] = Field(
         default_factory=list, description="気になる街 (home 含め上限 5)"
     )
+    # TASK-ONBOARDING: 前提整理 (全て省略可・後方互換)
+    priorities: list[Interest] = Field(
+        default_factory=list, description="特に重視する関心軸 上位3 (順位順)"
+    )
+    household: str = Field(default="", description="家族構成 single/couple/family_kids/other")
+    budget_man: int | None = Field(default=None, description="住まいの予算上限 (万円)")
+    free_form_context: str = Field(default="", description="移住の背景・動機 (自由記述)")
 
     MAX_TOWNS: ClassVar[int] = 5
 

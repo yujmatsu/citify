@@ -96,6 +96,17 @@ class ConciergeAgent:
             f"- 関心軸: {', '.join(p.interests) if p.interests else '未指定'}",
             f"- 登録自治体コード: {', '.join(p.municipality_codes) if p.municipality_codes else '未登録'}",
         ]
+        # TASK-ONBOARDING: 前提整理 (省略時は出さない)。重視順は推薦・トレードオフ説明に反映させる。
+        if p.priorities:
+            parts.append(
+                f"- 特に重視する順: {' > '.join(p.priorities)} (この優先順位で推薦・説明すること)"
+            )
+        if p.household:
+            parts.append(f"- 家族構成: {p.household}")
+        if p.budget_man is not None:
+            parts.append(f"- 住まいの予算上限: {p.budget_man} 万円")
+        if p.area_pref:
+            parts.append(f"- 希望エリア(都道府県コード): {', '.join(p.area_pref)}")
         if p.free_form_context:
             parts.append(f"- 補足: {p.free_form_context}")
         return "\n".join(parts)

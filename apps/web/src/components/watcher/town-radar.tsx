@@ -6,6 +6,23 @@ import type { CompareStatsResponse } from "@/lib/api";
 /** 街ごとの色 (住む街=emerald 基準、候補は青/橙/紫…)。 */
 const TOWN_COLORS = ["#059669", "#0284c7", "#ea580c", "#7c3aed", "#db2777"];
 
+/**
+ * TASK-ONBOARDING: 関心軸(Interest) → レーダー指標キー のマップ。
+ * ユーザーの優先順位をレーダー上で強調するために使用。マップ不能な関心軸は強調なし(graceful)。
+ */
+export const INTEREST_TO_RADAR_KEYS: Record<string, string[]> = {
+  医療: ["doctors_per_100k"],
+  雇用: ["unemployment_rate_pct"],
+  住居: ["dwelling_area_sqm", "homeownership_rate_pct"],
+  税: ["financial_capability_index", "taxable_income_per_capita_yen"],
+  移住: ["future_population_change_pct"],
+};
+
+/** priorities(関心軸) → 強調する指標キー集合に変換。 */
+export function priorityRadarKeys(priorities: string[]): string[] {
+  return priorities.flatMap((i) => INTEREST_TO_RADAR_KEYS[i] ?? []);
+}
+
 const SIZE = 260;
 const CENTER = SIZE / 2;
 const RADIUS = 92;
@@ -56,10 +73,14 @@ function point(score: number, i: number, n: number): [number, number] {
  */
 export function TownRadar({
   data,
+  highlightKeys = [],
 }: {
   data: CompareStatsResponse;
+  /** TASK-ONBOARDING: 強調する指標キー (ユーザーの優先順位)。 */
+  highlightKeys?: string[];
 }): React.ReactElement {
   const { metrics, towns } = data;
+  const highlight = new Set(highlightKeys);
   const n = metrics.length;
   if (n === 0 || towns.length === 0) {
     return (
@@ -97,10 +118,11 @@ export function TownRadar({
               strokeWidth={1}
             />
           ))}
-          {/* 軸線 + ラベル */}
+          {/* 軸線 + ラベル (優先軸は強調) */}
           {metrics.map((m, i) => {
             const [x, y] = point(100, i, n);
             const [lx, ly] = point(118, i, n);
+            const hi = highlight.has(m.key);
             return (
               <g key={m.key}>
                 <line
@@ -109,17 +131,25 @@ export function TownRadar({
                   x2={x}
                   y2={y}
                   stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-700"
-                  strokeWidth={1}
+                  className={
+                    hi
+                      ? "text-emerald-400 dark:text-emerald-500"
+                      : "text-zinc-200 dark:text-zinc-700"
+                  }
+                  strokeWidth={hi ? 2 : 1}
                 />
                 <text
                   x={lx}
                   y={ly}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  className="fill-zinc-600 text-[10px] font-medium dark:fill-zinc-300"
+                  className={
+                    hi
+                      ? "fill-emerald-700 text-[11px] font-bold dark:fill-emerald-300"
+                      : "fill-zinc-600 text-[10px] font-medium dark:fill-zinc-300"
+                  }
                 >
-                  {m.label}
+                  {hi ? `★${m.label}` : m.label}
                 </text>
               </g>
             );
@@ -163,6 +193,7 @@ export function TownRadar({
         <p className="mt-1 text-xs text-zinc-400">
           外側ほど全国で上位（指標ごとの望ましい方向で算出。財政力・所得・医療などは高い側、
           負債・治安は低い側を上位とした）
+          {highlight.size > 0 && "　★＝あなたが特に重視する軸"}
         </p>
       </div>
 

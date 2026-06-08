@@ -45,6 +45,33 @@ DEFAULT_MAX_OUTPUT_TOKENS = 2048
 MAX_ITERATIONS = 5  # tool call ループ上限 (無限 retry 防止)
 
 
+def _inject_persona_premises(args: dict[str, Any], persona: Any) -> dict[str, Any]:
+    """TASK-ONBOARDING: persona の前提を search_municipalities の args に決定的注入。
+
+    priorities は persona を採用 (重み付けに使用)。制約は会話で未指定の項目だけ補完
+    (家賃上限 / 希望エリア / 子育て世帯→保育施設>=1)。会話で明示された制約を上書きしない。
+    """
+    merged = dict(args)
+    pri = list(getattr(persona, "priorities", None) or [])
+    if pri:
+        merged["priorities"] = pri
+    cons = dict(merged.get("constraints") or {})
+    budget = getattr(persona, "budget_man", None)
+    if budget is not None and cons.get("max_avg_rent_man") is None:
+        cons["max_avg_rent_man"] = float(budget)
+    area = list(getattr(persona, "area_pref", None) or [])
+    if area and not cons.get("prefecture_codes"):
+        cons["prefecture_codes"] = area
+    if (
+        getattr(persona, "household", "") == "family_kids"
+        and cons.get("min_childcare_count") is None
+    ):
+        cons["min_childcare_count"] = 1
+    if cons:
+        merged["constraints"] = cons
+    return merged
+
+
 class _GenAIClientProto(Protocol):
     """google.genai.Client の最小 interface (mock 注入用)。"""
 
@@ -94,9 +121,15 @@ class GenaiConciergeRunner:
     # Tool 実行: name + args dict から実際の tool function を呼ぶ
     # ------------------------------------------------------------------
 
-    def _execute_tool(self, name: str, args: dict[str, Any]) -> Any:
-        """Tool name + args dict から実際の関数を呼んで結果を返す。"""
+    def _execute_tool(self, name: str, args: dict[str, Any], persona: Any = None) -> Any:
+        """Tool name + args dict から実際の関数を呼んで結果を返す。
+
+        TASK-ONBOARDING: search_municipalities には persona の前提 (priorities/予算/エリア/家族)
+        を決定的に注入 (LLM が埋め損ねても効く)。会話で明示された制約 (args) を優先。
+        """
         if name == "search_municipalities":
+            if persona is not None:
+                args = _inject_persona_premises(args, persona)
             parsed = SearchMunicipalitiesArgs.model_validate(args)
             return concierge_tools.search_municipalities(parsed, bq_client=self._bq_client)
         if name == "compare_municipalities":
@@ -232,7 +265,7 @@ class GenaiConciergeRunner:
 
                 start = time.monotonic()
                 try:
-                    output = self._execute_tool(fc_name, fc_args)
+                    output = self._execute_tool(fc_name, fc_args, persona=request.persona)
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("concierge.tool_failed name=%s err=%s", fc_name, exc)
                     output = {"error": str(exc)}

@@ -90,6 +90,12 @@ export default function ConciergePage() {
           age_group: persona.age_group,
           interests: persona.interests,
           municipality_codes: persona.municipality_codes,
+          // TASK-ONBOARDING: 前提整理を Concierge に渡す
+          priorities: persona.priorities,
+          household: persona.household ?? "",
+          budget_man: persona.budget_man,
+          area_pref: persona.area_pref,
+          free_form_context: persona.free_form_context,
         },
       });
       const durationMs = Date.now() - startedAt;

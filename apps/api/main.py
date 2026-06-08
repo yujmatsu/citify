@@ -3066,6 +3066,11 @@ class WatchlistBody(BaseModel):
     watched_codes: list[str] = Field(
         default_factory=list, description="気になる街 (home 含め上限 5)"
     )
+    # TASK-ONBOARDING: 前提整理 (全て省略可・後方互換)
+    priorities: list[str] = Field(default_factory=list)
+    household: str = Field(default="")
+    budget_man: int | None = Field(default=None)
+    free_form_context: str = Field(default="")
 
 
 NATIONAL_DIET_CODE = "00000"  # 国会: エージェントの街選びウォッチ対象からは除外
@@ -3097,6 +3102,10 @@ def _to_watch_input(user_id: str, body: WatchlistBody) -> Any:
             interests=body.interests,  # type: ignore[arg-type]
             home_municipality_code=home,
             watched_codes=watched,
+            priorities=body.priorities,  # type: ignore[arg-type]
+            household=body.household,
+            budget_man=body.budget_man,
+            free_form_context=body.free_form_context,
         )
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=f"invalid watchlist: {exc!s}") from exc

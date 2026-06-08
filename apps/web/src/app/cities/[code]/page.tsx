@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AgeStructureBar } from "@/components/age-structure-bar";
 import { FeedCard } from "@/components/feed-card";
 import { PopulationTrendChart } from "@/components/population-trend-chart";
-import { TownRadar } from "@/components/watcher/town-radar";
+import { priorityRadarKeys, TownRadar } from "@/components/watcher/town-radar";
 import {
   fetchCityDashboard,
   fetchCompareStats,
@@ -222,7 +222,10 @@ function CityDashboardView({
         {radar && radar.towns.length > 0 && (
           <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="text-lg font-semibold">📐 暮らし・財政の全国での位置</h2>
-            <TownRadar data={radar} />
+            <TownRadar
+              data={radar}
+              highlightKeys={priorityRadarKeys(persona.priorities)}
+            />
           </section>
         )}
         {radarError && !radar && (

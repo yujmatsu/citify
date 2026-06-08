@@ -65,6 +65,11 @@ function toBody(persona: Persona): WatchlistBody | null {
     interests: persona.interests,
     home_municipality_code: home,
     watched_codes: watched,
+    // TASK-ONBOARDING: 前提整理を Watcher に渡す
+    priorities: persona.priorities,
+    household: persona.household ?? "",
+    budget_man: persona.budget_man,
+    free_form_context: persona.free_form_context,
   };
 }
 

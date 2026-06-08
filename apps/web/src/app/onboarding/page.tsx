@@ -152,6 +152,10 @@ export default function OnboardingPage(): React.JSX.Element {
         interests: interestList,
         home_municipality_code: homeSel,
         watched_codes: watched,
+        priorities: persona.priorities,
+        household: persona.household ?? "",
+        budget_man: persona.budget_man,
+        free_form_context: persona.free_form_context,
       });
     } catch (err) {
       console.error("watchlist sync failed (続行)", err);

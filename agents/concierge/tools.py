@@ -103,6 +103,24 @@ def _interest_match_score(matched: list[str]) -> float:
     return 50.0
 
 
+# TASK-ONBOARDING: 優先順位の重み付け。①=30/②=20/③=15/順位外ヒット=8、上限50。
+_PRIORITY_POINTS = (30.0, 20.0, 15.0)
+
+
+def _priority_weighted_interest_score(matched: list[str], priorities: list[str]) -> float:
+    """マッチした関心軸を優先順位で重み付け (max 50)。priorities 空なら件数ベースに委譲。"""
+    if not priorities:
+        return _interest_match_score(matched)
+    score = 0.0
+    for m in matched:
+        if m in priorities:
+            rank = priorities.index(m)
+            score += _PRIORITY_POINTS[rank] if rank < len(_PRIORITY_POINTS) else 8.0
+        else:
+            score += 8.0  # 重視軸でないヒット
+    return min(50.0, score)
+
+
 # interest 軸 → 関連列のヒット判定 dispatch (テスト容易性 + ruff SIM114 対策)
 def _interest_hits(interest: Interest, row: dict[str, Any]) -> bool:
     """1 つの interest が row の統計に hit するか判定。"""
@@ -135,15 +153,18 @@ def _calc_match_score(
     interests: list[Interest],
     row: dict[str, Any],
     constraint_pass: bool,
+    priorities: list[Interest] | None = None,
 ) -> tuple[float, list[Interest]]:
     """1 行に対する match_score 計算。
+
+    priorities (TASK-ONBOARDING) があれば関心スコアを優先順位で重み付け。空なら件数ベース。
 
     Returns:
         (match_score, matched_interests) のタプル
     """
     matched: list[Interest] = [i for i in interests if _interest_hits(i, row)]
 
-    interest_score = _interest_match_score(matched)
+    interest_score = _priority_weighted_interest_score(matched, priorities or [])
     constraint_score = 25.0 if constraint_pass else 0.0
 
     growth = row.get("population_change_pct")
@@ -272,7 +293,9 @@ def search_municipalities(
     for row in rows:
         row_dict = dict(row.items()) if hasattr(row, "items") else dict(row)
         # constraint 通過した行 = match_score の constraint 分も加点
-        match_score, matched_interests = _calc_match_score(args.interests, row_dict, True)
+        match_score, matched_interests = _calc_match_score(
+            args.interests, row_dict, True, args.priorities
+        )
         candidates.append(_row_to_candidate(row_dict, match_score, matched_interests))
 
     # match_score 降順、tie-break は population_total 降順

@@ -81,6 +81,31 @@ def test_interest_hits_proxy_interests_use_population_growth() -> None:
     assert _interest_hits("税", {"population_change_pct": -20.0}) is False
 
 
+def test_priority_weighted_interest_score() -> None:
+    from agents.concierge.tools import _priority_weighted_interest_score
+
+    # priorities 空 → 件数ベースに委譲
+    assert _priority_weighted_interest_score(["医療"], []) == 25.0
+    # ①医療(30) のみマッチ
+    assert _priority_weighted_interest_score(["医療"], ["医療", "子育て", "住居"]) == 30.0
+    # ①医療(30)+②子育て(20) = 50 (上限)
+    assert _priority_weighted_interest_score(["医療", "子育て"], ["医療", "子育て", "住居"]) == 50.0
+    # 順位外ヒットは 8 点
+    assert _priority_weighted_interest_score(["税"], ["医療", "子育て", "住居"]) == 8.0
+
+
+def test_calc_match_score_priority_outranks_count() -> None:
+    from agents.concierge.tools import _calc_match_score
+
+    row_hit_priority = {"ssds_hospital_count": 5}  # 医療 hit
+    row_hit_other = {"used_apartment_median_price_man_yen": 4000}  # 住居 hit
+    pri = ["医療", "子育て", "住居"]
+    s_pri, _ = _calc_match_score(["医療", "住居"], row_hit_priority, True, pri)
+    s_oth, _ = _calc_match_score(["医療", "住居"], row_hit_other, True, pri)
+    # ①医療を満たす街(30) > 順位下位の住居を満たす街(15)
+    assert s_pri > s_oth
+
+
 def test_interest_match_score_distinct_thresholds() -> None:
     """1 hit=25, 2 hit=40, 3+ hit=50 の diminishing returns。"""
     assert _interest_match_score([]) == 0.0
