@@ -191,10 +191,18 @@ function CityDashboardView({
           )}
         </header>
 
-        {/* 客観統計 (Phase D) */}
-        {data.stats && <StatsCards stats={data.stats} />}
+        {/* 表示順 (街選び判断フロー): 結論=全国での位置 → 未来(人口推移) → 構造(年齢構成)
+            → 個別事実(街のかたち) → Citify独自(関心軸別議題)。逆ピラミッド構成。 */}
 
-        {/* 人口推移 (TASK-POPTREND: 国勢調査実績 + XKT013 将来推計 2025-2070) */}
+        {/* ① 暮らし・財政の全国比較レーダー (TASK-FISCAL) — 結論的な全体像を先頭に */}
+        {radar && radar.towns.length > 0 && (
+          <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="text-lg font-semibold">📐 暮らし・財政の全国での位置</h2>
+            <TownRadar data={radar} />
+          </section>
+        )}
+
+        {/* ② 人口推移 (TASK-POPTREND: 国勢調査実績 + XKT013 将来推計 2025-2070) — 街の未来 */}
         {trend && trend.series.length >= 2 && (
           <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="flex items-baseline justify-between gap-2">
@@ -212,16 +220,11 @@ function CityDashboardView({
           </section>
         )}
 
-        {/* 年齢構成 (設計B B2c) */}
+        {/* ③ 年齢構成 (設計B B2c) — 街の構造 */}
         {data.stats && <AgeStructureBar stats={data.stats} />}
 
-        {/* 暮らし・財政の全国比較レーダー (TASK-FISCAL) */}
-        {radar && radar.towns.length > 0 && (
-          <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-            <h2 className="text-lg font-semibold">📐 暮らし・財政の全国での位置</h2>
-            <TownRadar data={radar} />
-          </section>
-        )}
+        {/* ④ 客観統計 (Phase D) — 個別事実カード */}
+        {data.stats && <StatsCards stats={data.stats} />}
 
         {/* 関心軸別カウント */}
         {sortedInterests.length > 0 && (
