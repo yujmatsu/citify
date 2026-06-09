@@ -74,44 +74,54 @@ export default function Home() {
             <p className="text-sm text-zinc-500">
               {persona.user_id} ({persona.age_group}) として続行
             </p>
-            <Link
-              href="/agent"
-              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-6 text-base font-medium text-white transition-colors hover:bg-emerald-700"
-            >
-              🤖 マイ街エージェント
-            </Link>
-            <Link
-              href="/feed"
-              className="inline-flex h-11 w-full items-center justify-center rounded-full border border-zinc-300 px-6 text-sm font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-            >
-              フィードを見る
-            </Link>
-            <div className="space-y-4 pt-2 text-left">
+            {/* 主役は1つ: アドバイザー(エージェント)に相談する */}
+            <div className="space-y-1.5">
+              <Link
+                href="/agent"
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-6 text-base font-medium text-white transition-colors hover:bg-emerald-700"
+              >
+                🤖 マイ街エージェントに相談
+              </Link>
+              <p className="text-xs text-zinc-500">
+                あなたの街と候補を比べて「住み続ける／どこへ移るか」を提案します
+              </p>
+            </div>
+            <div className="space-y-4 pt-3 text-left">
               <LinkGroup
-                title="街を知る・選ぶ"
+                title="街を選ぶ"
                 links={[
-                  { href: "/concierge", label: "💬 街診断コンシェルジュ" },
-                  { href: "/municipalities", label: "🏙️ 街さがし・マイ自治体" },
-                  { href: "/compare", label: "🔀 比較ビュー" },
-                  { href: "/heatmap", label: "🗾 全国ヒートマップ" },
+                  {
+                    href: "/concierge",
+                    label: "💬 質問して街を診断",
+                    hint: "気になることをピンポイントで聞く",
+                  },
+                  { href: "/municipalities", label: "🏙️ 気になる街を探す・登録" },
+                  { href: "/compare", label: "🔀 2つの街を見比べる" },
+                  { href: "/heatmap", label: "🗾 全国から条件で探す" },
                 ]}
               />
               <LinkGroup
-                title="動きを見る"
+                title="街の動きを知る"
                 links={[
-                  { href: "/timeline", label: "🕰 議論タイムライン" },
-                  { href: "/forecast", label: "📈 議題件数の推移と予測" },
+                  { href: "/feed", label: "📰 議題フィードを眺める" },
+                  { href: "/timeline", label: "🕰 議論の流れを追う" },
+                  { href: "/forecast", label: "📈 街の勢い・将来予測" },
                 ]}
               />
-              <LinkGroup
-                title="設定・管理"
-                muted
-                links={[
-                  { href: "/onboarding", label: "⚙️ 年代・関心・街を変更" },
-                  { href: "/admin/scrapers", label: "🩺 Scraper Health" },
-                  { href: "/admin/costs", label: "💸 Cost Health" },
-                ]}
-              />
+              <div className="space-y-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                <Link
+                  href="/onboarding"
+                  className="block text-sm text-zinc-500 transition-colors hover:text-zinc-700 dark:hover:text-zinc-300"
+                >
+                  ⚙️ 設定（年代・関心・街）
+                </Link>
+                <Link
+                  href="/admin"
+                  className="block text-xs text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-400"
+                >
+                  開発者向け →
+                </Link>
+              </div>
             </div>
           </div>
         ) : (
@@ -154,29 +164,28 @@ export default function Home() {
 function LinkGroup({
   title,
   links,
-  muted,
 }: {
   title: string;
-  links: { href: string; label: string }[];
-  muted?: boolean;
+  links: { href: string; label: string; hint?: string }[];
 }): React.JSX.Element {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
         {title}
       </p>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+      <div>
         {links.map((l) => (
           <Link
             key={l.href}
             href={l.href}
-            className={
-              muted
-                ? "text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
-                : "font-medium text-zinc-700 underline hover:text-zinc-900 dark:text-zinc-200"
-            }
+            className="-mx-2 block rounded-lg px-2 py-1.5 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-900"
           >
-            {l.label}
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+              {l.label}
+            </span>
+            {l.hint ? (
+              <span className="block text-[11px] text-zinc-400">{l.hint}</span>
+            ) : null}
           </Link>
         ))}
       </div>
