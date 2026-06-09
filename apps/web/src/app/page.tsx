@@ -53,19 +53,20 @@ export default function Home() {
         <div className="space-y-2">
           <h1 className="text-4xl font-bold tracking-tight">Citify</h1>
           <p className="text-lg font-medium text-zinc-700 dark:text-zinc-200">
-            住む街、どう選ぶ？
+            街選びの、相談相手。
           </p>
           <p className="text-sm text-zinc-500">
-            60 秒で、あなたに合う街が見えてくる。
+            60 秒で、街の「今」と「これから」が見えてくる。
           </p>
         </div>
         <div className="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
           <p>
-            あなたの優先順位で、全国の街を客観データと AI
-            が比較。「住み続けるか・どこへ移るか」の答えを一緒に出します。
+            年代と優先順位に合わせて、全国の街を客観データで比較・整理。「住み続ける？
+            どこかへ移る？」——その判断に必要な材料を AI
+            が集めてお伝えします。決めるのは、あなたです。
           </p>
           <p className="text-xs text-zinc-500">
-            議事録から街が「いま何に投資しているか（＝5 年後の暮らし）」まで見えるのは
+            議事録から街が「いま何に投資しているか（＝5 年後の暮らし）」まで読めるのは
             Citify だけ。
           </p>
         </div>
@@ -83,7 +84,7 @@ export default function Home() {
                 🤖 マイ街エージェントに相談
               </Link>
               <p className="text-xs text-zinc-500">
-                あなたの街と候補を比べて「住み続ける／どこへ移るか」を提案します
+                あなたの街と候補を見比べて、今の状況とこれからをお伝えします
               </p>
             </div>
             <div className="space-y-4 pt-3 text-left">
