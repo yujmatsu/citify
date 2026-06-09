@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AutonomyTrace } from "@/components/watcher/autonomy-trace";
+import { RunProgress } from "@/components/watcher/run-progress";
 import { SpecialistFindings } from "@/components/watcher/specialist-findings";
 import { TownAssessmentCard } from "@/components/watcher/town-assessment-card";
 import { TownRadar } from "@/components/watcher/town-radar";
@@ -227,9 +228,12 @@ export default function AgentHomePage(): React.JSX.Element {
           )}
         </button>
         {running && (
-          <p className="text-center text-xs text-zinc-500">
-            街を横断調査し、結論を自己検証・反論で詰めています（30〜90 秒ほど）
-          </p>
+          <RunProgress
+            townLabel={[home, ...watched]
+              .filter(Boolean)
+              .map((c) => nameOf(c as string))
+              .join("・")}
+          />
         )}
         {runError && (
           <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300">
