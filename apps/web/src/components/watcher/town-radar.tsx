@@ -163,6 +163,7 @@ export function TownRadar({
             return (
               <polygon
                 key={t.municipality_code}
+                className="radar-grow"
                 points={pts}
                 fill={color}
                 fillOpacity={0.15}

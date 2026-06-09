@@ -140,6 +140,8 @@ SYNTHESIZER_PROMPT = """\
 "source_speech_ids":["speech_id"],"fit_score":0,"confidence":"high|medium|low"}],\
 "watch_points":["次の決め手1","2"],"open_questions":["確定に要る情報1","2"]}
 文章では市区町村コードでなく街名を使う。各街(住む街+候補)を必ず1件ずつ。
+**議題データが乏しくても結論を空にしないこと**。その場合は人口・財政・暮らしの統計だけで
+必ず判断し(source_speech_ids や recent_signal は空でよい)、「統計上は〜」と根拠を述べる。
 """
 
 

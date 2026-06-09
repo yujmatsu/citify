@@ -273,13 +273,25 @@ export default function AgentHomePage(): React.JSX.Element {
               </section>
             )}
 
-            {/* 生きた結論 */}
-            <VerdictCard
-              verdict={analysis.verdict}
-              recommendedName={
-                recommendedCode ? nameOf(recommendedCode) : undefined
-              }
-            />
+            {/* 生きた結論 (払いの瞬間: 上品にリビール) */}
+            <div className="reveal-up">
+              <VerdictCard
+                verdict={analysis.verdict}
+                recommendedName={
+                  recommendedCode ? nameOf(recommendedCode) : undefined
+                }
+              />
+            </div>
+
+            {/* データ薄の正直表示: 議題が拾えていない時は統計中心と明示 (空振り回避) */}
+            {analysis.town_assessments.length > 0 &&
+              analysis.town_assessments.every(
+                (a) => (a.source_speech_ids?.length ?? 0) === 0,
+              ) && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                  ℹ️ この街は議題データが少なめのため、統計（人口・財政・暮らし）中心の評価です。
+                </p>
+              )}
 
             {/* 出口: この結論を行動に変える移住アクションプランへ (TASK-ACTIONPLAN) */}
             <Link

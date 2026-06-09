@@ -50,16 +50,23 @@ export default function Home() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-8 py-16">
       <div className="max-w-md text-center space-y-8">
-        <div className="space-y-3">
+        <div className="space-y-2">
           <h1 className="text-4xl font-bold tracking-tight">Citify</h1>
-          <p className="text-lg text-zinc-600 dark:text-zinc-400">
-            自分の街、自分の世代の話を、60 秒で。
+          <p className="text-lg font-medium text-zinc-700 dark:text-zinc-200">
+            住む街、どう選ぶ？
+          </p>
+          <p className="text-sm text-zinc-500">
+            60 秒で、あなたに合う街が見えてくる。
           </p>
         </div>
-        <div className="space-y-3 text-sm text-zinc-700 dark:text-zinc-300">
+        <div className="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
           <p>
-            自治体議事録を若者向けに翻訳して TikTok
-            風フィードで配信する、マルチエージェント AI プロダクトです。
+            あなたの優先順位で、全国の街を客観データと AI
+            が比較。「住み続けるか・どこへ移るか」の答えを一緒に出します。
+          </p>
+          <p className="text-xs text-zinc-500">
+            議事録から街が「いま何に投資しているか（＝5 年後の暮らし）」まで見えるのは
+            Citify だけ。
           </p>
         </div>
         {persona ? (
