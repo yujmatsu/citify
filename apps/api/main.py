@@ -3303,7 +3303,7 @@ async def get_watcher_action_plan(
     # TASK-SUPPORT P1: 国の移住支援金マッチング (現住所/世帯は watchlist 由来)。
     # ※ analysis(TownAnalysis) は home/household を持たないため watchlist を引く。
     from agents.watcher.schema import RelocationSupport
-    from agents.watcher.support import match_national_support
+    from agents.watcher.support import extract_local_support, match_national_support
 
     watch = repo.get_watchlist(user_id)
     national = match_national_support(
@@ -3311,7 +3311,9 @@ async def get_watcher_action_plan(
         recommended_code=plan.recommended_code,
         household=watch.household if watch else "",
     )
-    plan.support = RelocationSupport(national=national, local=[])
+    # P2: 自治体独自支援を google_search グラウンディングで抽出 (失敗時は空・graceful)
+    local = await extract_local_support(name, plan.recommended_code)
+    plan.support = RelocationSupport(national=national, local=local)
 
     if run_id:
         _PLAN_CACHE.set(cache_key, plan)

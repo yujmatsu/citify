@@ -18,7 +18,8 @@ import csv
 import logging
 from pathlib import Path
 
-from agents.watcher.schema import NationalSupport
+from agents._shared.forbidden import find_forbidden_matches
+from agents.watcher.schema import LocalSupport, NationalSupport
 
 logger = logging.getLogger(__name__)
 
@@ -123,3 +124,102 @@ def match_national_support(
         official_url=official,
         note=note,
     )
+
+
+# ============================================================================
+# P2: 自治体独自支援 (google_search グラウンディング抽出、agentic)
+# ============================================================================
+
+_LOCAL_MODEL = "gemini-2.5-flash"
+_LOCAL_LOCATION = "us-central1"
+_LOCAL_CACHE: dict[str, list[LocalSupport]] = {}
+
+
+def _ensure_vertex_env() -> None:
+    """ADK が Vertex を使うよう明示 (extract_preferences と同方針)。"""
+    import os
+
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", _LOCAL_LOCATION)
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev"))
+
+
+def _build_local_prompt(name: str) -> str:
+    return (
+        f"{name}に移住・定住する人向けの**公的な支援制度**(移住支援金・子育て支援・住宅補助・"
+        "起業支援など)を、最新の公式情報をWeb検索で調べて最大3件挙げてください。\n"
+        "各制度を1行ずつ『制度名｜一言概要』の形式で書く(全角縦棒｜区切り)。\n"
+        "金額は断定せず概要に留める。確実でない情報は出さない。"
+        "政治的判断・処方・投票推奨は含めない。前置きや結びの文は不要、箇条書きのみ。"
+    )
+
+
+def _parse_local_lines(text: str, sources: list[str]) -> list[LocalSupport]:
+    """『制度名｜概要』行を LocalSupport に。倫理スキャンで違反行は除去。最大3件。"""
+    out: list[LocalSupport] = []
+    official = sources[0] if sources else ""
+    src = sources[0] if sources else ""
+    for raw in (text or "").splitlines():
+        line = raw.strip().lstrip("-・*0123456789. ").strip()
+        if not line or ("｜" not in line and "|" not in line):
+            continue
+        sep = "｜" if "｜" in line else "|"
+        nm, _, summary = line.partition(sep)
+        nm, summary = nm.strip(), summary.strip()
+        if not nm or find_forbidden_matches(line):
+            continue
+        out.append(LocalSupport(name=nm, summary=summary, official_url=official, source_url=src))
+        if len(out) >= 3:
+            break
+    return out
+
+
+async def extract_local_support(
+    name: str, code: str, model: str = _LOCAL_MODEL
+) -> list[LocalSupport]:
+    """自治体独自支援を google_search グラウンディングで抽出 (code でキャッシュ・graceful)。"""
+    if code in _LOCAL_CACHE:
+        return _LOCAL_CACHE[code]
+    _ensure_vertex_env()
+
+    sources: list[str] = []
+    final_text = ""
+    try:
+        import uuid
+
+        import google.genai.types as gat
+        from google.adk import Agent, Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.adk.tools import google_search
+
+        agent = Agent(
+            name="local_support_search",
+            model=model,
+            instruction="移住者向けの公的支援制度を Web 検索で調べて簡潔に答えるアシスタント。",
+            tools=[google_search],
+        )
+        runner = Runner(
+            agent=agent, app_name="local_support", session_service=InMemorySessionService()
+        )
+        sid = uuid.uuid4().hex[:8]
+        await runner.session_service.create_session(
+            app_name="local_support", user_id="aux", session_id=sid
+        )
+        msg = gat.Content(role="user", parts=[gat.Part(text=_build_local_prompt(name))])
+        async for event in runner.run_async(user_id="aux", session_id=sid, new_message=msg):
+            # グラウンディング出典 (web.uri) を収集 (防御的に getattr)
+            gm = getattr(event, "grounding_metadata", None)
+            for chunk in getattr(gm, "grounding_chunks", None) or []:
+                web = getattr(chunk, "web", None)
+                uri = getattr(web, "uri", None)
+                if uri and uri not in sources:
+                    sources.append(uri)
+            if getattr(event, "is_final_response", lambda: False)() and event.content:
+                final_text = event.content.parts[0].text or ""
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("extract_local_support failed code=%s err=%s", code, exc)
+        return []
+
+    result = _parse_local_lines(final_text, sources)
+    _LOCAL_CACHE[code] = result
+    return result

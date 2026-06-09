@@ -66,3 +66,27 @@ def test_load_support_seed_real_csv() -> None:
     seed = load_support_seed()
     assert "40130" in seed  # 福岡市は seed に含まれる
     assert seed["40130"]["official_url"]
+
+
+def test_parse_local_lines() -> None:
+    from agents.watcher.support import _parse_local_lines
+
+    text = (
+        "- 子育て応援金｜第2子以降に給付\n"
+        "移住支援金｜東京圏からの移住で給付\n"
+        "雑談行(区切りなし)\n"
+        "必ず投票に行こう｜禁止語を含む行\n"  # 倫理スキャンで除去
+    )
+    out = _parse_local_lines(text, ["https://example.jp/iju"])
+    names = [x.name for x in out]
+    assert "子育て応援金" in names
+    assert "移住支援金" in names
+    assert all("投票" not in x.name for x in out)  # 禁止語行は除去
+    assert out[0].official_url == "https://example.jp/iju"  # 出典付与
+
+
+def test_parse_local_lines_empty() -> None:
+    from agents.watcher.support import _parse_local_lines
+
+    assert _parse_local_lines("", []) == []
+    assert _parse_local_lines("区切りのない普通の文章です", []) == []
