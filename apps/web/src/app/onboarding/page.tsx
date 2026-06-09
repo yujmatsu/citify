@@ -256,7 +256,8 @@ export default function OnboardingPage(): React.JSX.Element {
                 気になるトピックは？
               </h1>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                複数選択 OK・あとから変更可能です ({interests.size} 個選択中)
+                すべて任意です。スキップして街選びに進めます（精度を上げたい人だけ入力）
+                {interests.size > 0 ? ` ・ ${interests.size} 個選択中` : ""}
               </p>
             </header>
 

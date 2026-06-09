@@ -1,15 +1,42 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { loadPersona, type Persona } from "@/lib/persona";
+import { putWatchlist } from "@/lib/api";
+import { loadPersona, type Persona, savePersona } from "@/lib/persona";
+import { PRESET_PERSONAS, type PresetPersona } from "@/lib/presets";
 
 export default function Home() {
+  const router = useRouter();
   const [persona, setPersona] = useState<Persona | null | undefined>(undefined);
+  const [applying, setApplying] = useState<string | null>(null);
 
   useEffect(() => {
     setPersona(loadPersona());
   }, []);
+
+  // プリセット適用: persona 保存 + watchlist 同期(best-effort) → /agent で即体験
+  async function applyPreset(p: PresetPersona) {
+    setApplying(p.id);
+    savePersona(p.persona);
+    try {
+      await putWatchlist(p.persona.user_id, {
+        age_group: p.persona.age_group,
+        interests: p.persona.interests,
+        home_municipality_code: p.persona.municipality_codes[0],
+        watched_codes: p.persona.municipality_codes.slice(1),
+        priorities: p.persona.priorities,
+        household: p.persona.household ?? "",
+        budget_man: p.persona.budget_man,
+        free_form_context: p.persona.free_form_context,
+      });
+    } catch (err) {
+      console.error("preset watchlist sync failed (続行)", err);
+    } finally {
+      router.push("/agent");
+    }
+  }
 
   // SSR / 初期 hydration 中はスケルトン
   if (persona === undefined) {
@@ -81,12 +108,36 @@ export default function Home() {
             </div>
           </div>
         ) : (
-          <Link
-            href="/onboarding"
-            className="inline-flex h-12 w-full items-center justify-center rounded-full bg-zinc-900 px-6 text-base font-medium text-zinc-50 transition-colors hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            はじめる
-          </Link>
+          <div className="space-y-3 text-left">
+            <p className="text-center text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              ひとつ選ぶと、設定なしで今すぐ試せます
+            </p>
+            {PRESET_PERSONAS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => applyPreset(p)}
+                disabled={applying !== null}
+                className="block w-full rounded-2xl border border-zinc-300 bg-white p-4 text-left transition-colors hover:border-emerald-400 hover:bg-emerald-50/40 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
+              >
+                <div className="flex items-center gap-2">
+                  <span aria-hidden className="text-lg">
+                    {p.emoji}
+                  </span>
+                  <span className="font-semibold">{p.label}</span>
+                </div>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  {applying === p.id ? "準備中…" : p.description}
+                </p>
+              </button>
+            ))}
+            <Link
+              href="/onboarding"
+              className="block pt-1 text-center text-sm text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              自分で設定する（年代・関心・街を入力）→
+            </Link>
+          </div>
         )}
       </div>
     </main>
