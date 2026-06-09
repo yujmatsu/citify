@@ -13,6 +13,7 @@ import {
   type MunicipalityCandidate,
   type ToolCallLog,
 } from "@/lib/api";
+import { ConciergeProgress } from "@/components/concierge/concierge-progress";
 import { ReasoningExplainerButton } from "@/components/reasoning-explainer";
 import { loadPersona, type Persona } from "@/lib/persona";
 import { cn } from "@/lib/utils";
@@ -480,11 +481,8 @@ function TurnView({
   if (turn.kind === "loading") {
     return (
       <div className="flex justify-start">
-        <div className="max-w-[80%] rounded-2xl rounded-bl-sm bg-zinc-100 dark:bg-zinc-800 px-4 py-3 text-sm">
-          <div className="flex items-center gap-2 text-zinc-500">
-            <span className="animate-pulse">🤖</span>
-            <span>Agent が tool を呼んで考え中... (5-20 秒)</span>
-          </div>
+        <div className="w-full max-w-[90%]">
+          <ConciergeProgress />
         </div>
       </div>
     );
