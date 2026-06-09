@@ -7,6 +7,7 @@ import {
   type ActionPlan,
   fetchActionPlan,
   formatActionPlanForCopy,
+  type RelocationSupport,
   runWatcher,
 } from "@/lib/api";
 import { RunProgress } from "@/components/watcher/run-progress";
@@ -340,6 +341,11 @@ function PlanView({
           </p>
         )}
 
+        {/* 💰 受けられる可能性のある支援金 (TASK-SUPPORT) */}
+        {plan.support?.national && (
+          <SupportSection support={plan.support} />
+        )}
+
         {/* 公式の相談窓口 */}
         {plan.official_links.length > 0 && (
           <section className="space-y-2 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -383,5 +389,77 @@ function PlanView({
         </p>
       </div>
     </main>
+  );
+}
+
+/** 💰 受けられる可能性のある支援金 (TASK-SUPPORT)。断定せず「可能性」、公式で要確認。 */
+function SupportSection({
+  support,
+}: {
+  support: RelocationSupport;
+}): React.JSX.Element | null {
+  const n = support.national;
+  if (!n) return null;
+  const eligible = n.eligibility !== "unlikely";
+  const amountLabel =
+    n.amount_man != null
+      ? `最大 ${n.amount_man} 万円`
+      : "単身60万・世帯100万（構成により）";
+  return (
+    <section className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 dark:border-emerald-900 dark:bg-emerald-950/40">
+      <h2 className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+        💰 受けられる可能性のある支援金
+      </h2>
+      <div className="space-y-1 text-sm">
+        <p className="font-medium">国の移住支援金</p>
+        {eligible ? (
+          <p className="text-zinc-700 dark:text-zinc-200">
+            {amountLabel} の対象の<span className="font-semibold">可能性</span>
+            {n.child_addition &&
+              "（＋18歳未満の子1人あたり最大100万円加算の可能性）"}
+          </p>
+        ) : (
+          <p className="text-zinc-600 dark:text-zinc-400">
+            現時点では対象外の可能性
+          </p>
+        )}
+        {n.note && <p className="text-xs text-zinc-500">{n.note}</p>}
+        {n.requirements && (
+          <p className="text-xs text-zinc-500">要件: {n.requirements}</p>
+        )}
+        {n.official_url && (
+          <a
+            href={n.official_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block text-sm font-medium text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400"
+          >
+            公式で確認する →
+          </a>
+        )}
+      </div>
+
+      {/* 自治体独自支援 (P2 で抽出。P1 では空) */}
+      {support.local.length > 0 && (
+        <div className="space-y-1 border-t border-emerald-200 pt-2 dark:border-emerald-900">
+          <p className="text-sm font-medium">自治体独自の支援</p>
+          {support.local.map((l) => (
+            <a
+              key={l.official_url || l.name}
+              href={l.official_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-sm text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400"
+            >
+              {l.name} →
+            </a>
+          ))}
+        </div>
+      )}
+
+      <p className="text-[11px] leading-relaxed text-zinc-400">
+        金額・対象は概算です。最終的な要件・金額は自治体公式で必ずご確認ください。
+      </p>
+    </section>
   );
 }

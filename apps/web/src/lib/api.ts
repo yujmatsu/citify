@@ -1268,6 +1268,27 @@ export const OfficialLinkSchema = z.object({
 });
 export type OfficialLink = z.infer<typeof OfficialLinkSchema>;
 
+// TASK-SUPPORT: 移住支援金マッチング
+export const NationalSupportSchema = z.object({
+  eligibility: z.enum(["likely", "conditional", "unlikely"]).default("unlikely"),
+  amount_man: z.number().int().nullable().optional(),
+  child_addition: z.boolean().default(false),
+  requirements: z.string().default(""),
+  official_url: z.string().default(""),
+  note: z.string().default(""),
+});
+export const LocalSupportSchema = z.object({
+  name: z.string(),
+  summary: z.string().default(""),
+  official_url: z.string().default(""),
+  source_url: z.string().default(""),
+});
+export const RelocationSupportSchema = z.object({
+  national: NationalSupportSchema.nullable().optional(),
+  local: z.array(LocalSupportSchema).default([]),
+});
+export type RelocationSupport = z.infer<typeof RelocationSupportSchema>;
+
 export const ActionPlanSchema = z.object({
   mode: z.enum(["relocate", "stay"]).default("relocate"),
   recommended_code: z.string(),
@@ -1278,6 +1299,7 @@ export const ActionPlanSchema = z.object({
   open_questions: z.array(z.string()).default([]),
   visit_checklist: z.array(z.string()).default([]),
   official_links: z.array(OfficialLinkSchema).default([]),
+  support: RelocationSupportSchema.nullable().optional(),
   run_id: z.string().default(""),
   generated_at: z.string().default(""),
 });

@@ -167,6 +167,33 @@ class OfficialLink(BaseModel):
     url: str
 
 
+class NationalSupport(BaseModel):
+    """国の移住支援金(地方創生移住支援事業)の判定結果 (TASK-SUPPORT、断定せず"可能性")。"""
+
+    eligibility: Literal["likely", "conditional", "unlikely"] = "unlikely"
+    amount_man: int | None = Field(default=None, description="概算上限(万円)、対象外は None")
+    child_addition: bool = Field(default=False, description="18歳未満の子加算の可能性(子育て世帯)")
+    requirements: str = Field(default="", description="満たすべき要件(就業/テレワーク/起業 等)")
+    official_url: str = Field(default="", description="一次情報(自治体公式 or 国ポータル)")
+    note: str = Field(default="", description="前提・判定理由(現住所/移住先)")
+
+
+class LocalSupport(BaseModel):
+    """自治体独自の支援(LLM抽出、TASK-SUPPORT P2)。金額は断定せず公式で要確認。"""
+
+    name: str
+    summary: str = ""
+    official_url: str = ""
+    source_url: str = Field(default="", description="抽出のグラウンディング出典")
+
+
+class RelocationSupport(BaseModel):
+    """移住支援金マッチング結果 (国制度＋自治体独自)。"""
+
+    national: NationalSupport | None = None
+    local: list[LocalSupport] = Field(default_factory=list)
+
+
 class ActionPlan(BaseModel):
     """移住アクションプラン (TASK-ACTIONPLAN)。Watcher の結論を行動に変換した持ち帰り1枚。
 
@@ -186,6 +213,9 @@ class ActionPlan(BaseModel):
     )
     official_links: list[OfficialLink] = Field(
         default_factory=list, description="移住相談窓口/信頼ポータル (stay は空)"
+    )
+    support: RelocationSupport | None = Field(
+        default=None, description="移住支援金マッチング (TASK-SUPPORT、未判定は None)"
     )
     run_id: str = Field(default="", description="元になった分析の run_id (キャッシュ鍵)")
     generated_at: str = Field(default="", description="生成時刻 ISO8601")
