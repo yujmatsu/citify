@@ -108,18 +108,12 @@ export default function Home() {
                   { href: "/forecast", label: "📈 街の勢い・将来予測" },
                 ]}
               />
-              <div className="space-y-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+              <div className="border-t border-zinc-200 pt-3 dark:border-zinc-800">
                 <Link
                   href="/onboarding"
                   className="block text-sm text-zinc-500 transition-colors hover:text-zinc-700 dark:hover:text-zinc-300"
                 >
                   ⚙️ 設定（年代・関心・街）
-                </Link>
-                <Link
-                  href="/admin"
-                  className="block text-xs text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-400"
-                >
-                  開発者向け →
                 </Link>
               </div>
             </div>
