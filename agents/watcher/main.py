@@ -548,6 +548,7 @@ class WatcherAgent:
 
             Args:
                 plan: これから何を重点的に調べるかの箇条書き。
+                    **ユーザー向けの平易な日本語**で書き、ツール名(specialist_*)やコードは含めない。
                 reason: なぜその方針か (ユーザーの優先順位に基づく理由)。
             """
             for p in plan or []:
@@ -669,6 +670,20 @@ class WatcherAgent:
             draft = await self._synthesize(findings, watch, town_names, prev_analysis)
         draft_parsed_ok = draft is not None
 
+        # 自律調査の後、独立した自己検証(Critic A1 / Devil's Advocate A9)を **必ず1回** 通す。
+        # coordinator が自分で critic を呼ばないことがあるため reflection をコードで保証する
+        # (crew とのパリティ回復 + 透明性。失敗は graceful に draft 据え置き)。
+        critique_note, advocate_note = "", ""
+        if draft is not None:
+            try:
+                draft, critique_note, advocate_note = await self._verify_and_revise(
+                    draft, watch, town_names
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "watcher.coordinator_verify_failed user=%s err=%s", watch.user_id, exc
+                )
+
         return self._finalize(
             watch,
             run_id,
@@ -679,6 +694,8 @@ class WatcherAgent:
             token_cost,
             findings,
             town_names=town_names,
+            critique_note=critique_note,
+            advocate_note=advocate_note,
             investigation_plan=plan_sink,
         )
 
