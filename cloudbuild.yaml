@@ -86,7 +86,10 @@ steps:
       - --platform=managed
       - --allow-unauthenticated                    # 公開 API (Week 5 で認証検討)
       - --service-account=${_RUNTIME_SA}
-      - --set-env-vars=ENV=dev,GIT_SHA=${BUILD_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION}
+      # WATCHER_AUTONOMY_MODE: Watcher の実行戦略 (coordinator=Lv3 完全自律 / crew=固定クルー)。
+      # 本番 smoke 検証済みのため coordinator を恒久化 (コード既定は crew、prod のみ env で上書き)。
+      # 不具合時はこの値を crew に変えて再デプロイ、もしくは env 削除で即フォールバック。
+      - --set-env-vars=ENV=dev,GIT_SHA=${BUILD_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION},WATCHER_AUTONOMY_MODE=coordinator
       # Week 1 で Secret Manager 連携時にコメントアウト解除:
       # - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
       - --memory=512Mi
