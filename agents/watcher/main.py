@@ -22,8 +22,8 @@ from agents._shared.forbidden import find_forbidden_matches
 
 from .prompts.system import (
     ADVOCATE_PROMPT,
-    COORDINATOR_PROMPT,
     CRITIC_PROMPT,
+    PLANNER_PROMPT,
     SPECIALIST_DESCRIPTIONS,
     SPECIALIST_INSTRUCTIONS,
     SYNTHESIZER_PROMPT,
@@ -54,11 +54,8 @@ SPECIALIST_DOMAINS: tuple[str, ...] = ("population", "fiscal", "living_safety", 
 MAX_SPECIALIST_TOOL_CALLS = 4  # 専門家1人あたりのツール上限
 _SYNTH_MAX_ATTEMPTS = 3  # Synthesizer の最大試行回数 (解析失敗時のみ再実行し空振りを抑制)
 
-# Lv3: Coordinator が直接呼ぶツール回数の上限 (専門家内部の bound は MAX_SPECIALIST_TOOL_CALLS が別途担保)。
-# Cloud Run timeout 整合のため小さめから開始し本番計測で調整 (設計 §上限とタイムアウトの整合)。
-MAX_COORDINATOR_STEPS = 8
-# 段階導入 (設計 §10): 既定は実績ある crew。本番で coordinator を smoke 検証後、
-# Cloud Run env WATCHER_AUTONOMY_MODE=coordinator で有効化する。
+# 段階導入 (設計 §10): 既定は実績ある crew。本番で coordinator(=プランナー主導 Lv2.5) を
+# smoke 検証後、Cloud Run env WATCHER_AUTONOMY_MODE=coordinator で有効化する。
 DEFAULT_AUTONOMY_MODE = "crew"  # WATCHER_AUTONOMY_MODE 未設定時 (coordinator / crew)
 # Lv3 ガードレール: coordinator が薄くしか調べなくても、街選びの核となる所見は必ず揃える
 # コア専門家。欠けていればコードで補完ディスパッチする (本番 smoke で flash の偏り判明)。
@@ -154,31 +151,6 @@ def parse_finding(final_text: str, domain: str) -> SpecialistFinding | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("watcher.finding_invalid domain=%s err=%s", domain, exc)
         return None
-
-
-def _finding_from_response(response: Any, domain: str) -> SpecialistFinding | None:
-    """specialist AgentTool の function_response から SpecialistFinding を best-effort 抽出 (Lv3)。
-
-    ADK は tool 結果を文字列 or {"result": ...} 等の dict で包む。形が揺れても落ちないよう
-    防御的に文字列化し parse_finding(JSON 抽出+検証) に回す。抽出不能は None (graceful)。
-    """
-    text = ""
-    if isinstance(response, str):
-        text = response
-    elif isinstance(response, dict):
-        for key in ("result", "output", "response", "text"):
-            v = response.get(key)
-            if isinstance(v, str) and v:
-                text = v
-                break
-        if not text:
-            try:
-                text = json.dumps(response, ensure_ascii=False)
-            except (TypeError, ValueError):
-                text = str(response)
-    else:
-        text = str(response or "")
-    return parse_finding(text, domain)
 
 
 def _coverage_missing(
@@ -546,69 +518,56 @@ class WatcherAgent:
             tools=[FunctionTool(func=f) for f in tool_funcs],
         )
 
-    def _build_coordinator(self, plan_sink: list[str]) -> Any:
-        """Coordinator LlmAgent を構築 (Lv3、制御フローを LLM が所有)。
+    def _build_planner(self, plan_sink: list[str], selected_sink: list[str]) -> Any:
+        """調査プランナー LlmAgent を構築 (Lv2.5)。record_plan のみを持ち、調査方針と
+        対象専門家を LLM に決めさせる。実行(専門家)はコードが並列で行う(高速化)。lazy import。
 
-        専門家/critic/advocate を AgentTool、record_plan を FunctionTool として保持。
-        plan_sink: record_plan が受け取った調査方針を積むリスト (呼び出し側が参照)。lazy import。
+        plan_sink / selected_sink: record_plan が受け取った方針・対象専門家を積むリスト(呼出側参照)。
         """
         from google.adk import Agent
-        from google.adk.tools import AgentTool, FunctionTool
+        from google.adk.tools import FunctionTool
 
-        def record_plan(plan: list[str], reason: str = "") -> dict:
-            """調査の方針を最初に1回宣言する。
+        def record_plan(plan: list[str], specialists: list[str], reason: str = "") -> dict:
+            """調査の方針と、調べてもらう専門家を宣言する(最初に1回)。
 
             Args:
-                plan: これから何を重点的に調べるかの箇条書き。
-                    **ユーザー向けの平易な日本語**で書き、ツール名(specialist_*)やコードは含めない。
-                reason: なぜその方針か (ユーザーの優先順位に基づく理由)。
+                plan: 何を重点的に調べるかの箇条書き。**ユーザー向けの平易な日本語**で、
+                    ツール名やコードは含めない。
+                specialists: 調査を依頼する専門家のキー。次から1つ以上選ぶ:
+                    "population"(人口・将来性) / "fiscal"(財政) /
+                    "living_safety"(住居・医療・治安) / "topics"(議事録の動き)。
+                reason: その方針にした理由(ユーザーの優先順位に基づく)。
             """
             for p in plan or []:
                 if isinstance(p, str) and p.strip():
                     plan_sink.append(p.strip())
-            logger.info("watcher.plan_recorded n=%d reason=%s", len(plan_sink), reason)
-            return {"status": "recorded", "n": len(plan_sink)}
+            for s in specialists or []:
+                d = str(s).strip().lower()
+                if d in SPECIALIST_DOMAINS and d not in selected_sink:
+                    selected_sink.append(d)
+            logger.info(
+                "watcher.plan_recorded items=%d specialists=%s reason=%s",
+                len(plan_sink),
+                selected_sink,
+                reason,
+            )
+            return {"status": "recorded", "specialists": selected_sink}
 
-        # 専門家を AgentTool 化。skip_summarization=True で所見 JSON を素通しし coordinator に渡す。
-        specialist_tools = [
-            AgentTool(agent=self._build_specialist_agent(d), skip_summarization=True)
-            for d in SPECIALIST_DOMAINS
-        ]
-        critic_agent = Agent(
-            name="critic",
-            description="草案(JSON)の根拠の弱さ・見落とし・矛盾を指摘する監査役",
-            model=self.model,
-            instruction=CRITIC_PROMPT,
-            tools=[],
-        )
-        advocate_agent = Agent(
-            name="devils_advocate",
-            description="草案にあえて反対の結論から最も強い反論を組み立てる役",
-            model=self.model,
-            instruction=ADVOCATE_PROMPT,
-            tools=[],
-        )
         return Agent(
-            name="watcher_coordinator",
-            description="街選びの統括アナリスト",
+            name="watcher_planner",
+            description="街選び調査のプランナー",
             model=self.model,
-            instruction=COORDINATOR_PROMPT,
-            tools=[
-                FunctionTool(func=record_plan),
-                *specialist_tools,
-                AgentTool(agent=critic_agent, skip_summarization=True),
-                AgentTool(agent=advocate_agent, skip_summarization=True),
-            ],
+            instruction=PLANNER_PROMPT,
+            tools=[FunctionTool(func=record_plan)],
         )
 
     async def _run_coordinator(
         self, watch: WatchInput, town_names: dict[str, str] | None = None
     ) -> WatcherResult:
-        """Coordinator LlmAgent が制御フローを所有する完全自律実行 (Lv3)。
-
-        コーディネータが record_plan→専門家(AgentTool)→深掘り→critic/advocate→最終JSON を自分で采配。
-        コードは tool_calls/plan/findings/usage を回収し、上限と最終整形 (二段構え) だけ担う。
+        """Lv2.5: プランナー(LLM)が調査計画と対象専門家を決定 → コードが専門家を **並列実行** →
+        統合 → 自己検証。pure Lv3 の逐次性によるレイテンシを避けつつ、計画と采配は LLM が握る。
         """
+        import asyncio
         import uuid
 
         import google.genai.types as gat
@@ -625,17 +584,6 @@ class WatcherAgent:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("watcher.prev_fetch_failed user=%s err=%s", watch.user_id, exc)
 
-        plan_sink: list[str] = []
-        tool_calls: list[ToolCall] = []
-        findings: list[SpecialistFinding] = []
-        token_cost: int | None = None
-        final_text = ""
-
-        agent = self._build_coordinator(plan_sink)
-        ss = InMemorySessionService()
-        app, sid = "watcher_coordinator", watch.user_id
-        await ss.create_session(app_name=app, user_id=watch.user_id, session_id=sid)
-        runner = Runner(agent=agent, app_name=app, session_service=ss)
         prompt = build_watch_user_prompt(
             watch.user_id,
             watch.age_group,
@@ -648,72 +596,76 @@ class WatcherAgent:
             budget_man=watch.budget_man,
             free_form_context=watch.free_form_context,
         )
-        msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
-        async for event in runner.run_async(user_id=watch.user_id, session_id=sid, new_message=msg):
-            for part in getattr(getattr(event, "content", None), "parts", []) or []:
-                fc = getattr(part, "function_call", None)
-                if fc:
-                    tool_calls.append(ToolCall(tool=fc.name, args=dict(fc.args or {})))
-                # 専門家の戻り (function_response) から SpecialistFinding を best-effort 回収
-                fr = getattr(part, "function_response", None)
-                if fr is not None:
-                    name = getattr(fr, "name", "") or ""
-                    if name.startswith("specialist_"):
-                        f = _finding_from_response(
-                            getattr(fr, "response", None), name[len("specialist_") :]
-                        )
-                        if f is not None:
-                            findings.append(f)
-            usage = getattr(event, "usage_metadata", None)
-            total = getattr(usage, "total_token_count", None) if usage else None
-            if total is not None:
-                token_cost = total
-            if len(tool_calls) > MAX_COORDINATOR_STEPS:
-                logger.warning("watcher.coordinator_max user=%s", watch.user_id)
-                break
-            is_final = getattr(event, "is_final_response", lambda: False)()
-            if is_final and event.content and event.content.parts:
-                final_text = event.content.parts[0].text or ""
 
-        # カバレッジ床 (Lv3 ガードレール): コア専門家の所見が欠けていれば、不足分をコードで
-        # 並列補完ディスパッチする。coordinator の采配(計画・主導)は尊重しつつ、分析の厚みを保証
-        # (flash が専門家を1人で済ませがちな問題への対策。本番 smoke で判明)。
-        import asyncio
-
-        missing = _coverage_missing(findings)
-        backfilled = False
-        if missing:
-            backfilled = True
-            logger.info("watcher.coordinator_backfill user=%s missing=%s", watch.user_id, missing)
-            results = await asyncio.gather(
-                *[self._run_specialist(d, watch, town_names) for d in missing],
-                return_exceptions=True,
+        # 1. プランナー: 調査方針と対象専門家を LLM に決めさせる (record_plan のみ・軽量1ラウンド)。
+        plan_sink: list[str] = []
+        selected_sink: list[str] = []
+        tool_calls: list[ToolCall] = []
+        token_cost: int | None = None
+        try:
+            planner = self._build_planner(plan_sink, selected_sink)
+            ss = InMemorySessionService()
+            await ss.create_session(
+                app_name="watcher_planner", user_id=watch.user_id, session_id=run_id
             )
-            for r in results:
-                if isinstance(r, BaseException) or r is None:
-                    continue
-                finding, tcalls, tcost = r
-                tool_calls.extend(tcalls)
-                if tcost is not None:
-                    token_cost = (token_cost or 0) + tcost
-                if finding is not None:
-                    findings.append(finding)
+            runner = Runner(agent=planner, app_name="watcher_planner", session_service=ss)
+            msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
+            async for event in runner.run_async(
+                user_id=watch.user_id, session_id=run_id, new_message=msg
+            ):
+                for part in getattr(getattr(event, "content", None), "parts", []) or []:
+                    fc = getattr(part, "function_call", None)
+                    if fc:
+                        tool_calls.append(ToolCall(tool=fc.name, args=dict(fc.args or {})))
+                usage = getattr(event, "usage_metadata", None)
+                total = getattr(usage, "total_token_count", None) if usage else None
+                if total is not None:
+                    token_cost = total
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("watcher.planner_failed user=%s err=%s", watch.user_id, exc)
 
-        draft = parse_analysis(final_text)
-        # 補完した(=薄かった)場合は揃った全所見から統合し直す。最終 JSON が崩れていても所見から統合
-        # (二段構え)。synth 失敗時は coordinator の draft を据え置き。
-        if (backfilled or draft is None) and findings:
-            logger.info(
-                "watcher.coordinator_resynth user=%s backfilled=%s", watch.user_id, backfilled
+        # 2. 実行する専門家 = LLM 選択 ∪ カバレッジ床 (核は必ず調べる)。SPECIALIST_DOMAINS 順を保つ。
+        chosen = set(selected_sink) | set(COVERAGE_FLOOR_DOMAINS)
+        run_domains = [d for d in SPECIALIST_DOMAINS if d in chosen]
+
+        # 3. 専門家をコードが **並列実行** (crew と同じ fan-out = 高速)。
+        findings: list[SpecialistFinding] = []
+        results = await asyncio.gather(
+            *[self._run_specialist(d, watch, town_names) for d in run_domains],
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, BaseException) or r is None:
+                if isinstance(r, BaseException):
+                    logger.warning("watcher.specialist_failed err=%s", r)
+                continue
+            finding, tcalls, tcost = r
+            tool_calls.extend(tcalls)
+            if tcost is not None:
+                token_cost = (token_cost or 0) + tcost
+            if finding is not None:
+                findings.append(finding)
+
+        # 専門家全滅 → 空 (run() が crew にフォールバック)。
+        if not findings:
+            run_log = _build_run_log(
+                run_id,
+                watch.user_id,
+                watch.all_codes(),
+                tool_calls,
+                0,
+                "empty",
+                "no_specialist_findings",
+                token_cost,
             )
-            synth = await self._synthesize(findings, watch, town_names, prev_analysis)
-            if synth is not None:
-                draft = synth
+            self._persist(watch.user_id, run_log, None)
+            return WatcherResult(analysis=None, run_log=run_log)
+
+        # 4. 統合 (専門家所見 → TownAnalysis 草案)。
+        draft = await self._synthesize(findings, watch, town_names, prev_analysis)
         draft_parsed_ok = draft is not None
 
-        # 自律調査の後、独立した自己検証(Critic A1 / Devil's Advocate A9)を **必ず1回** 通す。
-        # coordinator が自分で critic を呼ばないことがあるため reflection をコードで保証する
-        # (crew とのパリティ回復 + 透明性。失敗は graceful に draft 据え置き)。
+        # 5. 独立した自己検証(Critic A1 / Devil's Advocate A9)を **必ず1回** 通す (失敗は graceful)。
         critique_note, advocate_note = "", ""
         if draft is not None:
             try:
@@ -721,9 +673,7 @@ class WatcherAgent:
                     draft, watch, town_names
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "watcher.coordinator_verify_failed user=%s err=%s", watch.user_id, exc
-                )
+                logger.warning("watcher.verify_failed user=%s err=%s", watch.user_id, exc)
 
         return self._finalize(
             watch,

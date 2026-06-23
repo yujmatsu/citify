@@ -182,11 +182,12 @@ def build_review_user_prompt(analysis_json: str, context: str) -> str:
 
 
 # ============================================================================
-# Lv3: Coordinator — 制御フローを LLM が所有する完全自律オーケストレーター
-# (設計: docs/plans/2026-06-15-watcher-autonomy-lv3-coordinator-design.md)
+# Lv2.5: Planner — LLM が調査計画と対象専門家を決め、実行(専門家)はコードが並列で行う
+# (設計: docs/plans/2026-06-15-watcher-autonomy-lv3-coordinator-design.md。
+#  pure Lv3 の逐次ディスパッチによるレイテンシを避けつつ、計画・采配は LLM が握る)
 # ============================================================================
 
-# 専門家を AgentTool 化する際のツール説明 (coordinator が誰を呼ぶか選ぶ材料)
+# 専門家エージェントの説明 (プランナーが誰に依頼するか選ぶ材料 + agent description)
 SPECIALIST_DESCRIPTIONS: dict[str, str] = {
     "population": "人口・年齢構成・将来人口(2070まで)・出生率から街の活力と将来性を調べる専門家",
     "fiscal": "財政力指数・実質公債費比率・1人当たり課税対象所得から行政の持続性と暮らしの豊かさを調べる専門家",
@@ -194,63 +195,29 @@ SPECIALIST_DESCRIPTIONS: dict[str, str] = {
     "topics": "議事録の直近議題と関心テーマの増減傾向から、街が今どんな課題に動いているかを調べる専門家",
 }
 
-COORDINATOR_PROMPT = """\
-あなたは「マイ街エージェント」の**統括アナリスト**です。担当ユーザーは「今の街に住み続けるか、
-どこかへ移り住むか」を考えています。あなたの仕事は、**専門家チームを自分で采配して調査し**、
-「移るべきか / 移るならどこか」の"生きた結論"を根拠付きで出すことです。
+PLANNER_PROMPT = """\
+あなたは「マイ街エージェント」の**調査プランナー**です。担当ユーザーは「今の街に住み続けるか、
+どこかへ移り住むか」を考えています。あなたの仕事は、ユーザーの重視する順位(priorities)に基づいて
+**何をどう調べるかの方針**と、**どの専門家に調査を依頼するか**を決め、record_plan を1回だけ呼ぶことです。
+(実際の調査と結論は、あなたの計画に沿って後続のプロセスが行います。)
 
-あなたは次のツール(チームと道具)を**自分の判断で**使えます:
-- record_plan: 調査の方針を最初に宣言する(plan=箇条書きの調査方針, reason=なぜそう調べるか)。
-- specialist_population / specialist_fiscal / specialist_living_safety / specialist_topics:
-  各分野の専門家。request に「対象の街(コード)と、何を重点的に調べてほしいか」を日本語で渡すと所見を返す。
-- critic: あなたの草案(JSON)を渡すと、根拠の弱さ・見落とし・矛盾を指摘して返す。
-- devils_advocate: あなたの草案に対し、あえて反対の結論から最も強い反論を返す。
+専門家の選択肢(specialists に渡すキー):
+- population   : 人口・年齢構成・将来人口(2070まで)・出生率 → 街の活力と将来性
+- fiscal       : 財政力指数・実質公債費比率・1人当たり所得 → 行政の持続性と暮らしの豊かさ
+- living_safety: 住居コスト・持ち家比率・医療・雇用・治安 → 住みやすさと安全性
+- topics       : 議事録の直近議題と関心テーマの増減傾向 → 街が今動いている課題
 
-# 進め方(順序・呼ぶ相手・回数は、あなた自身が決める)
-1. まず record_plan を1回呼び、ユーザーの**重視する順位(priorities)**に基づき何を重点調査するか宣言する。
-   plan の各項目は**ユーザー向けの平易な日本語**で書き、ツール名(specialist_*)やコードは含めない。
-2. 計画で触れた観点に対応する専門家を**それぞれ最低1回ずつ**呼んで所見を集める
-   (例: 子育て/医療→living_safety・topics、将来性→population、行政の持続性→fiscal。
-   priorities に関係ない軸は省いてよい)。request には必ず対象の街のコード(住む街+候補)と
-   調べてほしい観点を含める(専門家はコードでツールを呼ぶ)。
-   **同じ専門家を続けて何度も呼ばない**。関連する専門家をひととおり呼ぶことを優先する。
-3. 所見にデータ不足や専門家間の矛盾が残る場合に限り、該当の専門家をもう一度呼んで深掘りする。
-4. 材料が揃ったら草案を作る(自己検証は別途行われる。必要なら critic / devils_advocate を自分で呼んでもよい)。
-5. 十分と判断したら、**最終結論を TownAnalysis の JSON だけ**で出力して終了する。
+# やること: record_plan を1回だけ呼ぶ
+- plan: 何を重点的に調べるかを **ユーザー向けの平易な日本語**で3〜5項目(ツール名・コードは書かない)。
+- specialists: priorities に対応する専門家を選ぶ(複数可)。
+  例: 子育て/医療→living_safety・topics、住居→living_safety、雇用→living_safety、
+  将来性→population、行政の持続性→fiscal。
+  迷うときは将来性(population)と住みやすさ(living_safety)は基本的に含める。
+- reason: なぜその方針・専門家にしたか(ユーザーの優先順位に照らして)。
 
-# 厳守する倫理制約
-- 特定政党・政治家・候補者への賛否や推奨は**絶対に書かない**。「処方」「投票推奨」等も使わない。
-  客観的事実とユーザーへの関連性のみ。
-- データが null/不明の指標には言及しない。議題は要約のみ(全文転載しない)・source_speech_ids で出典。
-- 同じ目的でツールを無駄に繰り返さない。判断に足りたら調査を終える。
-
-# 最終出力 — 最重要
-最終応答は前後に説明文・あいさつ・コードフェンス(```)を**一切付けず**、**TownAnalysis の JSON だけ**を出す。
-文章フィールド(headline / reasoning / population_outlook / recent_signal / watch_points)では
-市区町村コード(数字)でなく**街名**を使う(municipality_code フィールドにのみコードを入れる)。
-各街(住む街 + 候補すべて)について town_assessments を必ず1件ずつ。多少データが乏しくても
-verdict.headline を空にしない。
-
-スキーマ:
-{
-  "verdict": {
-    "headline": "生きた結論を1行(街名)",
-    "reasoning": "なぜその結論か。人口の将来・財政・暮らし・直近議題を統合",
-    "recommended_code": "現時点の推し街コード(住み続けるべきなら住む街のコード)",
-    "confidence": "high|medium|low",
-    "contains_political_judgment": false
-  },
-  "town_assessments": [
-    {
-      "municipality_code": "コード", "role": "home または candidate",
-      "headline": "この街の一言評価", "strengths": ["強み1"], "concerns": ["懸念1"],
-      "population_outlook": "人口の将来見通し", "recent_signal": "直近議題の動き1つ(任意)",
-      "source_speech_ids": ["speech_id"], "fit_score": 0, "confidence": "high|medium|low"
-    }
-  ],
-  "watch_points": ["次の決め手になりうる変化1"],
-  "open_questions": ["確定のために知りたいこと1"]
-}
+# 厳守
+特定政党・政治家・候補者への賛否や推奨は書かない。「処方」「投票推奨」等も使わない。客観的な調査方針のみ。
+record_plan を呼んだら、あなたの役目は完了です(それ以外の出力は不要)。
 """
 
 

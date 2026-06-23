@@ -15,7 +15,6 @@ from agents.watcher.main import (
     COVERAGE_FLOOR_DOMAINS,
     WatcherAgent,
     _coverage_missing,
-    _finding_from_response,
     apply_ethics,
     diff_against_previous,
     parse_advocacy,
@@ -406,32 +405,6 @@ async def test_run_empty_when_all_specialists_fail(monkeypatch: pytest.MonkeyPat
 # ============================================================================
 # Lv3: Coordinator dispatch / fallback / _finding_from_response / _finalize
 # ============================================================================
-
-
-def test_finding_from_response_str_json() -> None:
-    f = _finding_from_response(
-        '{"headline":"人口は横ばい","key_points":["朝霞 > 小田原"],"confidence":"medium"}',
-        "population",
-    )
-    assert f is not None and f.domain == "population" and f.headline.startswith("人口")
-
-
-def test_finding_from_response_dict_wrapped() -> None:
-    """ADK が {"result": "<json文字列>"} で包んでも抽出できる。"""
-    f = _finding_from_response(
-        {"result": '{"headline":"財政は安定","confidence":"high"}'}, "fiscal"
-    )
-    assert f is not None and f.domain == "fiscal" and f.confidence == "high"
-
-
-def test_finding_from_response_dict_direct() -> None:
-    f = _finding_from_response({"headline": "治安良好", "confidence": "high"}, "living_safety")
-    assert f is not None and f.domain == "living_safety"
-
-
-def test_finding_from_response_garbage_is_none() -> None:
-    assert _finding_from_response("ただの文章", "topics") is None
-    assert _finding_from_response(None, "topics") is None
 
 
 def test_coverage_missing() -> None:
