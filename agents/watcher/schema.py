@@ -158,6 +158,11 @@ class TownAnalysis(BaseModel):
     specialist_findings: list[SpecialistFinding] = Field(default_factory=list)
     # P4: 前回分析からの変化 (A3、コードで付与)
     changes_since_last: list[str] = Field(default_factory=list)
+    # Lv3: Coordinator が自分で立てた調査計画 (自律性の可視化、coordinator モードのみ)
+    investigation_plan: list[str] = Field(
+        default_factory=list,
+        description="エージェントが最初に宣言した調査方針 (record_plan、自律性の証跡)",
+    )
 
 
 class OfficialLink(BaseModel):

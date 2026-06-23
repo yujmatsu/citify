@@ -22,7 +22,9 @@ from agents._shared.forbidden import find_forbidden_matches
 
 from .prompts.system import (
     ADVOCATE_PROMPT,
+    COORDINATOR_PROMPT,
     CRITIC_PROMPT,
+    SPECIALIST_DESCRIPTIONS,
     SPECIALIST_INSTRUCTIONS,
     SYNTHESIZER_PROMPT,
     build_review_user_prompt,
@@ -51,6 +53,13 @@ SPECIALIST_TOOLS: dict[str, tuple[str, ...]] = {
 SPECIALIST_DOMAINS: tuple[str, ...] = ("population", "fiscal", "living_safety", "topics")
 MAX_SPECIALIST_TOOL_CALLS = 4  # 専門家1人あたりのツール上限
 _SYNTH_MAX_ATTEMPTS = 3  # Synthesizer の最大試行回数 (解析失敗時のみ再実行し空振りを抑制)
+
+# Lv3: Coordinator が直接呼ぶツール回数の上限 (専門家内部の bound は MAX_SPECIALIST_TOOL_CALLS が別途担保)。
+# Cloud Run timeout 整合のため小さめから開始し本番計測で調整 (設計 §上限とタイムアウトの整合)。
+MAX_COORDINATOR_STEPS = 8
+# 段階導入 (設計 §10): 既定は実績ある crew。本番で coordinator を smoke 検証後、
+# Cloud Run env WATCHER_AUTONOMY_MODE=coordinator で有効化する。
+DEFAULT_AUTONOMY_MODE = "crew"  # WATCHER_AUTONOMY_MODE 未設定時 (coordinator / crew)
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +150,31 @@ def parse_finding(final_text: str, domain: str) -> SpecialistFinding | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("watcher.finding_invalid domain=%s err=%s", domain, exc)
         return None
+
+
+def _finding_from_response(response: Any, domain: str) -> SpecialistFinding | None:
+    """specialist AgentTool の function_response から SpecialistFinding を best-effort 抽出 (Lv3)。
+
+    ADK は tool 結果を文字列 or {"result": ...} 等の dict で包む。形が揺れても落ちないよう
+    防御的に文字列化し parse_finding(JSON 抽出+検証) に回す。抽出不能は None (graceful)。
+    """
+    text = ""
+    if isinstance(response, str):
+        text = response
+    elif isinstance(response, dict):
+        for key in ("result", "output", "response", "text"):
+            v = response.get(key)
+            if isinstance(v, str) and v:
+                text = v
+                break
+        if not text:
+            try:
+                text = json.dumps(response, ensure_ascii=False)
+            except (TypeError, ValueError):
+                text = str(response)
+    else:
+        text = str(response or "")
+    return parse_finding(text, domain)
 
 
 def should_revise(critique: Critique | None) -> bool:
@@ -281,7 +315,33 @@ class WatcherAgent:
     async def run(
         self, watch: WatchInput, town_names: dict[str, str] | None = None
     ) -> WatcherResult:
-        """1 ユーザー分の自律実行 → WatcherResult (repo があれば Firestore 永続化)。
+        """1 ユーザー分の自律実行 → WatcherResult。
+
+        WATCHER_AUTONOMY_MODE で実行戦略を選択 (設計 Lv3):
+            coordinator: Coordinator LlmAgent が制御フローを所有する完全自律。
+            crew(既定) : 固定クルー(4専門家→統合→批判→修正)。
+        段階導入のため既定は crew。coordinator が例外 or 結論を出せない場合は
+        **自動で crew にフォールバック** (回帰防止)。
+        """
+        import os
+
+        mode = (os.getenv("WATCHER_AUTONOMY_MODE") or DEFAULT_AUTONOMY_MODE).strip().lower()
+        if mode == "coordinator":
+            try:
+                result = await self._run_coordinator(watch, town_names)
+                if result is not None and result.analysis is not None:
+                    return result
+                logger.warning("watcher.coordinator_no_analysis user=%s → crew", watch.user_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "watcher.coordinator_failed user=%s err=%s → crew", watch.user_id, exc
+                )
+        return await self._run_crew(watch, town_names)
+
+    async def _run_crew(
+        self, watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
+        """固定クルー型 (従来 run() 本体)。4専門家 並列 → 統合 → 批判+反論 → 条件付き修正。
 
         town_names: コード→街名。出力文章で街名を使わせるためにプロンプトへ渡す(任意)。
         """
@@ -348,6 +408,37 @@ class WatcherAgent:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("watcher.verify_failed user=%s err=%s", watch.user_id, exc)
 
+        return self._finalize(
+            watch,
+            run_id,
+            prev_analysis,
+            draft,
+            draft_parsed_ok,
+            tool_calls,
+            token_cost,
+            findings,
+            town_names=town_names,
+            critique_note=critique_note,
+            advocate_note=advocate_note,
+        )
+
+    def _finalize(
+        self,
+        watch: WatchInput,
+        run_id: str,
+        prev_analysis: TownAnalysis | None,
+        draft: TownAnalysis | None,
+        draft_parsed_ok: bool,
+        tool_calls: list[ToolCall],
+        token_cost: int | None,
+        findings: list[SpecialistFinding],
+        *,
+        town_names: dict[str, str] | None = None,
+        critique_note: str = "",
+        advocate_note: str = "",
+        investigation_plan: list[str] | None = None,
+    ) -> WatcherResult:
+        """倫理ゲート適用・透明性フィールド付与・run_log 構築・永続化 (crew/coordinator 共通の締め)。"""
         analysis = apply_ethics(draft)
         n_assessed = len(analysis.town_assessments) if analysis else 0
         note = ""
@@ -359,6 +450,8 @@ class WatcherAgent:
             analysis.devils_advocate = advocate_note
             analysis.specialist_findings = findings
             analysis.changes_since_last = diff_against_previous(prev_analysis, analysis, town_names)
+            if investigation_plan:
+                analysis.investigation_plan = investigation_plan
         status = "ok" if analysis else "empty"
         run_log = _build_run_log(
             run_id,
@@ -435,10 +528,158 @@ class WatcherAgent:
         tool_funcs = [getattr(watcher_tools, name) for name in SPECIALIST_TOOLS.get(domain, ())]
         return Agent(
             name=f"specialist_{domain}",
-            description=f"{domain} ドメインの専門アナリスト",
+            description=SPECIALIST_DESCRIPTIONS.get(domain, f"{domain} ドメインの専門アナリスト"),
             model=self.model,
             instruction=SPECIALIST_INSTRUCTIONS.get(domain, ""),
             tools=[FunctionTool(func=f) for f in tool_funcs],
+        )
+
+    def _build_coordinator(self, plan_sink: list[str]) -> Any:
+        """Coordinator LlmAgent を構築 (Lv3、制御フローを LLM が所有)。
+
+        専門家/critic/advocate を AgentTool、record_plan を FunctionTool として保持。
+        plan_sink: record_plan が受け取った調査方針を積むリスト (呼び出し側が参照)。lazy import。
+        """
+        from google.adk import Agent
+        from google.adk.tools import AgentTool, FunctionTool
+
+        def record_plan(plan: list[str], reason: str = "") -> dict:
+            """調査の方針を最初に1回宣言する。
+
+            Args:
+                plan: これから何を重点的に調べるかの箇条書き。
+                reason: なぜその方針か (ユーザーの優先順位に基づく理由)。
+            """
+            for p in plan or []:
+                if isinstance(p, str) and p.strip():
+                    plan_sink.append(p.strip())
+            logger.info("watcher.plan_recorded n=%d reason=%s", len(plan_sink), reason)
+            return {"status": "recorded", "n": len(plan_sink)}
+
+        # 専門家を AgentTool 化。skip_summarization=True で所見 JSON を素通しし coordinator に渡す。
+        specialist_tools = [
+            AgentTool(agent=self._build_specialist_agent(d), skip_summarization=True)
+            for d in SPECIALIST_DOMAINS
+        ]
+        critic_agent = Agent(
+            name="critic",
+            description="草案(JSON)の根拠の弱さ・見落とし・矛盾を指摘する監査役",
+            model=self.model,
+            instruction=CRITIC_PROMPT,
+            tools=[],
+        )
+        advocate_agent = Agent(
+            name="devils_advocate",
+            description="草案にあえて反対の結論から最も強い反論を組み立てる役",
+            model=self.model,
+            instruction=ADVOCATE_PROMPT,
+            tools=[],
+        )
+        return Agent(
+            name="watcher_coordinator",
+            description="街選びの統括アナリスト",
+            model=self.model,
+            instruction=COORDINATOR_PROMPT,
+            tools=[
+                FunctionTool(func=record_plan),
+                *specialist_tools,
+                AgentTool(agent=critic_agent, skip_summarization=True),
+                AgentTool(agent=advocate_agent, skip_summarization=True),
+            ],
+        )
+
+    async def _run_coordinator(
+        self, watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
+        """Coordinator LlmAgent が制御フローを所有する完全自律実行 (Lv3)。
+
+        コーディネータが record_plan→専門家(AgentTool)→深掘り→critic/advocate→最終JSON を自分で采配。
+        コードは tool_calls/plan/findings/usage を回収し、上限と最終整形 (二段構え) だけ担う。
+        """
+        import uuid
+
+        import google.genai.types as gat
+        from google.adk import Runner
+        from google.adk.sessions import InMemorySessionService
+
+        self._ensure_vertex_env()
+        run_id = uuid.uuid4().hex
+
+        prev_analysis: TownAnalysis | None = None
+        if self.repo is not None:
+            try:
+                prev_analysis = self.repo.get_latest_analysis(watch.user_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("watcher.prev_fetch_failed user=%s err=%s", watch.user_id, exc)
+
+        plan_sink: list[str] = []
+        tool_calls: list[ToolCall] = []
+        findings: list[SpecialistFinding] = []
+        token_cost: int | None = None
+        final_text = ""
+
+        agent = self._build_coordinator(plan_sink)
+        ss = InMemorySessionService()
+        app, sid = "watcher_coordinator", watch.user_id
+        await ss.create_session(app_name=app, user_id=watch.user_id, session_id=sid)
+        runner = Runner(agent=agent, app_name=app, session_service=ss)
+        prompt = build_watch_user_prompt(
+            watch.user_id,
+            watch.age_group,
+            list(watch.interests),
+            watch.home_municipality_code,
+            list(watch.watched_codes),
+            town_names=town_names,
+            priorities=list(watch.priorities),
+            household=watch.household,
+            budget_man=watch.budget_man,
+            free_form_context=watch.free_form_context,
+        )
+        msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
+        async for event in runner.run_async(user_id=watch.user_id, session_id=sid, new_message=msg):
+            for part in getattr(getattr(event, "content", None), "parts", []) or []:
+                fc = getattr(part, "function_call", None)
+                if fc:
+                    tool_calls.append(ToolCall(tool=fc.name, args=dict(fc.args or {})))
+                # 専門家の戻り (function_response) から SpecialistFinding を best-effort 回収
+                fr = getattr(part, "function_response", None)
+                if fr is not None:
+                    name = getattr(fr, "name", "") or ""
+                    if name.startswith("specialist_"):
+                        f = _finding_from_response(
+                            getattr(fr, "response", None), name[len("specialist_") :]
+                        )
+                        if f is not None:
+                            findings.append(f)
+            usage = getattr(event, "usage_metadata", None)
+            total = getattr(usage, "total_token_count", None) if usage else None
+            if total is not None:
+                token_cost = total
+            if len(tool_calls) > MAX_COORDINATOR_STEPS:
+                logger.warning("watcher.coordinator_max user=%s", watch.user_id)
+                break
+            is_final = getattr(event, "is_final_response", lambda: False)()
+            if is_final and event.content and event.content.parts:
+                final_text = event.content.parts[0].text or ""
+
+        draft = parse_analysis(final_text)
+        # 二段構え: 最終 JSON が崩れていても、集めた専門家所見があれば統合で結論を必ず出す
+        if draft is None and findings:
+            logger.info("watcher.coordinator_fallback_synth user=%s", watch.user_id)
+            draft = await self._synthesize(findings, watch, town_names, prev_analysis)
+        draft_parsed_ok = draft is not None
+
+        return self._finalize(
+            watch,
+            run_id,
+            prev_analysis,
+            draft,
+            draft_parsed_ok,
+            tool_calls,
+            token_cost,
+            findings,
+            town_names=town_names,
+            investigation_plan=plan_sink,
         )
 
     async def _synthesize(

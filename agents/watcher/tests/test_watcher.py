@@ -13,6 +13,7 @@ import pytest
 
 from agents.watcher.main import (
     WatcherAgent,
+    _finding_from_response,
     apply_ethics,
     diff_against_previous,
     parse_advocacy,
@@ -28,6 +29,7 @@ from agents.watcher.schema import (
     ToolCall,
     TownAnalysis,
     TownAssessment,
+    WatcherResult,
     WatchInput,
     WatchVerdict,
 )
@@ -349,7 +351,8 @@ def test_parse_finding_invalid_returns_none() -> None:
 
 @pytest.mark.asyncio
 async def test_run_multi_agent_orchestration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """run() が 4専門家 → synth → critique/advocate を回し analysis を組み立てる。"""
+    """run() が 4専門家 → synth → critique/advocate を回し analysis を組み立てる (crew モード)。"""
+    monkeypatch.setenv("WATCHER_AUTONOMY_MODE", "crew")
     agent = WatcherAgent(repo=None)
 
     async def fake_spec(
@@ -384,6 +387,7 @@ async def test_run_multi_agent_orchestration(monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.asyncio
 async def test_run_empty_when_all_specialists_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WATCHER_AUTONOMY_MODE", "crew")
     agent = WatcherAgent(repo=None)
 
     async def fake_spec(
@@ -395,6 +399,146 @@ async def test_run_empty_when_all_specialists_fail(monkeypatch: pytest.MonkeyPat
     res = await agent.run(_watch())
     assert res.analysis is None
     assert res.run_log.status == "empty"
+
+
+# ============================================================================
+# Lv3: Coordinator dispatch / fallback / _finding_from_response / _finalize
+# ============================================================================
+
+
+def test_finding_from_response_str_json() -> None:
+    f = _finding_from_response(
+        '{"headline":"人口は横ばい","key_points":["朝霞 > 小田原"],"confidence":"medium"}',
+        "population",
+    )
+    assert f is not None and f.domain == "population" and f.headline.startswith("人口")
+
+
+def test_finding_from_response_dict_wrapped() -> None:
+    """ADK が {"result": "<json文字列>"} で包んでも抽出できる。"""
+    f = _finding_from_response(
+        {"result": '{"headline":"財政は安定","confidence":"high"}'}, "fiscal"
+    )
+    assert f is not None and f.domain == "fiscal" and f.confidence == "high"
+
+
+def test_finding_from_response_dict_direct() -> None:
+    f = _finding_from_response({"headline": "治安良好", "confidence": "high"}, "living_safety")
+    assert f is not None and f.domain == "living_safety"
+
+
+def test_finding_from_response_garbage_is_none() -> None:
+    assert _finding_from_response("ただの文章", "topics") is None
+    assert _finding_from_response(None, "topics") is None
+
+
+def test_finalize_attaches_investigation_plan() -> None:
+    """_finalize が investigation_plan を analysis に載せ、ok で締める (coordinator 共通の締め)。"""
+    agent = WatcherAgent(repo=None)
+    res = agent._finalize(
+        _watch(),
+        "run-x",
+        None,
+        _analysis(),
+        True,
+        [ToolCall(tool="record_plan"), ToolCall(tool="specialist_population")],
+        12,
+        [SpecialistFinding(domain="population", headline="x")],
+        town_names=_NAMES,
+        investigation_plan=["子育てと医療を重点調査", "将来人口も確認"],
+    )
+    assert res.analysis is not None
+    assert res.analysis.investigation_plan == ["子育てと医療を重点調査", "将来人口も確認"]
+    assert res.run_log.status == "ok"
+    assert res.run_log.tool_calls[0].tool == "record_plan"
+
+
+@pytest.mark.asyncio
+async def test_run_dispatches_to_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """既定(coordinator)では _run_coordinator が使われ、結論が出れば crew は呼ばれない。"""
+    monkeypatch.setenv("WATCHER_AUTONOMY_MODE", "coordinator")
+    agent = WatcherAgent(repo=None)
+    expected = WatcherResult(analysis=_analysis(), run_log=AgentRunLog(run_id="c1", user_id="u"))
+
+    async def fake_coord(
+        watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
+        return expected
+
+    async def fail_crew(
+        watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
+        raise AssertionError("crew should not be called when coordinator succeeds")
+
+    monkeypatch.setattr(agent, "_run_coordinator", fake_coord)
+    monkeypatch.setattr(agent, "_run_crew", fail_crew)
+    res = await agent.run(_watch())
+    assert res is expected
+
+
+@pytest.mark.asyncio
+async def test_run_falls_back_to_crew_on_coordinator_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """coordinator が例外で落ちたら crew にフォールバックして結論を出す (回帰防止)。"""
+    monkeypatch.setenv("WATCHER_AUTONOMY_MODE", "coordinator")
+    agent = WatcherAgent(repo=None)
+
+    async def boom(watch: WatchInput, town_names: dict[str, str] | None = None) -> WatcherResult:
+        raise RuntimeError("AgentTool import failed")
+
+    monkeypatch.setattr(agent, "_run_coordinator", boom)
+
+    # crew 内部 (専門家 + synth/critique/advocate) を mock
+    async def fake_spec(
+        domain: str, watch: WatchInput, town_names: dict[str, str] | None
+    ) -> tuple[SpecialistFinding, list[ToolCall], int | None]:
+        return (SpecialistFinding(domain=domain, headline=f"{domain}所見"), [], None)
+
+    monkeypatch.setattr(agent, "_run_specialist", fake_spec)
+    seq = iter(
+        [
+            json.dumps(_analysis().model_dump(), ensure_ascii=False),
+            '{"issues":[],"missing_axes":[],"grounding_failures":[],"needs_revision":false}',
+            '{"counter_verdict":"","strongest_points":[]}',
+        ]
+    )
+
+    async def fake_single(instruction: str, message: str) -> str:
+        return next(seq)
+
+    monkeypatch.setattr(agent, "_run_single_agent", fake_single)
+    res = await agent.run(_watch())
+    assert res.analysis is not None  # crew が結論を出した
+    assert res.run_log.status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_run_falls_back_to_crew_when_coordinator_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """coordinator が analysis=None を返しても crew にフォールバックする。"""
+    monkeypatch.setenv("WATCHER_AUTONOMY_MODE", "coordinator")
+    agent = WatcherAgent(repo=None)
+
+    async def empty_coord(
+        watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
+        return WatcherResult(analysis=None, run_log=AgentRunLog(run_id="e1", user_id="u"))
+
+    crew_result = WatcherResult(
+        analysis=_analysis(), run_log=AgentRunLog(run_id="crew1", user_id="u")
+    )
+
+    async def fake_crew(
+        watch: WatchInput, town_names: dict[str, str] | None = None
+    ) -> WatcherResult:
+        return crew_result
+
+    monkeypatch.setattr(agent, "_run_coordinator", empty_coord)
+    monkeypatch.setattr(agent, "_run_crew", fake_crew)
+    res = await agent.run(_watch())
+    assert res is crew_result
 
 
 @pytest.mark.asyncio

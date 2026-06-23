@@ -1059,6 +1059,8 @@ export const TownAnalysisSchema = z.object({
   specialist_findings: z.array(SpecialistFindingSchema).default([]),
   // P4: 前回分析からの変化 (A3)
   changes_since_last: z.array(z.string()).default([]),
+  // Lv3: Coordinator が立てた調査計画 (自律性の可視化)
+  investigation_plan: z.array(z.string()).default([]),
 });
 
 export type TownAnalysis = z.infer<typeof TownAnalysisSchema>;

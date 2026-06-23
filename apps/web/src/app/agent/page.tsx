@@ -301,6 +301,26 @@ export default function AgentHomePage(): React.JSX.Element {
               📋 この結論を「次にやること」に — 移住アクションプランを作る →
             </Link>
 
+            {/* Lv3: エージェントが自分で立てた調査方針 (自律性の可視化) */}
+            {analysis.investigation_plan.length > 0 && (
+              <section className="space-y-2 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900 dark:bg-indigo-950">
+                <h2 className="text-sm font-semibold text-indigo-800 dark:text-indigo-300">
+                  🧭 エージェントの調査方針
+                </h2>
+                <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/70">
+                  あなたの優先順位をもとに、AI が自分で立てた調べ方です
+                </p>
+                <ul className="space-y-0.5 text-sm text-indigo-900 dark:text-indigo-200">
+                  {analysis.investigation_plan.map((p, i) => (
+                    <li key={i} className="flex gap-1.5">
+                      <span aria-hidden>{i + 1}.</span>
+                      <span>{p}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             {/* 専門エージェントの所見 (A5 マルチエージェント) */}
             <SpecialistFindings findings={analysis.specialist_findings} />
 
