@@ -113,6 +113,10 @@ jobs:
         working-directory: apps/web
         run: npx tsc --noEmit
 
+      - name: Unit tests (vitest)
+        working-directory: apps/web
+        run: npx vitest run
+
       - name: Build (next build)
         working-directory: apps/web
         run: npx next build
