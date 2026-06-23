@@ -12,7 +12,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from agents.watcher.main import (
+    COVERAGE_FLOOR_DOMAINS,
     WatcherAgent,
+    _coverage_missing,
     _finding_from_response,
     apply_ethics,
     diff_against_previous,
@@ -430,6 +432,21 @@ def test_finding_from_response_dict_direct() -> None:
 def test_finding_from_response_garbage_is_none() -> None:
     assert _finding_from_response("ただの文章", "topics") is None
     assert _finding_from_response(None, "topics") is None
+
+
+def test_coverage_missing() -> None:
+    """カバレッジ床: 揃っていないコア専門家ドメインを返す。"""
+    # 何も無ければコア全部が不足
+    assert _coverage_missing([]) == list(COVERAGE_FLOOR_DOMAINS)
+    # population + living_safety + topics が揃えば不足なし
+    full = [SpecialistFinding(domain=d, headline="x") for d in COVERAGE_FLOOR_DOMAINS]
+    assert _coverage_missing(full) == []
+    # living_safety だけなら population と topics が不足 (本番 smoke の偏りケース)
+    only_ls = [SpecialistFinding(domain="living_safety", headline="x")]
+    assert _coverage_missing(only_ls) == ["population", "topics"]
+    # fiscal は床に含まれないので、fiscal を持っていても不足判定には効かない
+    only_fiscal = [SpecialistFinding(domain="fiscal", headline="x")]
+    assert _coverage_missing(only_fiscal) == list(COVERAGE_FLOOR_DOMAINS)
 
 
 def test_finalize_attaches_investigation_plan() -> None:

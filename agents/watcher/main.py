@@ -60,6 +60,10 @@ MAX_COORDINATOR_STEPS = 8
 # 段階導入 (設計 §10): 既定は実績ある crew。本番で coordinator を smoke 検証後、
 # Cloud Run env WATCHER_AUTONOMY_MODE=coordinator で有効化する。
 DEFAULT_AUTONOMY_MODE = "crew"  # WATCHER_AUTONOMY_MODE 未設定時 (coordinator / crew)
+# Lv3 ガードレール: coordinator が薄くしか調べなくても、街選びの核となる所見は必ず揃える
+# コア専門家。欠けていればコードで補完ディスパッチする (本番 smoke で flash の偏り判明)。
+# fiscal は compare_towns が living_safety と重複し latency 重いため床には含めない(任意)。
+COVERAGE_FLOOR_DOMAINS: tuple[str, ...] = ("population", "living_safety", "topics")
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +179,14 @@ def _finding_from_response(response: Any, domain: str) -> SpecialistFinding | No
     else:
         text = str(response or "")
     return parse_finding(text, domain)
+
+
+def _coverage_missing(
+    findings: list[SpecialistFinding], floor: tuple[str, ...] = COVERAGE_FLOOR_DOMAINS
+) -> list[str]:
+    """所見が揃っていないコア専門家ドメインを返す (Lv3 カバレッジ床、純関数)。"""
+    have = {f.domain for f in findings}
+    return [d for d in floor if d not in have]
 
 
 def should_revise(critique: Critique | None) -> bool:
@@ -663,11 +675,40 @@ class WatcherAgent:
             if is_final and event.content and event.content.parts:
                 final_text = event.content.parts[0].text or ""
 
+        # カバレッジ床 (Lv3 ガードレール): コア専門家の所見が欠けていれば、不足分をコードで
+        # 並列補完ディスパッチする。coordinator の采配(計画・主導)は尊重しつつ、分析の厚みを保証
+        # (flash が専門家を1人で済ませがちな問題への対策。本番 smoke で判明)。
+        import asyncio
+
+        missing = _coverage_missing(findings)
+        backfilled = False
+        if missing:
+            backfilled = True
+            logger.info("watcher.coordinator_backfill user=%s missing=%s", watch.user_id, missing)
+            results = await asyncio.gather(
+                *[self._run_specialist(d, watch, town_names) for d in missing],
+                return_exceptions=True,
+            )
+            for r in results:
+                if isinstance(r, BaseException) or r is None:
+                    continue
+                finding, tcalls, tcost = r
+                tool_calls.extend(tcalls)
+                if tcost is not None:
+                    token_cost = (token_cost or 0) + tcost
+                if finding is not None:
+                    findings.append(finding)
+
         draft = parse_analysis(final_text)
-        # 二段構え: 最終 JSON が崩れていても、集めた専門家所見があれば統合で結論を必ず出す
-        if draft is None and findings:
-            logger.info("watcher.coordinator_fallback_synth user=%s", watch.user_id)
-            draft = await self._synthesize(findings, watch, town_names, prev_analysis)
+        # 補完した(=薄かった)場合は揃った全所見から統合し直す。最終 JSON が崩れていても所見から統合
+        # (二段構え)。synth 失敗時は coordinator の draft を据え置き。
+        if (backfilled or draft is None) and findings:
+            logger.info(
+                "watcher.coordinator_resynth user=%s backfilled=%s", watch.user_id, backfilled
+            )
+            synth = await self._synthesize(findings, watch, town_names, prev_analysis)
+            if synth is not None:
+                draft = synth
         draft_parsed_ok = draft is not None
 
         # 自律調査の後、独立した自己検証(Critic A1 / Devil's Advocate A9)を **必ず1回** 通す。
