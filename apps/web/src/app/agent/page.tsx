@@ -214,7 +214,7 @@ export default function AgentHomePage(): React.JSX.Element {
           type="button"
           onClick={handleRun}
           disabled={running}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 text-base font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400"
+          className="no-print flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 text-base font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400"
         >
           {running ? (
             <>
@@ -227,6 +227,15 @@ export default function AgentHomePage(): React.JSX.Element {
             <>🔍 今すぐ分析してもらう</>
           )}
         </button>
+        {analysis && !running && (
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="no-print flex h-10 w-full items-center justify-center gap-2 rounded-full border border-zinc-300 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+          >
+            🖨 このレポートをPDFとして保存
+          </button>
+        )}
         {running && (
           <RunProgress
             townLabel={[home, ...watched]
@@ -256,6 +265,19 @@ export default function AgentHomePage(): React.JSX.Element {
 
         {analysis ? (
           <>
+            {/* 印刷(PDF)時のみ表示するレポート見出し＋AI注記 */}
+            <div className="print-only mb-4 border-b border-zinc-300 pb-3">
+              <p className="text-lg font-bold">Citify 街選びレポート</p>
+              <p className="text-xs text-zinc-600">
+                {home ? `${nameOf(home)} を基準に比較` : "街の比較"} ／ 作成日:{" "}
+                {new Date().toLocaleDateString("ja-JP")}
+              </p>
+              <p className="mt-1 text-[10px] text-zinc-500">
+                ※ AI
+                が公開統計・議事録をもとに作成した参考情報です。重要な判断は一次情報・公式窓口でご確認ください。
+              </p>
+            </div>
+
             {/* 前回からの変化 (A3) */}
             {analysis.changes_since_last.length > 0 && (
               <section className="space-y-1 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
@@ -296,7 +318,7 @@ export default function AgentHomePage(): React.JSX.Element {
             {/* 出口: この結論を行動に変える移住アクションプランへ (TASK-ACTIONPLAN) */}
             <Link
               href="/plan"
-              className="block rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-center text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
+              className="no-print block rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-center text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
             >
               📋 この結論を「次にやること」に — 移住アクションプランを作る →
             </Link>

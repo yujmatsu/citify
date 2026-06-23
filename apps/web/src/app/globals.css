@@ -62,3 +62,38 @@ body {
     animation: none;
   }
 }
+
+/* 画面のみ表示 / 印刷のみ表示 (TASK-ASYNC-PDF: PDFとして保存) */
+.print-only {
+  display: none;
+}
+
+/* PDFとして保存 (window.print): chrome を隠しレポート本文だけを綺麗に出す */
+@media print {
+  .no-print,
+  nav {
+    display: none !important;
+  }
+  .print-only {
+    display: block;
+  }
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+  /* アニメーションの途中状態(opacity:0)で白紙化しないよう最終状態に固定 */
+  .reveal-up,
+  .radar-grow {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  /* カード/セクションはページ跨ぎで割らない */
+  section,
+  .reveal-up {
+    break-inside: avoid;
+  }
+}

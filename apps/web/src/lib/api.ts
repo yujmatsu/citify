@@ -1212,23 +1212,57 @@ export async function putWatchlist(
   );
 }
 
+const RUN_POLL_INTERVAL_MS = 4000;
+const RUN_POLL_TIMEOUT_MS = 240000; // 4 分 (分析は通常 2-3 分)
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * エージェントをその場で自律実行 (ADK Runner、5-20 秒)。
- * body 省略時は保存済 watchlist を使用。返却 run_log.tool_calls がライブ自律の証跡。
+ * エージェントを **非同期** に自律実行する (アドバイザーが裏で調べてレポートを出す体験)。
+ *
+ * POST /run は即時 202 を返し、重い分析はサーバのバックグラウンドで走る。
+ * ここでは GET /analysis を **新しい run_id が現れるまでポーリング** して完了を検知する
+ * (同期 2-3 分待ちの解消)。返却 run_log.tool_calls がライブ自律の証跡。
+ * body 省略時は保存済 watchlist を使用。
  */
 export async function runWatcher(
   userId: string,
   body?: WatchlistBody,
 ): Promise<WatcherRunResponse> {
-  return fetchJson(
+  // 直前の run_id を控える (完了=新しい run_id の出現で検知)
+  const before = await fetchWatcherAnalysis(userId).catch(() => null);
+  const prevRunId = before?.latest_run?.run_id ?? null;
+
+  // 非同期実行を開始 (202 Accepted)。本体はサーバの背景タスク。
+  const res = await fetch(
     `${API_BASE}/v1/watcher/${encodeURIComponent(userId)}/run`,
-    WatcherRunResponseSchema,
     {
       method: "POST",
       headers: { ...watcherHeaders(userId), "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
       cache: "no-store",
     },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  // 新しい分析(run_id 変化)が現れるまでポーリング
+  const deadline = Date.now() + RUN_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(RUN_POLL_INTERVAL_MS);
+    const cur = await fetchWatcherAnalysis(userId).catch(() => null);
+    const runId = cur?.latest_run?.run_id ?? null;
+    if (cur?.latest_run && runId !== prevRunId) {
+      return { run_log: cur.latest_run, analysis: cur.analysis };
+    }
+  }
+  throw new ApiError(
+    504,
+    "分析がタイムアウトしました。少し時間をおいて再度お試しください。",
   );
 }
 

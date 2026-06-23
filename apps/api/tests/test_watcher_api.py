@@ -237,9 +237,13 @@ def test_put_watchlist_forbidden(client: TestClient, fake_repo: _FakeRepo) -> No
 # ============================================================================
 
 
-def test_run_with_body_invokes_agent_and_saves(
+def test_run_with_body_accepts_202_and_runs_in_background(
     client: TestClient, fake_repo: _FakeRepo, fake_agent: _FakeAgent
 ) -> None:
+    """非同期化: POST /run は 202 を返し、agent.run は背景タスクで走る。
+
+    TestClient は応答後に BackgroundTasks を同期実行するので ran_with を検証できる。
+    """
     payload = {
         "age_group": "40-49",
         "interests": ["子育て"],
@@ -247,12 +251,9 @@ def test_run_with_body_invokes_agent_and_saves(
         "watched_codes": ["27100"],
     }
     res = client.post(f"/v1/watcher/{UID}/run", json=payload, headers=AUTH)
-    assert res.status_code == 200
-    body = res.json()
-    assert body["run_log"]["tool_calls"][0]["tool"] == "compare_towns"
-    assert body["analysis"]["verdict"]["headline"].startswith("今は小田原")
-    assert len(body["analysis"]["town_assessments"]) == 2
-    # body 指定時は watchlist も保存される
+    assert res.status_code == 202
+    assert res.json()["status"] == "running"
+    # body 指定時は watchlist 保存(同期) + 背景タスクで agent.run 実行
     assert fake_repo.saved_watchlist is not None
     assert fake_agent.ran_with is not None
 
@@ -262,7 +263,7 @@ def test_run_without_body_uses_saved_watchlist(
 ) -> None:
     fake_repo.watchlist = _watch()
     res = client.post(f"/v1/watcher/{UID}/run", headers=AUTH)
-    assert res.status_code == 200
+    assert res.status_code == 202
     assert fake_agent.ran_with is not None
     assert fake_agent.ran_with.home_municipality_code == "13104"
 
@@ -302,7 +303,12 @@ def test_get_plan_returns_action_plan(
     async def _fake_checklist(rec, name, mode, model="x"):  # noqa: ANN001, ANN202, ARG001
         return ["朝の通勤帯の混雑を見る"]
 
+    async def _fake_local(name, code, model="x"):  # noqa: ANN001, ANN202, ARG001
+        return []
+
     monkeypatch.setattr("agents.watcher.action_plan.generate_visit_checklist", _fake_checklist)
+    monkeypatch.setattr("agents.watcher.support.extract_local_support", _fake_local)
+    fake_repo.watchlist = _watch()  # 現住所/世帯 (support 判定に必要)
     res = client.get(f"/v1/watcher/{UID}/plan", headers=AUTH)
     assert res.status_code == 200
     plan = res.json()["plan"]
@@ -312,6 +318,9 @@ def test_get_plan_returns_action_plan(
     assert plan["visit_checklist"] == ["朝の通勤帯の混雑を見る"]
     assert plan["decision_summary"].startswith("今は小田原")
     assert len(plan["official_links"]) >= 1  # 27100=大阪市 は seed あり
+    # TASK-SUPPORT: 支援金マッチングが付与される
+    assert plan["support"]["national"] is not None
+    assert plan["support"]["national"]["eligibility"] in ("likely", "conditional", "unlikely")
 
 
 def test_get_plan_forbidden_without_header(client: TestClient, fake_repo: _FakeRepo) -> None:

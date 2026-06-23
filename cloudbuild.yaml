@@ -94,6 +94,9 @@ steps:
       # - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
       - --memory=512Mi
       - --cpu=1
+      # 非同期 /run (TASK-ASYNC-PDF): 応答後もバックグラウンド分析が走るため CPU を常時割当。
+      # これが無いと応答後に CPU がスロットルされ背景タスクが完走しない。
+      - --no-cpu-throttling
       - --min-instances=1                          # Phase Q: cold start 撲滅 (デモ体感優先、月 $10 程度)
       - --max-instances=10
       - --concurrency=80

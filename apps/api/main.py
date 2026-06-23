@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Query, Response
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -3169,18 +3169,39 @@ async def put_watcher_watchlist(
     return watch.model_dump()
 
 
-@app.post("/v1/watcher/{user_id}/run")
+async def _execute_watcher_run_bg(user_id: str, watch: Any, town_names: dict[str, str]) -> None:
+    """エージェントをバックグラウンドで自律実行し Firestore に永続化 (非同期 /run の本体)。
+
+    完了結果は repo 経由で保存され、クライアントは GET /analysis のポーリングで新 run_id を検知する。
+    Cloud Run の応答後 CPU 割当が必要 (cloudbuild の --no-cpu-throttling)。例外は握り潰さずログのみ。
+    """
+    try:
+        result = await _get_watcher_agent().run(watch, town_names=town_names)
+        logger.info(
+            "watcher.run.done(bg) user_id=%s status=%s towns_assessed=%d n_tool_calls=%d",
+            user_id,
+            result.run_log.status,
+            result.run_log.n_discoveries,
+            len(result.run_log.tool_calls),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("watcher.run_failed(bg) user_id=%s err=%s", user_id, exc)
+
+
+@app.post("/v1/watcher/{user_id}/run", status_code=202)
 async def run_watcher(
     user_id: str,
     response: Response,
+    background_tasks: BackgroundTasks,
     body: WatchlistBody | None = None,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> dict:
-    """エージェントをその場で自律実行 (ADK Runner、5-20 秒)。
+    """エージェントを **非同期** に自律実行 (202 即時応答、分析は背景で 2-3 分)。
 
     body があれば watchlist を更新してから実行、無ければ保存済を使用。
-    ツール選択は LLM に委任 (スクリプト化しない) = ①自律性。倫理ゲート・コスト bound は
-    WatcherAgent 側で継承。返却の run_log.tool_calls がライブ自律の証跡。
+    重い分析はバックグラウンド実行し、クライアントは GET /analysis を **新 run_id までポーリング**する
+    (アドバイザーが裏で調べてレポートを出す体験 / 同期待ちの解消)。
+    ツール選択は LLM に委任 (スクリプト化しない) = ①自律性。倫理ゲート・コスト bound は Agent 側で継承。
     """
     _require_watcher_user(user_id, x_user_id)
     response.headers["Cache-Control"] = "no-store"
@@ -3199,23 +3220,9 @@ async def run_watcher(
 
     # 出力文章で街名を使わせるため、コード→名前を解決して渡す
     town_names = {c: _muni_label(c) for c in watch.all_codes()}
-    try:
-        result = await _get_watcher_agent().run(watch, town_names=town_names)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("watcher.run_failed user_id=%s err=%s", user_id, exc)
-        raise HTTPException(status_code=500, detail=f"agent run failed: {exc!s}") from exc
-
-    logger.info(
-        "watcher.run.done user_id=%s status=%s towns_assessed=%d n_tool_calls=%d",
-        user_id,
-        result.run_log.status,
-        result.run_log.n_discoveries,
-        len(result.run_log.tool_calls),
-    )
-    return {
-        "run_log": result.run_log.model_dump(),
-        "analysis": result.analysis.model_dump() if result.analysis else None,
-    }
+    background_tasks.add_task(_execute_watcher_run_bg, user_id, watch, town_names)
+    logger.info("watcher.run.accepted user_id=%s towns=%s", user_id, watch.all_codes())
+    return {"status": "running", "towns": watch.all_codes()}
 
 
 # TASK-ONBOARDING (F): 自由記述から移住の前提を抽出 (フォーム自動プリフィル用)
