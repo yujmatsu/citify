@@ -394,8 +394,9 @@
 - `overall_score = round((4 軸平均))`、ただし `ETHICS_HARD_FLOOR=60` で ethics<60 は強制 revise (倫理は他軸で薄めない)
 - `revision_count` 0/1、`initial_score` で revise 前スコアを保持 (改善幅 demo 用)
 - empty draft (`notes` が `empty_reason:` で始まる) は critique skip + revise skip
-- 既存 `TranslatorAgent.translate()` は完全不変 (backward compat、worker.py / ADK wrapper 不触)
-- 17 unit test 追加 (critic 9 + self_critique integration 8)、既存 27 件 + 全 44 passed
+- 既存 `TranslatorAgent.translate()` は完全不変 (backward compat)
+- **本番 worker への配線 (2026-07-02 追加)**: `CITIFY_ENABLE_CRITIQUE=1` 環境変数で translator worker が critique loop を使用 (**既定 OFF** = 本番挙動不変。Pub/Sub payload 形状も不変で `.translation` を unwrap)。デモ・検証時のみ有効化する運用
+- 17 unit test 追加 (critic 9 + self_critique integration 8) + worker 配線 test 追加、translator 系 47 passed
 
 **依存**:Plan C(ADK wrapper)、`agents/_shared/forbidden.py`(倫理ガード regex)
 

@@ -99,7 +99,7 @@
 
 特に：
 - Python は **3.12**、フレームワークは **FastAPI**
-- フロントエンドは **Next.js 15 App Router + TypeScript**
+- フロントエンドは **Next.js 16 App Router + TypeScript**
 - AI Agent は **ADK** (Agent Development Kit)
 - LLM は **Gemini 2.5 Pro/Flash**
 

@@ -3,6 +3,11 @@
 > Citify の全体アーキテクチャ仕様書。コンポーネント、データフロー、エージェント連携、DevOpsパイプライン、観測性、セキュリティを網羅します。
 >
 > Coding Agent は新規コンポーネント実装前に必ずこのファイルを参照してください。
+>
+> **📌 最新の全体像 (2026-07)**: 提出用の 1 枚図は [`docs/assets/architecture.svg`](assets/architecture.svg) / [`architecture.png`](assets/architecture.png) が正。
+> 本書の Mermaid 図の一部は初期設計時 (エージェント 7 体時代) のもので、現在はエージェント 13 体
+> (パイプライン: Translator/Relevance/Distributor/Critic、ADK: Watcher/Concierge/Preferences、
+> 分析: Timeline/Forecast/Heatmap/Reasoner、運用: Scraper Doctor/Cost Hunter) に拡張済み。
 
 ---
 

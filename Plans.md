@@ -18,8 +18,8 @@
 | **Week 3** | 6/9-6/15 | フロント UI + 議題詳細 + voices_asp パーサー | **`cc:完了`** ✅ 5/22 で 18 日前倒し。A-8 フィード UI + A-9 詳細ビュー (RAG 関連議題 3 件統合 live 確認済) + A-2 自治体マスタ UI (1,795 件) + Phase U 国会 E2E パイプライン稼働。voices_asp 本格パースのみ保留 (robots.txt Disallow) |
 | **Week 4** | 6/16-6/22 | **データソース拡張 + パフォーマンス** | **`cc:完了`** ✅ 2026-05-26 で完了 (27 日前倒し)。B-6 Drop / B-7 21 都道府県 / INFRA-006 Phase 3 政令市 12 + 中核市 12 (合計 45 RSS feed) / Phase Q パフォーマンスチューニング (7 倍高速化)。B-1/B-8 は Phase X/X+1/Y で先取り完了済、B-5 通知は Week 5 へ移動 |
 | Week 5 | 6/23-6/29 | **Veo/Imagen + 比較ビュー + B-5 通知** | `cc:TODO` — Veo 品質リスクを後ろに置く方針 + B-5 通知併設 |
-| Week 6 | 6/30-7/6 | 仕上げ + ユーザーインタビュー + 動画撮影 | `cc:TODO` |
-| Week 7 | 7/7-7/10 | Zenn + Proto Pedia + Google Form 提出 | `cc:TODO` |
+| Week 6 | 6/30-7/6 | **提出全振り** (7/2 編集ピボット): 提出物作成 + 審査員動線防御 + 動画撮影 | **`cc:WIP`** 7/2 に提出物一式 (台本 v1.0 / ProtoPedia 文 / アーキ図) + 動線防御を完了。残り = 撮影・編集 |
+| Week 7 | 7/7-7/10 | Proto Pedia 登録 + Google Form 提出 (Zenn は応募要件外・提出後) | `cc:TODO` |
 
 ---
 
@@ -241,7 +241,35 @@
 
 ---
 
-## Week 6 (6/30-7/6): 仕上げ + ユーザーインタビュー + 動画撮影 `cc:TODO`
+## Week 6 (6/30-7/6): 提出全振り (7/2 編集ピボット) `cc:WIP`
+
+> **2026-07-02 戦略判断**: 「広くやりすぎ」の自己診断に基づき、機能追加を全凍結し提出物に全振り。
+> ヒーロー = **Watcher (街の見張り番)**、サブ = Concierge。Cost Hunter / Forecast / Reasoner はデモ・ストーリーから外す (コードは残す)。
+> **凍結**: TASK-FISCAL (財政指標)・Watcher v2 P1-P5 → 提出後に再開 (`.memory/miniplan/` に中止注記済)
+
+### `cc:完了` 提出物・整合 (2026-07-02 実施)
+
+- [x] **主張と実体の整合**: PROJECT.md から Veo 使用宣言を削除 (未使用のため)、FEATURES.md A-16 を実配線状態に更新
+- [x] **DEMO_SCRIPT.md v1.0 全面改訂**: Veo 言及 8 箇所を全削除、Watcher ヒーローの 3 分構成、実データ数値 (830 自治体 / 3,700+議題)、残り日程の撮影プラン
+- [x] **ProtoPedia 転記用完全版**: `docs/submission/PROTOPEDIA.md` (概要 179 字 / ストーリー3 部 / 開発素材 / タグ / チェックリスト)
+- [x] **アーキテクチャ図**: `docs/assets/architecture.svg` + PNG (ProtoPedia アップロード用、13 エージェント + GCP + DevOps を 1 枚に)
+- [x] **critic を本番 worker に opt-in 配線**: `CITIFY_ENABLE_CRITIQUE=1` (既定 OFF)。「実装済みだが本番未到達」の乖離を解消
+- [x] **Watcher 死に列掃除**: compare_towns から恒久 NULL の population_2050 系列参照を除去 (プロンプトの虚偽記述も解消)
+
+### `cc:完了` 審査員動線の防御 (2026-07-02 実施)
+
+- [x] **municipalities.json の is_active を BQ 実データと同期**: 「国会のみ配信中」→ **830 自治体・議会が配信中** に (`scripts/update_active_municipalities.py` 新設)
+- [x] **/municipalities に「配信中のみ」フィルタ + おすすめ 6 都市チップ** (岡山市/札幌市/松山市/川崎市/大阪市/福岡市 = BQ データ最多)
+- [x] **フィード空タブにおすすめ街チップ** (空フィードの罠対策)
+- [ ] **Cloud Scheduler 5 job の resume** — 権限制約で Claude から実行不可。**人間が実行**: `gcloud scheduler jobs resume citify-worker-{bq-sink-scored,distributor,relevance,translator,watcher-daily}-trigger --location asia-northeast1` (最終データ投入が 5/30 で停止中のため、撮影前に必須)
+
+### `cc:TODO` 残り (人間の作業が主)
+
+- [ ] [SUBMIT-004] デモ動画撮影 7/3-7/6 (DEMO_SCRIPT.md v1.0 §0.4 セットアップ→§1 撮影)
+- [ ] バグ修正 + UX 磨き(主要動線の摩擦のみ)
+- [ ] (任意) ユーザーインタビュー — 時間がなければ Drop 可
+
+## (旧) Week 6 初期計画 `cc:TODO`
 
 ### `cc:TODO` 品質向上
 

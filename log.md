@@ -1,5 +1,45 @@
 # Citify 作業ログ
 
+## 2026-07-02 (Thu) Session — 提出全振りピボット (弱点指摘 → 修正一括実施)
+
+### 背景
+
+「万人受けを狙って広くやりすぎた」という自己診断を受けて厳しめの棚卸しを実施。
+結論: コードは 16 画面・13 エージェント全部が実配線済みで問題なし。問題は**編集**——
+提出ゲート (動画/アーキ図/ProtoPedia) 未着手のまま新機能が進行中だった。承認を得て全対応。
+
+### Completed
+
+- [x] **凍結**: TASK-FISCAL / Watcher v2 P1-P5 を中止注記 (提出後に再開)
+- [x] **主張と実体の整合**: PROJECT.md の Veo 使用宣言を削除 (コード内 Veo 完全未使用と確認)、FEATURES.md A-16 更新、ARCHITECTURE.md に最新図ポインタ
+- [x] **DEMO_SCRIPT.md v1.0**: 実体ベースで全面改訂。Veo 言及 8 箇所削除、Watcher ヒーローの 3 分構成、撮影 7/3-7/6 → 提出 7/9 の日程
+- [x] **docs/submission/PROTOPEDIA.md 新規**: 転記するだけの完全版 (概要 179 字、ストーリー 3 部、開発素材に Veo 無し)
+- [x] **docs/assets/architecture.svg + .png 新規**: ProtoPedia「システム構成」アップロード用 1 枚図
+- [x] **critic 配線**: translator worker に `CITIFY_ENABLE_CRITIQUE` opt-in (既定 OFF、payload 形状不変)。translator 系 47 tests PASS
+- [x] **Watcher 死に列掃除**: compare_towns から恒久 NULL の population_2050 系列を除去。watcher 89 tests PASS
+- [x] **空フィードの罠対策**: municipalities.json is_active を BQ 同期 (1→**830 自治体**)、`scripts/update_active_municipalities.py` 新設、/municipalities に配信中フィルタ + おすすめ 6 都市、フィード空タブにおすすめチップ。tsc + next build PASS
+- [x] **人口異常値の確認**: TASK-POPFIX (5/30) で表示系は解消済みと確認。残っていた Watcher の参照のみ掃除
+
+### 判明した事実 (BQ 実測 2026-07-02)
+
+- scored_speeches_latest: **3,782 議題 / 18,849 行 / 830 自治体・議会コード**
+- **最終データ投入 2026-05-30** — Scheduler 5 job が PAUSED のまま 33 日停止中
+- プリセット 3 都市はデータあり (新宿 4 / 大阪 6 / 福岡 6)、小田原・横浜は 0
+
+### Pending (人間の手動作業)
+
+- [ ] **Scheduler resume** (Claude は権限制約で実行不可):
+  `for j in bq-sink-scored distributor relevance translator watcher-daily; do gcloud scheduler jobs resume citify-worker-$j-trigger --location asia-northeast1; done`
+- [ ] デモ動画撮影 (7/3-7/6、DEMO_SCRIPT.md v1.0 に従う)
+- [ ] ProtoPedia 登録 (7/7-7/8、docs/submission/PROTOPEDIA.md を転記) → Google Form (7/9)
+
+### Verification
+
+- pytest 全体: 704 PASS (サンドボックス SSL 起因の 5 件は証明書指定で再実行し PASS 確認)
+- ruff format + check: PASS / apps/web: tsc + next build PASS (vitest はローカルのデコイ package.json のため CI で実行)
+
+---
+
 ## 2026-05-26 (Tue) Session 49 — Plan A-2 データ厚み 5 倍 + A-4 Imagen 10 軸サムネ完成
 
 ### Completed

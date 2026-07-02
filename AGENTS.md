@@ -22,15 +22,14 @@
 - **言語**:Python 3.12
 - **フレームワーク**:FastAPI
 - **AI Agent**:Agent Development Kit (ADK) for Python
-- **AI Agent 実行環境**:Vertex AI Agent Engine
+- **AI Agent 実行環境**:Cloud Run (ADK Runner を API 内で実行。Agent Engine は不採用)
 - **LLM**:Gemini 2.5 Pro(本番)、Gemini 2.5 Flash(高頻度・低レイテンシ処理)
 - **RAG**:Vertex AI RAG Engine
-- **動画生成**:Veo 3(API 経由)
-- **画像生成**:Imagen 3(API 経由)
+- **画像生成**:Imagen 3(API 経由)※動画生成 (Veo) は未使用。提出物に「使用技術」として記載しない
 - **文書パース**:Document AI
 
 ### フロントエンド
-- **フレームワーク**:Next.js 15 (App Router) + TypeScript
+- **フレームワーク**:Next.js 16 (App Router) + TypeScript
 - **UI**:Tailwind CSS + shadcn/ui
 - **状態管理**:Server Components 優先、必要時 Zustand
 - **ホスティング**:Firebase Hosting
