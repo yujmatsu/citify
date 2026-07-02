@@ -7,11 +7,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agents.translator.schema import TranslateInput, TranslatorOutput
+from agents.critic.schema import CriticScores, CritiqueResult
+from agents.translator.schema import TranslateInput, TranslatorOutput, TranslatorWithCritique
 from agents.translator.worker import (
     SOURCE,
     _envelope_to_translate_input,
+    main,
     make_handler,
+    run_worker,
 )
 from pkg.pubsub import MessageEnvelope, PubSubPublisher
 
@@ -190,3 +193,182 @@ def test_handler_propagates_translator_failure_for_nack():
     with pytest.raises(RuntimeError, match="Gemini timeout"):
         handler(env)
     client.publish.assert_not_called()  # 失敗時は出力しない
+
+
+# ============================================================================
+# make_handler + critic (Plan D self-critique, env-flag-gated)
+# ============================================================================
+
+
+def _make_critique_result(
+    overall_score: int = 85, revision_count: int = 0
+) -> TranslatorWithCritique:
+    output = TranslatorOutput(
+        title="本会議を開始しました",
+        summary=["定例会が始まったよ", "知事の挨拶があったよ", "今日は予算審議だよ"],
+        tone="casual",
+        contains_politician_names=False,
+        contains_political_judgment=False,
+    )
+    critique = CritiqueResult(
+        scores=CriticScores(faithfulness=90, simplicity=85, tone=85, ethics=100),
+        overall_score=overall_score,
+        feedback="良い翻訳です",
+        passed=True,
+    )
+    return TranslatorWithCritique(
+        translation=output,
+        critique=critique,
+        revision_count=revision_count,
+        initial_score=overall_score,
+    )
+
+
+def test_handler_with_critic_calls_translate_with_critique_and_publishes_unwrapped_translation():
+    """critic 指定時は translate_with_critique() を使い、.translation を unwrap して publish する。"""
+    import json
+
+    agent = MagicMock()
+    with_critique = _make_critique_result(overall_score=72, revision_count=1)
+    agent.translate_with_critique.return_value = with_critique
+    critic = MagicMock()
+    pub, client = _make_mock_publisher()
+    handler = make_handler(agent, pub, "citify-speech-translated", critic=critic)
+
+    env = _make_speech_envelope(speech_order=0)
+    handler(env)
+
+    # translate_with_critique が critic 付きで呼ばれ、plain translate は呼ばれない
+    agent.translate_with_critique.assert_called_once()
+    call_args = agent.translate_with_critique.call_args[0]
+    assert isinstance(call_args[0], TranslateInput)
+    assert call_args[1] is critic
+    agent.translate.assert_not_called()
+
+    # publish payload の translation は unwrap 済み TranslatorOutput (TranslatorWithCritique ではない)
+    client.publish.assert_called_once()
+    args, _kwargs = client.publish.call_args
+    payload = json.loads(args[1].decode("utf-8"))
+    ts = payload["payload"]
+    assert ts["translation"]["title"] == with_critique.translation.title
+    assert "critique" not in ts["translation"]
+    assert "revision_count" not in ts["translation"]
+
+
+def test_handler_without_critic_uses_plain_translate():
+    """critic=None (default) なら従来通り translate() のみ呼ばれる (既存挙動を変えない)。"""
+    agent = _make_mock_agent()
+    pub, client = _make_mock_publisher()
+    handler = make_handler(agent, pub, "out")  # critic 未指定 = default None
+
+    env = _make_speech_envelope()
+    handler(env)
+
+    agent.translate.assert_called_once()
+    agent.translate_with_critique.assert_not_called()
+    client.publish.assert_called_once()
+
+
+# ============================================================================
+# run_worker / main: CITIFY_ENABLE_CRITIQUE env flag
+# ============================================================================
+
+
+def test_run_worker_default_critique_disabled_passes_no_critic(monkeypatch: pytest.MonkeyPatch):
+    """critique_enabled=False (default) なら make_handler に critic=None が渡る。"""
+    captured: dict = {}
+
+    def fake_make_handler(agent, publisher, output_topic, critic=None):
+        captured["critic"] = critic
+        return MagicMock()
+
+    monkeypatch.setattr("agents.translator.worker.TranslatorAgent", MagicMock())
+    monkeypatch.setattr("agents.translator.worker.PubSubPublisher", MagicMock())
+    monkeypatch.setattr("agents.translator.worker.PubSubSubscriber", MagicMock())
+    monkeypatch.setattr("agents.translator.worker.make_handler", fake_make_handler)
+
+    run_worker(
+        project_id="citify-dev",
+        input_subscription="sub",
+        output_topic="topic",
+        timeout_sec=0,
+    )
+
+    assert captured["critic"] is None
+
+
+def test_run_worker_critique_enabled_builds_critic(monkeypatch: pytest.MonkeyPatch):
+    """critique_enabled=True なら CriticAgent が生成され make_handler に渡る。"""
+    captured: dict = {}
+    fake_critic_instance = MagicMock()
+
+    def fake_make_handler(agent, publisher, output_topic, critic=None):
+        captured["critic"] = critic
+        return MagicMock()
+
+    monkeypatch.setattr("agents.translator.worker.TranslatorAgent", MagicMock())
+    monkeypatch.setattr("agents.translator.worker.PubSubPublisher", MagicMock())
+    monkeypatch.setattr("agents.translator.worker.PubSubSubscriber", MagicMock())
+    monkeypatch.setattr("agents.translator.worker.make_handler", fake_make_handler)
+    monkeypatch.setattr(
+        "agents.translator.worker.CriticAgent", MagicMock(return_value=fake_critic_instance)
+    )
+
+    run_worker(
+        project_id="citify-dev",
+        input_subscription="sub",
+        output_topic="topic",
+        timeout_sec=0,
+        critique_enabled=True,
+    )
+
+    assert captured["critic"] is fake_critic_instance
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        ("1", True),
+        ("true", True),
+        ("True", True),
+        ("yes", True),
+        ("0", False),
+        ("false", False),
+        ("", False),
+    ],
+)
+def test_main_parses_critique_env_flag(
+    monkeypatch: pytest.MonkeyPatch, env_value: str, expected: bool
+):
+    """CITIFY_ENABLE_CRITIQUE の値に応じて run_worker(critique_enabled=...) に渡す。"""
+    captured: dict = {}
+
+    def fake_run_worker(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("agents.translator.worker.run_worker", fake_run_worker)
+    monkeypatch.setenv("CITIFY_ENABLE_CRITIQUE", env_value)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["worker.py", "--project-id", "citify-dev"],
+    )
+
+    main()
+
+    assert captured["critique_enabled"] is expected
+
+
+def test_main_defaults_critique_disabled_when_env_unset(monkeypatch: pytest.MonkeyPatch):
+    """CITIFY_ENABLE_CRITIQUE 未設定なら critique_enabled=False (default off を担保)。"""
+    captured: dict = {}
+
+    def fake_run_worker(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("agents.translator.worker.run_worker", fake_run_worker)
+    monkeypatch.delenv("CITIFY_ENABLE_CRITIQUE", raising=False)
+    monkeypatch.setattr("sys.argv", ["worker.py", "--project-id", "citify-dev"])
+
+    main()
+
+    assert captured["critique_enabled"] is False

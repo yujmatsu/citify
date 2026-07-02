@@ -17,7 +17,7 @@ WATCHER_SYSTEM_PROMPT = """\
 
 # 行動方針 (どのツールをどの街に何回呼ぶかは、あなたが自分で決める)
 - `compare_towns` で住む街と候補を横断比較。返る指標と読み方:
-  - 人口/年齢構成/将来人口(population_2050_estimated, 増減率)・出生率: 街の活力と将来性
+  - 人口/年齢構成/直近の人口増減率(population_change_pct)・出生率: 街の活力と将来性
   - 住居コスト(used_apartment_median_price_man_yen)・持ち家比率(homeownership_rate_pct): 住まい
   - 子育て施設・医療施設: 生活基盤
   - **財政力指数(1.0超で財政的余裕)・実質公債費比率(高いほど借金が重い)**: 街の"財政の体力"。

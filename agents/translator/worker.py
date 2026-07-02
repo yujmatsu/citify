@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
+from agents.critic.main import CriticAgent
 from pkg.municipality_map import resolve_municipality_code
 from pkg.pubsub import MessageEnvelope, PubSubPublisher, PubSubSubscriber
 
@@ -102,8 +104,14 @@ def make_handler(
     agent: TranslatorAgent,
     publisher: PubSubPublisher,
     output_topic: str,
+    critic: CriticAgent | None = None,
 ):
-    """1 envelope を翻訳 → publish する handler を生成。"""
+    """1 envelope を翻訳 → publish する handler を生成。
+
+    critic が指定されていれば `translate_with_critique()` (Plan D self-critique
+    loop) を使い、TranslatorWithCritique を translation に unwrap する。
+    critic=None (default) なら従来通り `translate()` のみ。
+    """
 
     def handler(envelope: MessageEnvelope) -> None:
         if envelope.payload_type != "Speech":
@@ -119,7 +127,18 @@ def make_handler(
             logger.warning("worker.skip_empty_content speech_id=%s", translate_input.speech_id)
             return
 
-        translation: TranslatorOutput = agent.translate(translate_input)
+        translation: TranslatorOutput
+        if critic is not None:
+            result = agent.translate_with_critique(translate_input, critic)
+            translation = result.translation
+            logger.info(
+                "worker.critique speech_id=%s initial_score=%d revision_count=%d",
+                translate_input.speech_id,
+                result.initial_score,
+                result.revision_count,
+            )
+        else:
+            translation = agent.translate(translate_input)
 
         # 原典 speech メタ + 翻訳結果を combined payload に
         translated = _build_translated_speech(envelope, translate_input, translation)
@@ -147,19 +166,26 @@ def run_worker(
     location: str = DEFAULT_LOCATION,
     model: str = DEFAULT_MODEL,
     timeout_sec: float | None = None,
+    critique_enabled: bool = False,
 ) -> None:
-    """worker 起動 (Cloud Run / ローカル両対応)。"""
+    """worker 起動 (Cloud Run / ローカル両対応)。
+
+    critique_enabled=True で Plan D self-critique loop (CriticAgent) を有効化。
+    default False (production 既存挙動を変えない)。
+    """
     agent = TranslatorAgent(project_id=project_id, location=location, model=model)
     publisher = PubSubPublisher(project_id=project_id)
     subscriber = PubSubSubscriber(project_id=project_id)
+    critic = CriticAgent(project_id=project_id, location=location) if critique_enabled else None
 
-    handler = make_handler(agent, publisher, output_topic)
+    handler = make_handler(agent, publisher, output_topic, critic=critic)
     logger.info(
-        "worker.start project=%s in_sub=%s out_topic=%s timeout=%s",
+        "worker.start project=%s in_sub=%s out_topic=%s timeout=%s critique_enabled=%s",
         project_id,
         input_subscription,
         output_topic,
         timeout_sec,
+        critique_enabled,
     )
     subscriber.run(subscription=input_subscription, handler=handler, timeout_sec=timeout_sec)
 
@@ -199,6 +225,10 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         stream=sys.stderr,
     )
+
+    # self-critique loop (Plan D) は env var で有効化 (default off、本番挙動を変えない)
+    critique_enabled = os.getenv("CITIFY_ENABLE_CRITIQUE", "").lower() in ("1", "true", "yes")
+
     run_worker(
         project_id=args.project_id,
         input_subscription=args.input_subscription,
@@ -206,6 +236,7 @@ def main() -> int:
         location=args.location,
         model=args.model,
         timeout_sec=args.timeout_sec,
+        critique_enabled=critique_enabled,
     )
     return 0
 

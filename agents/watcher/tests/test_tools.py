@@ -93,8 +93,6 @@ def test_compare_towns_returns_per_town_stats() -> None:
             "elderly_share_pct": 21.0,
             "birth_rate_per_1000": 7.1,
             "population_change_pct": 3.5,
-            "population_2050_estimated": 360000,
-            "population_change_2025_2050_pct": 2.0,
             "used_apartment_median_price_man_yen": 4900,
             "childcare_facility_count": 80,
             "medical_facility_count": 500,
@@ -111,8 +109,6 @@ def test_compare_towns_returns_per_town_stats() -> None:
             "elderly_share_pct": 27.0,
             "birth_rate_per_1000": 6.0,
             "population_change_pct": -1.2,
-            "population_2050_estimated": 2400000,
-            "population_change_2025_2050_pct": -12.0,
             "used_apartment_median_price_man_yen": 2600,
             "childcare_facility_count": 300,
             "medical_facility_count": 1200,
@@ -124,7 +120,7 @@ def test_compare_towns_returns_per_town_stats() -> None:
     assert out[0]["population_total"] == 349385
     # 街選びに効く新たな軸が含まれる
     assert out[0]["youth_share_pct"] == 18.2
-    assert out[0]["population_change_2025_2050_pct"] == 2.0
+    assert out[0]["population_change_pct"] == 3.5
     assert out[1]["elderly_share_pct"] == 27.0
     # TASK-FISCAL: 財政・所得・治安の軸 (SSDS)
     assert out[0]["financial_capability_index"] == 0.98

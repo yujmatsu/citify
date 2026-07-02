@@ -232,8 +232,7 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         街ごとの dict の list。各 dict は以下を含む(値が無い項目は null):
         municipality_code / population_total / youth_share_pct(15-29歳割合) /
         elderly_share_pct(65歳以上割合) / birth_rate_per_1000(人口千人あたり出生) /
-        population_change_pct(直近変化) / population_2050_estimated(2050年推計人口) /
-        population_change_2025_2050_pct(2025→2050の増減率) /
+        population_change_pct(直近変化) /
         used_apartment_median_price_man_yen(中古マンション中央値・万円) /
         childcare_facility_count(子育て施設数) /
         financial_capability_index(財政力指数、1.0超で財政的余裕) /
@@ -254,8 +253,7 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
     sql = f"""
         SELECT municipality_code, population_total,
                youth_share_pct, elderly_share_pct, birth_rate_per_1000,
-               population_change_pct, population_2050_estimated,
-               population_change_2025_2050_pct,
+               population_change_pct,
                used_apartment_median_price_man_yen, childcare_facility_count,
                financial_capability_index, real_debt_service_ratio_pct,
                taxable_income_per_capita_yen, homeownership_rate_pct,
@@ -271,8 +269,6 @@ def compare_towns(municipality_codes: list[str]) -> list[dict]:
         "elderly_share_pct",
         "birth_rate_per_1000",
         "population_change_pct",
-        "population_2050_estimated",
-        "population_change_2025_2050_pct",
         "used_apartment_median_price_man_yen",
         "childcare_facility_count",
         "financial_capability_index",
