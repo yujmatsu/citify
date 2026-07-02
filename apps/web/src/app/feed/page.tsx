@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FeedCard } from "@/components/feed-card";
 import { fetchFeed, type FeedItem } from "@/lib/api";
 import { DEMO_PERSONA, loadPersona, type Persona } from "@/lib/persona";
+import { RECOMMENDED_MUNICIPALITIES } from "@/lib/recommended";
 import { cn } from "@/lib/utils";
 
 type FeedScope = "my_city" | "national";
@@ -262,6 +263,18 @@ function EmptyTabHint({
         </p>
         <p className="text-xs text-zinc-400">
           別の街を登録するか、「その他」タブを見てみてください。
+        </p>
+        <p className="flex flex-wrap items-center justify-center gap-2 text-xs text-zinc-400">
+          <span>例:</span>
+          {RECOMMENDED_MUNICIPALITIES.map((m) => (
+            <Link
+              key={m.code}
+              href={`/cities/${m.code}`}
+              className="rounded-full border border-zinc-300 px-2 py-0.5 text-zinc-600 hover:bg-white dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              {m.name}
+            </Link>
+          ))}
         </p>
         <Link
           href="/municipalities"

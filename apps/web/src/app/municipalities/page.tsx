@@ -17,6 +17,7 @@ import {
   savePersona,
   type Persona,
 } from "@/lib/persona";
+import { RECOMMENDED_MUNICIPALITIES } from "@/lib/recommended";
 import { cn } from "@/lib/utils";
 
 const MAX_SELECTIONS = 5;
@@ -32,6 +33,7 @@ export default function MunicipalitiesPage() {
   const [query, setQuery] = useState("");
   const [prefectureFilter, setPrefectureFilter] = useState<string>("");
   const [tierFilter, setTierFilter] = useState<1 | 2 | 3 | "all">("all");
+  const [activeOnly, setActiveOnly] = useState(false);
 
   useEffect(() => {
     const persona = loadPersona() ?? DEMO_PERSONA;
@@ -52,12 +54,13 @@ export default function MunicipalitiesPage() {
 
   const results = useMemo(() => {
     if (state.kind !== "ready") return [];
-    return searchMunicipalities(state.all, query, {
+    const found = searchMunicipalities(state.all, query, {
       tier: tierFilter === "all" ? undefined : tierFilter,
       prefecture: prefectureFilter || undefined,
       limit: 100,
     });
-  }, [state, query, prefectureFilter, tierFilter]);
+    return activeOnly ? found.filter((m) => m.is_active) : found;
+  }, [state, query, prefectureFilter, tierFilter, activeOnly]);
 
   const selectedDetails = useMemo(() => {
     if (state.kind !== "ready") return [];
@@ -186,11 +189,56 @@ export default function MunicipalitiesPage() {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => setActiveOnly((prev) => !prev)}
+              className={cn(
+                "rounded-full px-3 py-2 text-xs font-medium transition-colors",
+                activeOnly
+                  ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
+                  : "border border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400",
+              )}
+              aria-pressed={activeOnly}
+            >
+              📡 配信中のみ
+            </button>
           </div>
           <p className="text-xs text-zinc-500">
             該当 {results.length} 件 (最大 100 件表示)
           </p>
         </section>
+
+        {/* おすすめ (未検索時のみ) */}
+        {query.trim() === "" && !prefectureFilter && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold text-zinc-500">
+              おすすめ (議題データが豊富な街)
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {RECOMMENDED_MUNICIPALITIES.map((m) => {
+                const isSelected = selected.includes(m.code);
+                const isFull = selected.length >= MAX_SELECTIONS && !isSelected;
+                return (
+                  <button
+                    key={m.code}
+                    type="button"
+                    onClick={() => toggleCode(m.code)}
+                    disabled={isFull}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                      isSelected
+                        ? "border-emerald-500 bg-emerald-600 text-emerald-50 hover:bg-emerald-700"
+                        : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-zinc-600",
+                      isFull && "opacity-40 cursor-not-allowed",
+                    )}
+                  >
+                    {m.name}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* 検索結果リスト */}
         <section className="space-y-2">
@@ -255,7 +303,7 @@ export default function MunicipalitiesPage() {
           </button>
           <p className="mt-2 text-center text-[10px] text-zinc-500">
             ⚠️ 自治体マスタは 1,795 件 (国会 + 都道府県 + 23 区 + 政令市 +
-            市町村)。Tier 1 は配信対応中、Tier 2/3 は将来配信予定。
+            市町村)。📡 配信中バッジのある自治体 (830件) はフィード配信対応済み。
           </p>
         </div>
       </div>

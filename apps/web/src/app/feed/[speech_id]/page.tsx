@@ -351,7 +351,7 @@ export default function SpeechDetailPage() {
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="flex items-baseline justify-between">
             <h2 className="text-sm font-semibold text-zinc-500">
-              🔗 関連議題 (この発言の周辺、RAG semantic search)
+              🔗 国会の関連議題 (国会議事録コーパスの RAG semantic search)
             </h2>
             <span className="text-[10px] text-zinc-400">Vertex AI</span>
           </div>
