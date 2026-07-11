@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Response
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -115,6 +115,25 @@ class _RateLimiter:
 # 高コスト endpoint のレート制限 (ゆるめ = 通常利用は絶対に弾かない値)。
 _WATCHER_RUN_LIMITER = _RateLimiter(limit=20, window_sec=600.0)  # 20 回 / 10 分 / user_id
 _CONCIERGE_LIMITER = _RateLimiter(limit=40, window_sec=600.0)  # 40 回 / 10 分 / user_id
+# W7: user_id を回転させると上記 (user 単位) の制限を回避できるため、client IP 単位の
+# フォールバック上限を併用する (無認証 LLM endpoint の金銭的 DoS の blast radius を抑える)。
+# 通常利用より十分ゆるい値。
+_LLM_IP_LIMITER = _RateLimiter(limit=100, window_sec=600.0)  # 100 回 / 10 分 / IP
+
+
+def _client_ip(request: Request | None) -> str:
+    """Cloud Run 経由の client IP を best-effort で取得。
+
+    Cloud Run は X-Forwarded-For の先頭に元の client IP を積む。取得できなければ
+    直結の peer、それも無ければ "unknown" (= 全員同一キー扱いで最も厳しく制限)。
+    """
+    if request is None:
+        return "unknown"
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip() or "unknown"
+    client = request.client
+    return client.host if client else "unknown"
 
 
 def _enforce_rate_limit(limiter: _RateLimiter, key: str, retry_after_sec: int) -> None:
@@ -508,7 +527,7 @@ async def get_feed(
         rows = list(client.query(sql, job_config=job_config).result(timeout=10))
     except Exception as exc:  # noqa: BLE001
         logger.exception("feed.bq_query_failed user_id=%s err=%s", user_id, exc)
-        raise HTTPException(status_code=500, detail=f"BQ query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="BQ query failed") from exc
 
     items = [_row_to_feed_item(r) for r in rows]
     response = FeedResponse(user_id=user_id, items=items, total=len(items))
@@ -548,7 +567,7 @@ async def get_speech(
         rows = list(client.query(sql, job_config=job_config).result(timeout=10))
     except Exception as exc:  # noqa: BLE001
         logger.exception("speech.bq_query_failed speech_id=%s err=%s", speech_id, exc)
-        raise HTTPException(status_code=500, detail=f"BQ query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="BQ query failed") from exc
 
     if not rows:
         raise HTTPException(
@@ -1228,7 +1247,7 @@ async def get_city_dashboard(
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("city.bq_failed muni=%s err=%s", municipality_code, exc)
-        raise HTTPException(status_code=500, detail=f"BQ query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="BQ query failed") from exc
 
     interest_counts: dict[str, int] = {
         str(r["interest"]): int(r["n"]) for r in rows_counts if r.get("interest")
@@ -1536,9 +1555,7 @@ async def compare_municipalities(
             rows = list(client.query(sql, job_config=job_config).result(timeout=15))
         except Exception as exc:  # noqa: BLE001
             logger.exception("compare.bq_failed muni=%s err=%s", muni, exc)
-            raise HTTPException(
-                status_code=500, detail=f"BQ query failed for muni={muni}: {exc!s}"
-            ) from exc
+            raise HTTPException(status_code=500, detail="BQ query failed") from exc
 
         columns_data.append(
             ComparisonColumn(
@@ -1712,7 +1729,7 @@ async def get_related_speeches(
         rows = list(client.query(sql, job_config=job_config).result(timeout=10))
     except Exception as exc:  # noqa: BLE001
         logger.exception("related.bq_query_failed speech_id=%s err=%s", speech_id, exc)
-        raise HTTPException(status_code=500, detail=f"BQ query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="BQ query failed") from exc
 
     if not rows:
         raise HTTPException(
@@ -1756,7 +1773,7 @@ async def get_related_speeches(
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("related.rag_query_failed speech_id=%s err=%s", speech_id, exc)
-        raise HTTPException(status_code=500, detail=f"RAG query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="RAG query failed") from exc
 
     items = []
     for ctx in contexts:
@@ -1853,7 +1870,7 @@ async def get_reaction(
         snap = client.collection(FIRESTORE_COLLECTION_REACTIONS).document(doc_id).get()
     except Exception as exc:  # noqa: BLE001
         logger.exception("reaction.get_failed doc_id=%s err=%s", doc_id, exc)
-        raise HTTPException(status_code=500, detail=f"Firestore get failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="Firestore get failed") from exc
 
     if not snap.exists:
         return ReactionResponse(speech_id=speech_id, user_id=user_id, reaction=None)
@@ -1939,7 +1956,7 @@ async def put_reaction(
         batch.commit()
     except Exception as exc:  # noqa: BLE001
         logger.exception("reaction.put_failed doc_id=%s err=%s", doc_id, exc)
-        raise HTTPException(status_code=500, detail=f"Firestore set failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="Firestore set failed") from exc
 
     logger.info(
         "reaction.set user_id=%s speech_id=%s reaction=%s prev=%s",
@@ -1997,7 +2014,7 @@ async def delete_reaction(
         batch.commit()
     except Exception as exc:  # noqa: BLE001
         logger.exception("reaction.delete_failed doc_id=%s err=%s", doc_id, exc)
-        raise HTTPException(status_code=500, detail=f"Firestore delete failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="Firestore delete failed") from exc
 
     logger.info(
         "reaction.cleared user_id=%s speech_id=%s prev=%s",
@@ -2019,7 +2036,7 @@ async def get_reaction_summary(speech_id: str) -> ReactionSummary:
         snap = client.collection(FIRESTORE_COLLECTION_REACTION_COUNTS).document(speech_id).get()
     except Exception as exc:  # noqa: BLE001
         logger.exception("reaction.summary_failed speech_id=%s err=%s", speech_id, exc)
-        raise HTTPException(status_code=500, detail=f"Firestore get failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="Firestore get failed") from exc
 
     counts = _empty_counts()
     total = 0
@@ -2095,7 +2112,7 @@ def _get_concierge_agent() -> Any:
 
 
 @app.post("/v1/concierge")
-async def post_concierge(payload: dict) -> dict:
+async def post_concierge(payload: dict, http_request: Request) -> dict:
     """街診断 Migration Concierge Agent endpoint (Plan E)。
 
     Request body:
@@ -2116,8 +2133,9 @@ async def post_concierge(payload: dict) -> dict:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Invalid request body: {exc!s}") from exc
 
-    # レート制限 (W3): 高コストな LLM tool-loop の暴走抑制
+    # レート制限 (W3/W7): user_id 単位 + client IP 単位の二重制限で暴走・回避を抑制
     _enforce_rate_limit(_CONCIERGE_LIMITER, f"concierge:{request.persona.user_id}", 60)
+    _enforce_rate_limit(_LLM_IP_LIMITER, f"concierge_ip:{_client_ip(http_request)}", 60)
 
     agent = _get_concierge_agent()
     try:
@@ -2132,7 +2150,7 @@ async def post_concierge(payload: dict) -> dict:
             response = agent.respond(request)
     except Exception as exc:  # noqa: BLE001
         logger.exception("concierge.endpoint_failed err=%s", exc)
-        raise HTTPException(status_code=500, detail=f"Concierge failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="Concierge failed") from exc
 
     logger.info(
         "concierge.endpoint.done user_id=%s n_tools=%d n_candidates=%d violations=%s",
@@ -2221,7 +2239,7 @@ async def get_concierge_history(
         records = memory.recall_recent(user_id=user_id, limit=limit)
     except Exception as exc:  # noqa: BLE001
         logger.exception("concierge.history_failed user_id=%s err=%s", user_id, exc)
-        raise HTTPException(status_code=500, detail=f"history fetch failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="history fetch failed") from exc
 
     logger.info(
         "concierge.history.done user_id=%s n_records=%d",
@@ -2324,7 +2342,7 @@ async def get_heatmap(
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("heatmap.bq_failed err=%s", exc)
-        raise HTTPException(status_code=500, detail=f"BQ heatmap query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="BQ heatmap query failed") from exc
 
     result = {
         "advice": advice.model_dump(),
@@ -2538,7 +2556,7 @@ async def get_timeline(
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("timeline.bq_failed user_id=%s err=%s", user_id, exc)
-        raise HTTPException(status_code=500, detail=f"BQ timeline query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="BQ timeline query failed") from exc
 
     # Step 2: LLM narrative (or fallback)
     agent = _get_timeline_agent()
@@ -2735,7 +2753,7 @@ async def get_forecast(
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("forecast.bq_failed err=%s", exc)
-        raise HTTPException(status_code=500, detail=f"BQ forecast query failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="BQ forecast query failed") from exc
 
     # Step 2: Engine (純計算)
     engine = ForecastEngine()
@@ -2913,7 +2931,7 @@ async def get_scraper_health(
                 failures = repo.load_sample_seed()
     except Exception as exc:  # noqa: BLE001
         logger.exception("scraper_health.fetch_failed err=%s", exc)
-        raise HTTPException(status_code=500, detail=f"failure fetch failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="failure fetch failed") from exc
 
     # Step 2: 重複排除 (scraper + error_type + html_signature)
     deduped = dedupe_by_pattern(failures)
@@ -3026,7 +3044,7 @@ async def get_reasoning_explain(
         explanation = reasoner.explain(inspect_input)
     except Exception as exc:  # noqa: BLE001
         logger.exception("reasoning.explain_failed agent=%s err=%s", agent_name, exc)
-        raise HTTPException(status_code=500, detail=f"reasoning explain failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="reasoning explain failed") from exc
 
     logger.info(
         "reasoning.explain.done agent=%s source=%s confidence=%s",
@@ -3240,7 +3258,7 @@ async def get_ops_health(
         result = await crew.run(days=days, use_sample=use_sample, freshness_hours=freshness)
     except Exception as exc:  # noqa: BLE001 (crew は本来投げないが二重防御)
         logger.exception("ops.health_failed err=%s", exc)
-        raise HTTPException(status_code=500, detail=f"ops crew failed: {exc!s}") from exc
+        raise HTTPException(status_code=500, detail="ops crew failed") from exc
 
     payload = {
         "assessment": result.assessment.model_dump(mode="json") if result.assessment else None,
@@ -3439,6 +3457,7 @@ async def run_watcher(
     user_id: str,
     response: Response,
     background_tasks: BackgroundTasks,
+    http_request: Request,
     body: WatchlistBody | None = None,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
     authorization: str | None = Header(default=None, alias="Authorization"),
@@ -3451,8 +3470,9 @@ async def run_watcher(
     ツール選択は LLM に委任 (スクリプト化しない) = ①自律性。倫理ゲート・コスト bound は Agent 側で継承。
     """
     _require_watcher_user(user_id, x_user_id, authorization)
-    # レート制限 (W3): 背景 ADK 自律実行はコストが大きいので user_id 毎に上限
+    # レート制限 (W3/W7): 背景 ADK 自律実行は高コスト。user_id 毎 + client IP 毎の二重上限
     _enforce_rate_limit(_WATCHER_RUN_LIMITER, f"watcher_run:{user_id}", 60)
+    _enforce_rate_limit(_LLM_IP_LIMITER, f"watcher_run_ip:{_client_ip(http_request)}", 60)
     response.headers["Cache-Control"] = "no-store"
 
     repo = _get_watcher_repo()

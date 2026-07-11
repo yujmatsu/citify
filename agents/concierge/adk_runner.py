@@ -108,17 +108,29 @@ class AdkConciergeRunner:
 def _extract_candidates(part: Any) -> list[dict[str, Any]]:
     """search_municipalities の function_response から候補 dict を best-effort 抽出 (完全 guard)。
 
-    GenaiConciergeRunner と同じく search_municipalities のみを候補源にする。
-    ADK は tool 戻り値を response={"result": <value>} で包む想定。失敗は空 list。
+    GenaiConciergeRunner と同じく search_municipalities のみを候補源にする。ADK の
+    function_response.response の包み方はバージョン差がある (`{"result": [...]}` /
+    `{"candidates": [...]}` / 生 list など) ため、**`municipality_code` を持つ dict を
+    再帰的に拾う**堅牢な抽出にする (どの形状でも取れ、取れなくても空 list=非後退)。
     """
     try:
         fr = getattr(part, "function_response", None)
         if fr is None or getattr(fr, "name", None) != "search_municipalities":
             return []
-        response = getattr(fr, "response", None)
-        payload = response.get("result") if isinstance(response, dict) else response
-        if isinstance(payload, list):
-            return [c for c in payload if isinstance(c, dict)]
-        return []
+        found: list[dict[str, Any]] = []
+
+        def _walk(obj: Any) -> None:
+            if isinstance(obj, dict):
+                if "municipality_code" in obj:
+                    found.append(obj)
+                else:
+                    for v in obj.values():
+                        _walk(v)
+            elif isinstance(obj, (list, tuple)):
+                for v in obj:
+                    _walk(v)
+
+        _walk(getattr(fr, "response", None))
+        return found
     except Exception:  # noqa: BLE001
         return []

@@ -18,7 +18,7 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 
 ![Citify システムアーキテクチャ](docs/assets/architecture.svg)
 
-全国 **1,795 自治体マスタ**、**830 自治体・議会**の **3,700 件超の議題**を処理 (2026-07 時点)。詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
+全国 **1,795 自治体マスタ**のうち **830 自治体・議会が稼働中** (`apps/web/public/municipalities.json` の `is_active`)、**3,700 件超の議題**を処理 (2026-07 時点の BigQuery `scored_speeches` 集計)。図は上の SVG が正、コンポーネント補足は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) (一部は初期設計時の記述・Veo 等は未使用)。
 
 ---
 
@@ -70,9 +70,9 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 
 ## 📥 データソース (すべて公開データ)
 
-- 国会会議録 検索 API (国立国会図書館) — 発言 2,000 件超 + RAG corpus 1,428 件
+- 国会会議録 検索 API (国立国会図書館) — 発言 2,000 件超を取得、うち **1,428 件を RAG コーパス化**
 - 自治体議事録 (kaigiroku.net / Playwright)
-- 自治体プレスリリース RSS (都道府県 + 政令市 + 中核市 = 45 自治体)
+- 自治体プレスリリース RSS (都道府県 + 政令市 + 中核市を対象。実運用で巡回中は **45 自治体** / `infra/seed/tier1_supplements.csv`)
 - e-Stat 国勢調査 / 不動産情報ライブラリ (Reinfolib) — 統計・人口推移
 
 > DB-Search 系 (150+ 自治体) は robots.txt が議事録パスを全面 Disallow のため**対応コードごと Drop** しました (倫理方針: robots.txt 尊重)。
@@ -275,7 +275,7 @@ Citify は以下を厳守します:
 |---|---|
 | [PROJECT.md](./docs/PROJECT.md) | 北極星：プロダクトビジョン、倫理制約 |
 | [FEATURES.md](./docs/FEATURES.md) | 機能仕様 (Must/Should/Could/Won't) |
-| [ARCHITECTURE.md](./docs/ARCHITECTURE.md) | システムアーキテクチャ詳細 |
+| [ARCHITECTURE.md](./docs/ARCHITECTURE.md) | アーキテクチャ補足 (1 枚図は上の SVG が正。本文の一部は初期設計時の記述で Veo 等は未使用) |
 | [DATA_SOURCES.md](./docs/DATA_SOURCES.md) | データソース仕様 |
 | [DATA_MODEL.md](./docs/DATA_MODEL.md) | Firestore/BigQuery スキーマ |
 | [DEMO_SCRIPT.md](./docs/DEMO_SCRIPT.md) | デモ動画・ピッチスクリプト |

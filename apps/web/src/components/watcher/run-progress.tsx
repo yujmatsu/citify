@@ -29,7 +29,7 @@ const STAGES: { emoji: string; label: string; until: number }[] = [
   },
 ];
 
-const EST_TOTAL = 72; // 体感用の想定総時間(秒)
+const EST_TOTAL = 110; // 体感用の想定総時間(秒)。実処理は通常60〜120秒・混雑時は最大数分
 
 export function RunProgress({
   townLabel,
@@ -126,8 +126,8 @@ export function RunProgress({
       </ol>
 
       <p className="text-[11px] leading-relaxed text-zinc-400">
-        実際に AI が街を横断調査し、結論を自己検証・反論で詰めています（30〜90
-        秒）。
+        実際に AI が街を横断調査し、結論を自己検証・反論で詰めています（通常
+        1〜2 分、データ量により前後します）。
       </p>
     </section>
   );

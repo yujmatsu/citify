@@ -106,6 +106,20 @@ def test_scored_speech_to_bq_row_rejects_wrong_payload_type():
         scored_speech_to_bq_row(env)
 
 
+def test_scored_speech_to_bq_row_missing_required_raises_permanent():
+    """M1: ScoredSpeech だが speech_id/user_id 欠落 → PermanentMessageError (ack-drop 対象)。"""
+    from pkg.pubsub import PermanentMessageError
+
+    env = MessageEnvelope(
+        schema_version="v1",
+        source="x",
+        payload_type="ScoredSpeech",
+        payload={"user_id": "demo-25-29"},  # speech_id 欠落
+    )
+    with pytest.raises(PermanentMessageError, match="missing required keys"):
+        scored_speech_to_bq_row(env)
+
+
 # ============================================================================
 # BQSink
 # ============================================================================

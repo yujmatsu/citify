@@ -143,6 +143,33 @@ async def test_adk_runner_extracts_reply_toolcalls_candidates(
     assert result["candidates"] == [{"municipality_code": "33100", "name": "岡山市"}]
 
 
+@pytest.mark.parametrize(
+    "response_shape",
+    [
+        {"result": [{"municipality_code": "33100"}]},  # {"result": [...]}
+        [{"municipality_code": "33100"}],  # 生 list
+        {"candidates": [{"municipality_code": "33100"}]},  # 別キー
+        {"result": {"items": [{"municipality_code": "33100"}]}},  # ネスト
+    ],
+)
+async def test_adk_runner_candidate_extraction_is_shape_robust(
+    monkeypatch: pytest.MonkeyPatch, response_shape: object
+) -> None:
+    """ADK function_response の包み方が違っても municipality_code dict を拾える (実機劣化対策)。"""
+    from agents.concierge.adk_runner import AdkConciergeRunner
+
+    events = [
+        _event([_part(fr=SimpleNamespace(name="search_municipalities", response=response_shape))]),
+        _event([_part(text="ok")], final=True),
+    ]
+    _install_fake_adk(monkeypatch, events)
+    runner = AdkConciergeRunner(
+        project_id="citify-dev", adk_concierge=SimpleNamespace(as_agent=lambda: object())
+    )
+    result = await runner.run(_make_request(), persona_desc="x")
+    assert result["candidates"] == [{"municipality_code": "33100"}]
+
+
 async def test_adk_runner_result_flows_through_arespond(monkeypatch: pytest.MonkeyPatch) -> None:
     """AdkConciergeRunner → ConciergeAgent.arespond の一気通貫 (candidates が正規化される)。"""
     from agents.concierge.adk_runner import AdkConciergeRunner

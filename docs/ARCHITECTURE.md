@@ -4,10 +4,17 @@
 >
 > Coding Agent は新規コンポーネント実装前に必ずこのファイルを参照してください。
 >
-> **📌 最新の全体像 (2026-07)**: 提出用の 1 枚図は [`docs/assets/architecture.svg`](assets/architecture.svg) / [`architecture.png`](assets/architecture.png) が正。
-> 本書の Mermaid 図の一部は初期設計時 (エージェント 7 体時代) のもので、現在はエージェント 13 体
+> **📌 最新の全体像 (2026-07) が正。本書の一部は初期設計 (エージェント 7 体時代) の名残です。**
+> 提出用の 1 枚図は [`docs/assets/architecture.svg`](assets/architecture.svg) / [`architecture.png`](assets/architecture.png) が正。
+> 現在はエージェント 13 体
 > (パイプライン: Translator/Relevance/Distributor/Critic、ADK: Watcher/Concierge/Preferences、
 > 分析: Timeline/Forecast/Heatmap/Reasoner、運用: Scraper Doctor/Cost Hunter) に拡張済み。
+>
+> ⚠️ **重要な差分 (本書の旧記述は無視してください)**:
+> - **Veo は使用していません** (本書中の「Veo 3 / Veo動画」は初期設計の候補で、提出スコープ外)。動画は生成せず、
+>   サムネイルは **Imagen** の静止画のみ。→ 使用技術は README / `docs/PROJECT.md` が正。
+> - 旧図の `Collector / Classifier / Comparator / Storyteller` は**現行構成には存在しません**
+>   (収集は Python スクレイパ、分類は Relevance に統合、比較は API 内、動画生成は廃止)。
 
 ---
 
@@ -36,7 +43,7 @@ graph TB
     EGov["🗳️ e-Gov パブコメ"]
     Calendar["📅 政府審議会"]
 
-    Gemini["🤖 Vertex AI<br/>Gemini / Veo / Imagen"]
+    Gemini["🤖 Vertex AI<br/>Gemini / Imagen"]
     Wikipedia["📚 Wikipedia API<br/>(用語解説)"]
 
     User <--> Citify
@@ -59,7 +66,7 @@ graph TB
 | 自治体プレスRSS | RSS | 各自治体 | プレスリリース | 不要 |
 | e-Gov パブコメ | Web | 総務省 | 意見公募中の案件 | 不要 |
 | Vertex AI / Gemini | Cloud API | Google | LLM推論・RAG | サービスアカウント |
-| Veo 3 / Imagen 3 | Cloud API | Google | 動画・画像生成 | サービスアカウント |
+| Imagen 3 | Cloud API | Google | サムネ画像生成 (静止画のみ) | サービスアカウント |
 | Wikipedia API | 公開API | Wikimedia | 用語解説 | 不要 |
 
 ---
@@ -164,7 +171,7 @@ graph TB
 | `agent-relevance` | Cloud Run | 影響度スコアリング | ADK + Gemini Flash |
 | `agent-translator` | Cloud Run | 役所言葉→平易化 | ADK + Gemini Pro |
 | `agent-comparator` | Cloud Run | 自治体比較 | ADK + Gemini Pro + RAG |
-| `agent-storyteller` | Cloud Run | Veo/Imagen 統括 | ADK + Veo 3 + Imagen 3 |
+| ~~`agent-storyteller`~~ (旧設計・未実装) | — | 動画生成は提出スコープ外 | Imagen サムネは各エージェント内で生成 |
 | `agent-distributor` | Cloud Run | 配信優先順位生成 | ADK + Gemini Flash |
 | `batch-collect-daily` | Cloud Run Jobs | 毎日朝5時収集 | Python |
 | `batch-generate` | Cloud Run Jobs | 動画・画像生成 | Python |
@@ -234,7 +241,7 @@ sequenceDiagram
 | **影響度 Relevance** | Pub/Sub「classified」 | タグ・ユーザープロファイル | スコア(0-100)+理由 | Gemini Flash |
 | **翻訳 Translator** | 影響度上位のみ | 役所言葉文 | 3行サマリ・若者向け | Gemini Pro |
 | **比較 Comparator** | API同期呼び出し | 2-3自治体+テーマ | 差分表 | Gemini Pro + RAG |
-| **ストーリー Storyteller** | 日次バッチ | 上位議題 | Veo動画+Imagenサムネ | Veo 3 + Imagen 3 |
+| ~~**ストーリー Storyteller**~~ (旧設計・未実装) | — | 動画生成は提出スコープ外。サムネは Imagen 静止画のみ | — |
 | **配信 Distributor** | ユーザー毎・要求時 | スコア済み議題群 | 優先順位ソート済リスト | Gemini Flash |
 
 ### 4.x ADK Wrapper Layer (Plan C 実装済)
@@ -727,8 +734,7 @@ def check_safety(text: str) -> tuple[bool, str | None]:
 | 項目 | 戦略 |
 |---|---|
 | Gemini Pro呼出 | 翻訳・比較のみ。分類・影響度は Flash |
-| Veo生成 | 1日上位3議題のみ。残りは Imagen 静止画 |
-| Imagen生成 | キャッシュキー (テーマ+トーン) で再利用 |
+| Imagen生成 | キャッシュキー (テーマ+トーン) で再利用。静止画のみ (動画生成なし) |
 | Cloud Run | min-instance=0 |
 | BigQuery | パーティション分割で読み取り最小化 |
 
@@ -741,7 +747,7 @@ def check_safety(text: str) -> tuple[bool, str | None]:
 | 国会API がダウン | 直近キャッシュ提供、UI に「データ古い」表示 |
 | kaigiroku.net がHTML構造変化 | 該当パーサーをスキップ、他自治体は継続 |
 | Gemini API エラー | リトライ (exponential backoff)、3回失敗で議題スキップ |
-| Veo 生成失敗 | Imagen 静止画にフォールバック |
+| Imagen 生成失敗 | サムネ無しのテキストカードにフォールバック |
 | Vertex AI RAG 不可 | テキスト検索にフォールバック |
 | Firestore 一時的エラー | クライアント側 SWR でリトライ |
 
@@ -791,7 +797,7 @@ ENV=dev
 ```
 00:00-00:10  オープニング: 「あなたの住む街、何丁目までしか知りませんよね？」
 00:10-00:25  オンボーディング: 郵便番号→自治体→関心入力
-00:25-00:50  For You フィード: TikTok風縦スクロール、Veo動画再生
+00:25-00:50  For You フィード: TikTok風縦スクロール、Imagen サムネ + 3行サマリ
 00:50-01:20  議題詳細: 翻訳された3行サマリ、議事録RAG結果
 01:20-01:50  比較ビュー: 自治体A vs 自治体B の差分
 01:50-02:20  バックエンド: 7体のエージェント可視化、ADKフロー

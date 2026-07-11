@@ -41,13 +41,16 @@ YouTube URL: (7/6 編集完了後に記入)
 > 議事録・プレスは Pub/Sub 4段パイプライン (翻訳→影響度採点→配信→BigQuery) を Cloud Run Jobs + Cloud Scheduler で日次処理。
 > **同一の自律パターン「計画→並列専門家→批判(Critic/悪魔の代弁者)→人間ゲート・自動実行なし」を 3 ドメインで実証**:
 >   (1) Watcher=街選び (4 専門家を並列実行し自己検証)、(2) Ops crew `/ops`=自分たちの運用診断
->   (スクレイパー健全性・コスト・データ鮮度)、(3) Concierge=translator/relevance を sub_agents に
->   持つ ADK 親子階層。→「なぜ多エージェントか」と「なぜ DevOps か」が 1 つの設計思想に収束。
+>   (スクレイパー健全性・コスト・データ鮮度)、(3) Concierge=対話で街を探すエージェント
+>   (既定は単一エージェントのツールループ、`CITIFY_CONCIERGE_ADK=1` で translator/relevance を
+>   sub_agents に持つ ADK 親子経路に切替)。→「なぜ多エージェントか」と「なぜ DevOps か」が
+>   1 つの設計思想に収束。
 > 関連議題検索は Vertex AI RAG Engine (現状は国会議事録コーパス 1,428 件。自治体議事録への拡張は
 >   export/検索の多ソース対応まで実装済で、コーパス投入が残作業)。サムネは Imagen 3
 >   (person_generation=dont_allow + SynthID + AI 生成ラベル)。
-> 実運用配慮: Firebase 認証 (ID トークン検証で IDOR 解消、段階導入)、監視アラート (Cloud Run 5xx/p95・
->   Pub/Sub DLQ を Terraform 化)、BigQuery MERGE 冪等化、gitleaks 全履歴シークレットスキャンを CI ゲートに。
+> 実運用配慮: 監視アラート (Cloud Run 5xx/p95・Pub/Sub DLQ) を Terraform で実在化、gitleaks
+>   全履歴シークレットスキャンを CI ゲートに。本人確認認証 (Firebase ID トークン検証で IDOR 対策) と
+>   BigQuery MERGE 冪等化は実装済みで段階導入 (フラグで有効化。デモは公開閲覧前提)。
 > インフラは全て Terraform 管理、GitHub Actions + Cloud Build で main マージから本番まで自動デプロイ。
 
 ## 開発素材【必須】
@@ -90,11 +93,11 @@ DevOps: Terraform (監視アラートポリシー含む) / GitHub Actions / Clou
 
 1. **役所言葉の翻訳フィード** — 議事録・プレスを Gemini が 3 行に平易化し、年代でトーンを変える。関心軸 × 年代 × 地理で採点し For You フィードに配信。原典リンクを必ず併記
 2. **「街の見張り番」Watcher エージェント (ADK)** — ペルソナを読んで自分で調査計画を立て、統計比較・議題検索・人口推移などのツールを並列実行、結論前に自己検証。結果は根拠つきの街評価 + アクションプランに
-3. **自治体比較・対話での街探し** — 2〜3 自治体をテーマ横断で比較。Concierge は翻訳/影響度エージェントをサブエージェントに持つ ADK 親子階層
+3. **自治体比較・対話での街探し** — 2〜3 自治体をテーマ横断で比較。Concierge は対話で街を探すエージェント (翻訳/影響度を sub_agents に持つ ADK 親子経路を `CITIFY_CONCIERGE_ADK` で有効化。既定は単一エージェントのツールループ)
 4. **国会議事録 RAG** — Vertex AI RAG Engine (国会議事録コーパス) で関連する国会の論戦を検索し、議題詳細に根拠として表示
 5. **運用のエージェント化 (DevOps × AI Agent) — `/ops` 運用SREクルー** — スクレイパー失敗診断 (Scraper Doctor)・コスト異常検知 (Cost Hunter)・データ鮮度を 1 つの自律クルーが統括。**Watcher とまったく同じ設計パターン**（計画→並列専門家→独立批判→人間ゲート・自動実行なし）で作っており、「どの街が合うか」も「自分たちの運用がなぜ壊れたか」も同一のエージェント運用思想で扱う ＝ 本ハッカソンの「DevOps × AI Agent」を 1 つの設計で体現。自動実行はせず人間レビュー前提
 6. **政治的中立と倫理** — 賛否は出さない・政治家名/党名の混入を多層ガードで検出・Imagen は人物生成禁止 + SynthID + AI 生成ラベル・robots.txt を尊重 (Disallow の議事録システムは対応コードごと Drop)
-7. **実運用への配慮** — 全国 1,795 自治体マスタ、830 自治体・議会の 3,700 件超の議題を処理。Firebase 認証で本人確認 (IDOR 解消)、監視アラート・BQ MERGE 冪等化、Terraform IaC、GitHub Actions + Cloud Build + gitleaks の CI/CD を完備
+7. **実運用への配慮** — 全国 1,795 自治体マスタのうち 830 自治体・議会が稼働、3,700 件超の議題を処理 (BigQuery 集計)。監視アラート (Cloud Run 5xx/p95・Pub/Sub DLQ) を Terraform で実在化、Terraform IaC + GitHub Actions + Cloud Build + gitleaks 全履歴スキャンの CI/CD を完備。本人確認認証 (Firebase ID トークン検証で IDOR 対策) と BigQuery MERGE 冪等化は実装済みで段階導入 (フラグで有効化)
 
 ---
 

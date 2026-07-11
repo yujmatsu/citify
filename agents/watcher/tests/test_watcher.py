@@ -15,6 +15,7 @@ from agents.watcher.main import (
     COVERAGE_FLOOR_DOMAINS,
     WatcherAgent,
     _coverage_missing,
+    _ground_analysis_source_ids,
     apply_ethics,
     diff_against_previous,
     parse_advocacy,
@@ -548,3 +549,42 @@ async def test_verify_and_revise_keeps_draft_when_clean(monkeypatch: pytest.Monk
     out, crit_note, adv_note = await agent._verify_and_revise(draft, _watch(), None)
     assert out.verdict.headline == "据え置きの結論"  # 修正なし
     assert crit_note == "" and adv_note == ""
+
+
+# ============================================================================
+# W9: _ground_analysis_source_ids (Synthesizer 捏造 speech_id の最終段フィルタ)
+# ============================================================================
+
+
+def test_ground_analysis_drops_ungrounded_source_ids():
+    """town_assessments の speech_id を allowed 集合に絞る (捏造 ID は落ちる)。"""
+    analysis = TownAnalysis(
+        verdict=WatchVerdict(headline="x", reasoning="y"),
+        town_assessments=[
+            TownAssessment(
+                municipality_code="11227",
+                role="home",
+                headline="h",
+                source_speech_ids=["real-1", "fabricated-9", "real-2"],
+            )
+        ],
+    )
+    _ground_analysis_source_ids(analysis, {"real-1", "real-2"})
+    assert analysis.town_assessments[0].source_speech_ids == ["real-1", "real-2"]
+
+
+def test_ground_analysis_noop_when_allowed_empty():
+    """allowed が空 (ツール結果を拾えず) なら絞らない = 正当な引用を消さない安全側。"""
+    analysis = TownAnalysis(
+        verdict=WatchVerdict(headline="x", reasoning="y"),
+        town_assessments=[
+            TownAssessment(
+                municipality_code="11227",
+                role="home",
+                headline="h",
+                source_speech_ids=["a", "b"],
+            )
+        ],
+    )
+    _ground_analysis_source_ids(analysis, set())
+    assert analysis.town_assessments[0].source_speech_ids == ["a", "b"]

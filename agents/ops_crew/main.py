@@ -25,6 +25,8 @@ import re
 import uuid
 from typing import Any, Protocol
 
+from agents._shared.forbidden import find_forbidden_matches, find_political_leak
+
 from .prompts.system import (
     CRITIC_SYSTEM_PROMPT,
     SYNTH_SYSTEM_PROMPT,
@@ -490,4 +492,13 @@ class OpsCrewAgent:
             p.requires_human_review = True
             if any(h in p.action.lower() for h in _DESTRUCTIVE_HINTS):
                 p.risk_assessment = "risky"
+        # 倫理ゲート (全生成エージェント共通の多層防御): 運用テキストに万一 禁止語/政治的 leak が
+        # 混入したら中立化する。運用ドメインでは稀だが、他エージェント (translator/relevance/
+        # concierge/watcher) と同じゲートを通すことで「生成物は必ず倫理チェック済み」を担保。
+        v = assessment.verdict
+        combined = f"{v.headline}\n{v.reasoning}"
+        if find_forbidden_matches(combined) or find_political_leak(combined):
+            logger.warning("ops_crew.ethics_gate_triggered headline=%r", v.headline[:80])
+            v.headline = "運用アセスメント完了 (要確認)"
+            v.reasoning = "(倫理ガードにより本文の表示を差し控えました。詳細はサーバーログを参照)"
         return assessment

@@ -24,7 +24,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Protocol
 
-from pkg.pubsub import MessageEnvelope
+from pkg.pubsub import MessageEnvelope, PermanentMessageError
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +80,19 @@ def scored_speech_to_bq_row(envelope: MessageEnvelope) -> dict[str, Any]:
     p = envelope.payload
     score = p.get("score") or {}
 
+    # M1: 必須キー欠落は再送しても復旧しない (poison-pill) → PermanentMessageError で ack-drop。
+    # 直接 p["..."] だと KeyError → nack → DLQ 未設定購読で無限再送ストームになる。
+    speech_id = p.get("speech_id")
+    user_id = p.get("user_id")
+    if not speech_id or not user_id:
+        raise PermanentMessageError(
+            f"ScoredSpeech payload missing required keys "
+            f"(speech_id={speech_id!r}, user_id={user_id!r})"
+        )
+
     return {
-        "speech_id": p["speech_id"],
-        "user_id": p["user_id"],
+        "speech_id": speech_id,
+        "user_id": user_id,
         "municipality_code": p.get("municipality_code"),
         "title": p.get("title"),
         "summary": list(p.get("summary") or []),  # ARRAY<STRING>

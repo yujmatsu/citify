@@ -89,7 +89,10 @@ steps:
       # WATCHER_AUTONOMY_MODE: Watcher の実行戦略 (coordinator=Lv3 完全自律 / crew=固定クルー)。
       # 本番 smoke 検証済みのため coordinator を恒久化 (コード既定は crew、prod のみ env で上書き)。
       # 不具合時はこの値を crew に変えて再デプロイ、もしくは env 削除で即フォールバック。
-      - --set-env-vars=ENV=dev,GIT_SHA=${BUILD_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION},WATCHER_AUTONOMY_MODE=coordinator
+      # CITIFY_CONCIERGE_ADK=1: concierge を本物の ADK 親子 (translator/relevance sub_agents)
+      #   経路で実行 (①強化)。例外時は sync GenaiConciergeRunner に自動 fallback するため安全。
+      #   OFF に戻すなら値を 0 にするか env 削除。
+      - --set-env-vars=ENV=dev,GIT_SHA=${BUILD_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION},WATCHER_AUTONOMY_MODE=coordinator,CITIFY_CONCIERGE_ADK=1
       # Week 1 で Secret Manager 連携時にコメントアウト解除:
       # - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
       - --memory=512Mi

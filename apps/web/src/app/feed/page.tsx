@@ -161,10 +161,8 @@ export default function FeedPage() {
           <h1 className="text-xl font-semibold">
             フィードの取得に失敗しました
           </h1>
-          <p className="text-sm text-zinc-500">{state.message}</p>
-          <p className="text-xs text-zinc-400">
-            user_id: {state.persona.user_id} · API_BASE:{" "}
-            {process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8080"}
+          <p className="text-sm text-zinc-500">
+            時間をおいて再度お試しください。問題が続く場合はトップから設定を見直してください。
           </p>
           <Link
             href="/"
@@ -184,14 +182,9 @@ export default function FeedPage() {
         <div className="max-w-md space-y-4 text-center">
           <h1 className="text-xl font-semibold">まだ議題が届いていません</h1>
           <p className="text-sm text-zinc-500">
-            user_id: <span className="font-mono">{state.persona.user_id}</span>
             {isDemo
-              ? " — デモ用ペルソナですが、まだスコア対象が無いようです。"
-              : " — このペルソナでは未だ採点された議題がありません。"}
-          </p>
-          <p className="text-xs text-zinc-400">
-            scrapers から publish → translator/relevance/bq_sink
-            が処理すると、ここに表示されます。
+              ? "デモ用ペルソナですが、まだ表示できる議題がありません。街を追加すると届きやすくなります。"
+              : "この設定ではまだ表示できる議題がありません。関心や街を追加してみてください。"}
           </p>
           <div className="flex justify-center gap-3 pt-2">
             <Link

@@ -140,7 +140,7 @@ export default function Home() {
                 まず、ここから
               </p>
               <p className="text-center text-sm font-medium text-zinc-600 dark:text-zinc-400">
-                ひとつ選ぶと、設定なしで今すぐ試せます
+                ひとつ選ぶと、その場で街の診断を開始します（1〜2 分）
               </p>
               {PRESET_PERSONAS.map((p) => (
                 <button

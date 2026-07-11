@@ -210,6 +210,31 @@ def _ground_finding_source_ids(
     return finding
 
 
+def _ground_analysis_source_ids(analysis: TownAnalysis, allowed_ids: set[str]) -> TownAnalysis:
+    """town_assessments[].source_speech_ids を allowed_ids に絞る (Synthesizer の捏造 ID 防止、W9)。
+
+    Synthesizer はツール無しで所見を統合するため、入力の専門家所見に無い speech_id を
+    最終 verdict に混入させる余地がある (= 死にリンク/捏造引用)。allowed_ids は専門家所見が
+    実際に引用した ID 集合。allowed_ids が空なら絞らない (over-filter で正当な引用を消さない
+    安全側、`_ground_finding_source_ids` と同方針)。
+    """
+    if not allowed_ids:
+        return analysis
+    for a in analysis.town_assessments:
+        if not a.source_speech_ids:
+            continue
+        kept = [sid for sid in a.source_speech_ids if sid in allowed_ids]
+        if len(kept) != len(a.source_speech_ids):
+            logger.info(
+                "watcher.assessment_ungrounded_ids_dropped muni=%s before=%d after=%d",
+                a.municipality_code,
+                len(a.source_speech_ids),
+                len(kept),
+            )
+            a.source_speech_ids = kept
+    return analysis
+
+
 def _coverage_missing(
     findings: list[SpecialistFinding], floor: tuple[str, ...] = COVERAGE_FLOOR_DOMAINS
 ) -> list[str]:
@@ -485,6 +510,11 @@ class WatcherAgent:
     ) -> WatcherResult:
         """倫理ゲート適用・透明性フィールド付与・run_log 構築・永続化 (crew/coordinator 共通の締め)。"""
         analysis = apply_ethics(draft)
+        if analysis is not None:
+            # W9: Synthesizer が出した引用 speech_id を、専門家所見が実際に引用した ID 集合に
+            # 絞る (捏造 ID = 死にリンクを最終 verdict に残さない。specialist 段の接地の最終段)。
+            allowed_ids = {sid for f in findings for sid in (f.source_speech_ids or [])}
+            _ground_analysis_source_ids(analysis, allowed_ids)
         n_assessed = len(analysis.town_assessments) if analysis else 0
         note = ""
         if analysis is None:

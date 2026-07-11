@@ -175,6 +175,23 @@ def test_subscriber_process_message_nack_on_handler_error():
     assert not msg.ack_called
 
 
+def test_subscriber_process_message_acks_on_permanent_error():
+    """M1: handler が PermanentMessageError を投げたら nack せず ack-drop (無限再送防止)。"""
+    from pkg.pubsub import PermanentMessageError
+
+    sub = PubSubSubscriber(project_id="citify-dev")
+    env = MessageEnvelope.wrap("test", _DummyModel(id="x", text="t"))
+    msg = _FakeMessage(data=env.to_bytes())
+
+    def handler(_e: MessageEnvelope) -> None:
+        raise PermanentMessageError("poison pill: missing required keys")
+
+    sub.process_message(msg, handler)
+
+    assert msg.ack_called
+    assert not msg.nack_called
+
+
 def test_subscriber_process_message_ack_on_parse_failure():
     """JSON parse 失敗は DLQ 行き目的で ack (再送しない)。"""
     sub = PubSubSubscriber(project_id="citify-dev")

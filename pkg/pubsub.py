@@ -204,6 +204,16 @@ class _SubscriberClientProto(Protocol):
 EnvelopeHandler = Callable[[MessageEnvelope], None]
 
 
+class PermanentMessageError(Exception):
+    """再送しても絶対に成功しない message を示す (= ack して破棄すべき)。
+
+    JSON は妥当だが payload が構造的に不正 (必須キー欠落など) のケース。handler が
+    これを送出すると `process_message` は nack せず ack-drop する (DLQ 未設定購読での
+    無限再送ストーム防止。JSON parse 失敗の ack-drop と同じ理由)。一時失敗 (BQ 一時
+    エラー等) は通常の例外を送出すれば従来通り nack される。
+    """
+
+
 class PubSubSubscriber:
     """Pub/Sub からの subscribe ラッパ (streaming pull)。
 
@@ -270,6 +280,16 @@ class PubSubSubscriber:
                 envelope.source,
                 envelope.payload_type,
             )
+        except PermanentMessageError as exc:
+            # 恒久エラー: 再送しても成功しないので ack-drop (無限再送ストーム防止)
+            logger.error(
+                "pubsub.handler_permanent_dropped msg_id=%s source=%s payload_type=%s err=%s",
+                getattr(message, "message_id", "?"),
+                envelope.source,
+                envelope.payload_type,
+                exc,
+            )
+            message.ack()
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "pubsub.handler_failed msg_id=%s source=%s payload_type=%s err=%s",
