@@ -38,6 +38,15 @@ export default function AdminIndexPage(): React.JSX.Element {
             API/LLM コストの推移・異常検知
           </p>
         </Link>
+        <Link
+          href="/ops"
+          className="block rounded-2xl border border-zinc-300 p-4 transition-colors hover:border-emerald-400 dark:border-zinc-700 dark:hover:border-emerald-700"
+        >
+          <div className="font-semibold">🛠️ 運用クルー (Ops Crew)</div>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            スクレイパー/コスト/データ鮮度を統括する自律SREクルー
+          </p>
+        </Link>
       </div>
     </main>
   );

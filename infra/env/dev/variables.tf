@@ -42,6 +42,12 @@ variable "schedulers_paused" {
   default     = true
 }
 
+variable "alert_email" {
+  type        = string
+  description = "監視アラートの通知先メール。空文字なら通知チャンネルを作らず、アラートポリシーのみ作成 (Cloud Console で確認可)。"
+  default     = ""
+}
+
 # Week 1 後半以降で追加予定:
 # variable "billing_account" { ... }
 # variable "gemini_model" {

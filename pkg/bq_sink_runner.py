@@ -16,21 +16,36 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
-from pkg.bq_sink import BQSink, scored_speech_to_bq_row
+from pkg.bq_sink import (
+    SCORED_SPEECH_COLUMN_TYPES,
+    BQSink,
+    scored_speech_to_bq_row,
+)
 from pkg.pubsub import PubSubSubscriber
 
 logger = logging.getLogger(__name__)
 
-# sink 名 → (converter, expected_payload_type, default_table_id)
+# sink 名 → (converter, expected_payload_type, default_table_id, merge_keys, column_types)
 SINKS: dict[str, tuple] = {
     "scored_speeches": (
         scored_speech_to_bq_row,
         "ScoredSpeech",
         "citify_curated.scored_speeches",
+        ("speech_id", "user_id"),
+        SCORED_SPEECH_COLUMN_TYPES,
     ),
 }
+
+
+def _merge_enabled() -> bool:
+    """CITIFY_BQ_MERGE=1/true/yes で MERGE upsert (冪等) を有効化。既定は stream insert。
+
+    ※ 実 BQ での 1 バッチ smoke 検証後に本番で有効化すること (streaming buffer 相性のため)。
+    """
+    return os.getenv("CITIFY_BQ_MERGE", "").lower() in ("1", "true", "yes")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -73,23 +88,27 @@ def main() -> int:
         stream=sys.stderr,
     )
 
-    converter, expected_payload_type, default_table = SINKS[args.sink]
+    converter, expected_payload_type, default_table, merge_keys, column_types = SINKS[args.sink]
     table_id = args.table or default_table
+    use_merge = _merge_enabled()
 
     sink = BQSink(
         project_id=args.project_id,
         table_id=table_id,
         converter=converter,
         expected_payload_type=expected_payload_type,
+        merge_keys=merge_keys if use_merge else None,
+        column_types=column_types if use_merge else None,
     )
     subscriber = PubSubSubscriber(project_id=args.project_id)
 
     logger.info(
-        "bq_sink_runner.start sink=%s subscription=%s table=%s timeout=%s",
+        "bq_sink_runner.start sink=%s subscription=%s table=%s timeout=%s mode=%s",
         args.sink,
         args.subscription,
         table_id,
         args.timeout_sec,
+        "merge" if use_merge else "stream",
     )
     subscriber.run(
         subscription=args.subscription,

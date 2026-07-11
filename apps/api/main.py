@@ -3070,6 +3070,93 @@ async def get_cost_health(
 
 
 # ============================================================================
+# Ops Crew (運用 SRE マルチエージェントクルー) — DevOps × AI Agent
+# ============================================================================
+# Watcher と同一パターン(計画→並列専門家→統合→批判→人間/ブラスト半径ゲート)を
+# 「自分たちの運用」に適用。scraper_doctor + cost_hunter + データ鮮度を1つの
+# 自律クルーが統括し「今いちばん人間が対処すべき運用課題」を提案する(自動実行はしない)。
+#   - GET /v1/ops/health : クルーを実行し assessment + 自律実行トレースを返す (5分 TTL)
+# 認可: OPS_ADMIN_TOKEN 環境変数が設定されていれば x-admin-token 一致を要求 (server-side secret)。
+# ============================================================================
+
+_ops_crew_cache: Any = None
+_OPS_HEALTH_CACHE = _TTLCache(maxsize=8, ttl_sec=300.0)
+_OPS_LIMITER = _RateLimiter(limit=30, window_sec=600.0)
+
+
+def _get_ops_crew_agent() -> Any:
+    """OpsCrewAgent を遅延初期化 (テストで monkeypatch 可)。"""
+    global _ops_crew_cache
+    if _ops_crew_cache is None:
+        from agents.ops_crew import OpsCrewAgent
+
+        _ops_crew_cache = OpsCrewAgent(project_id=BQ_PROJECT)
+    return _ops_crew_cache
+
+
+def _require_ops_admin(x_admin_token: str | None) -> None:
+    """OPS_ADMIN_TOKEN が設定されていれば x-admin-token 一致を要求 (未設定なら dev 許可)。
+
+    NEXT_PUBLIC_* と違い server-side env なのでクライアントバンドルに漏れない。
+    """
+    expected = os.getenv("OPS_ADMIN_TOKEN")
+    if expected and x_admin_token != expected:
+        raise HTTPException(status_code=403, detail="invalid or missing x-admin-token")
+
+
+def _ops_freshness_hours() -> float | None:
+    """scored_speeches_latest の最終取込からの経過時間 (h)。失敗時 None (graceful)。"""
+    try:
+        from datetime import UTC, datetime
+
+        client = _get_bq_client()
+        table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
+        q = f"SELECT MAX(ingested_at) AS latest FROM `{table_fqn}`"  # noqa: S608 (table名はenv由来)
+        rows = list(client.query(q).result())
+        if not rows or rows[0].latest is None:
+            return None
+        return max(0.0, (datetime.now(UTC) - rows[0].latest).total_seconds() / 3600.0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ops.freshness_failed err=%s", exc)
+        return None
+
+
+@app.get("/v1/ops/health")
+async def get_ops_health(
+    response: Response,
+    days: int = Query(7, ge=1, le=30),
+    use_sample: bool = Query(True),
+    x_admin_token: str | None = Header(default=None, alias="x-admin-token"),
+) -> dict:
+    """運用 SRE クルーを実行し、assessment + 自律トレースを返す (DevOps × AI Agent の実証)。"""
+    _require_ops_admin(x_admin_token)
+    _enforce_rate_limit(_OPS_LIMITER, "ops_health", 60)
+
+    cache_key = (days, use_sample)
+    cached = _OPS_HEALTH_CACHE.get(cache_key)
+    if cached is not None:
+        response.headers["Cache-Control"] = "max-age=300"
+        return cached
+
+    crew = _get_ops_crew_agent()
+    freshness = _ops_freshness_hours()
+    try:
+        result = await crew.run(days=days, use_sample=use_sample, freshness_hours=freshness)
+    except Exception as exc:  # noqa: BLE001 (crew は本来投げないが二重防御)
+        logger.exception("ops.health_failed err=%s", exc)
+        raise HTTPException(status_code=500, detail=f"ops crew failed: {exc!s}") from exc
+
+    payload = {
+        "assessment": result.assessment.model_dump(mode="json") if result.assessment else None,
+        "run_log": result.run_log.model_dump(mode="json"),
+        "freshness_hours": freshness,
+    }
+    _OPS_HEALTH_CACHE.set(cache_key, payload)
+    response.headers["Cache-Control"] = "max-age=300"
+    return payload
+
+
+# ============================================================================
 # Watcher (マイ街エージェント / TASK-WATCHER Slice 3) — 自律型 Civic Watch Agent
 # ============================================================================
 # 自律エージェント (ADK Runner) = 街選びアナリスト。住む街(基準)と気になる街(候補)を

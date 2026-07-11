@@ -1005,6 +1005,105 @@ export async function fetchCostHealth(
 }
 
 // ============================================================================
+// Ops Crew (運用SREクルー、DevOps × AI Agent) — GET /v1/ops/health
+// agents/ops_crew/schema.py の Pydantic (OpsAssessment / OpsRunLog) と一致させる。
+// Watcher と同一パターン(計画→並列専門家→統合→批判→人間ゲート)を自分たちの運用に適用。
+// 認可: OPS_ADMIN_TOKEN が server に設定されていれば x-admin-token 必須 (未設定なら dev 許可)。
+// ============================================================================
+
+export const OpsDomainEnum = z.enum(["scraper_health", "cost", "data_freshness"]);
+export type OpsDomain = z.infer<typeof OpsDomainEnum>;
+
+export const OpsVerdictSchema = z.object({
+  headline: z.string().default(""),
+  reasoning: z.string().default(""),
+  top_priority_domain: OpsDomainEnum.nullable().default(null),
+  confidence: z.enum(["high", "medium", "low"]).default("medium"),
+  requires_human_review: z.boolean().default(true),
+});
+
+export type OpsVerdict = z.infer<typeof OpsVerdictSchema>;
+
+export const OpsFindingSchema = z.object({
+  domain: OpsDomainEnum,
+  headline: z.string().default(""),
+  key_points: z.array(z.string()).default([]),
+  severity: z.string().default("none"),
+  confidence: z.enum(["high", "medium", "low"]).default("medium"),
+  source_refs: z.array(z.string()).default([]),
+});
+
+export type OpsFinding = z.infer<typeof OpsFindingSchema>;
+
+export const OpsRemediationProposalSchema = z.object({
+  domain: OpsDomainEnum,
+  action: z.string(),
+  rationale: z.string().default(""),
+  risk_assessment: z.enum(["safe", "moderate", "risky"]).default("moderate"),
+  requires_human_review: z.boolean().default(true),
+  source: z.enum(["llm", "rule_based"]).default("rule_based"),
+});
+
+export type OpsRemediationProposal = z.infer<typeof OpsRemediationProposalSchema>;
+
+export const OpsAssessmentSchema = z.object({
+  verdict: OpsVerdictSchema,
+  findings: z.array(OpsFindingSchema).default([]),
+  proposals: z.array(OpsRemediationProposalSchema).default([]),
+  critique_note: z.string().default(""),
+  investigation_plan: z.array(z.string()).default([]),
+});
+
+export type OpsAssessment = z.infer<typeof OpsAssessmentSchema>;
+
+export const OpsToolCallSchema = z.object({
+  tool: z.string(),
+  args: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type OpsToolCall = z.infer<typeof OpsToolCallSchema>;
+
+export const OpsRunLogSchema = z.object({
+  run_id: z.string().default(""),
+  targets_checked: z.array(z.string()).default([]),
+  tool_calls: z.array(OpsToolCallSchema).default([]),
+  n_findings: z.number().int().nonnegative().default(0),
+  token_cost: z.number().int().nullable().optional(),
+  status: z.enum(["ok", "empty", "error"]).default("ok"),
+  note: z.string().default(""),
+});
+
+export type OpsRunLog = z.infer<typeof OpsRunLogSchema>;
+
+export const OpsHealthResponseSchema = z.object({
+  assessment: OpsAssessmentSchema.nullable().default(null),
+  run_log: OpsRunLogSchema,
+  freshness_hours: z.number().nullable().default(null),
+});
+
+export type OpsHealthResponse = z.infer<typeof OpsHealthResponseSchema>;
+
+/**
+ * Ops Crew (DevOps × AI Agent): scraper_health/cost/data_freshness を統括する
+ * 運用SREクルーを実行し、統合アセスメント + 自律実行トレースを取得する。
+ * 自動実行は一切されない (人間レビュー前提、requires_human_review は常に true)。
+ * OPS_ADMIN_TOKEN が server 側で設定されている場合は 403 (x-admin-token 不一致/未設定) が返る。
+ */
+export async function fetchOpsHealth(
+  opts: { days?: number; useSample?: boolean } = {},
+): Promise<OpsHealthResponse> {
+  const params = new URLSearchParams({
+    days: String(opts.days ?? 7),
+    use_sample: String(opts.useSample ?? true),
+  });
+  return fetchJson(
+    `${API_BASE}/v1/ops/health?${params.toString()}`,
+    OpsHealthResponseSchema,
+    { cache: "no-store" },
+  );
+}
+
+// ============================================================================
 // Watcher (マイ街エージェント=街選びアナリスト / TASK-WATCHER Slice 3.5)
 // agents/watcher/schema.py の Pydantic (TownAnalysis / AgentRunLog) と一致させる。
 // 認可は x-user-id header (path user_id と一致必須、demo)。
