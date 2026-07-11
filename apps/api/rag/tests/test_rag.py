@@ -105,6 +105,54 @@ def test_upload_speech_writes_to_correct_blob_path():
     assert "石破茂" in captured["data"]
 
 
+def test_format_speech_for_rag_includes_source_and_municipality():
+    """多ソース対応: Source / Municipality メタデータが header に入る。"""
+    from dataclasses import replace
+
+    row = replace(_make_row(), source="kaigiroku_net", municipality_code="33100")
+    text = format_speech_for_rag(row)
+    assert "Source: kaigiroku_net" in text
+    assert "Municipality: 33100" in text
+
+
+def test_query_distinct_speeches_applies_source_label_override():
+    """source 列を持たないソースでも source_label/municipality_code で定数上書きできる。"""
+    from apps.api.rag.export import _query_distinct_speeches
+
+    class _MockJob:
+        def __iter__(self):
+            # source / municipality_code 列が無い行 (dict) をシミュレート
+            yield {
+                "id": "m-1",
+                "speaker": "市長",
+                "speaker_group": None,
+                "speaker_position": None,
+                "name_of_house": None,
+                "name_of_meeting": "定例会",
+                "issue": None,
+                "meeting_date": date(2026, 6, 1),
+                "speech_url": None,
+                "meeting_url": None,
+                "speech": "本市の子育て支援について",
+            }
+
+    class _MockBQ:
+        def query(self, sql: str) -> _MockJob:  # noqa: ARG002
+            return _MockJob()
+
+    rows = list(
+        _query_distinct_speeches(
+            _MockBQ(),
+            "citify-dev.citify_curated.speech_texts",
+            source_label="kaigiroku_net",
+            municipality_code="33100",
+        )
+    )
+    assert len(rows) == 1
+    assert rows[0].source == "kaigiroku_net"
+    assert rows[0].municipality_code == "33100"
+
+
 # ============================================================================
 # corpus.py
 # ============================================================================

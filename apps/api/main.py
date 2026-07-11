@@ -1582,6 +1582,33 @@ class RelatedContext(BaseModel):
     distance: float | None = Field(
         default=None, description="cosine distance (0=完全一致, 1=無関連)"
     )
+    # source_uri (gs://bucket/{source}/{speech_id}.txt) から解決。フロントが
+    # /feed/{speech_id} リンク化 + 出所バッジ (国会/地方) 表示に使う。
+    speech_id: str | None = Field(default=None, description="解決した原典 speech_id")
+    source: str | None = Field(default=None, description="出所ラベル (kokkai 等、GCS prefix 由来)")
+
+
+def _parse_rag_source_uri(uri: str) -> tuple[str | None, str | None]:
+    """gs://bucket/{source}/{speech_id}.txt を (speech_id, source) に分解。失敗は (None, None)。
+
+    RAG corpus のファイルは export.py が `{prefix}/{id}.txt` で命名する。prefix=出所、
+    ファイル名 stem=原典 id。将来 speech_id 命名で再 import すれば /feed リンクが解決する。
+    """
+    if not uri:
+        return (None, None)
+    try:
+        from urllib.parse import unquote
+
+        path = uri.split("://", 1)[-1]
+        parts = [p for p in path.split("/") if p]
+        if len(parts) < 2:
+            return (None, None)
+        filename = parts[-1]
+        stem = filename[:-4] if filename.endswith(".txt") else filename
+        source = parts[-2] if len(parts) >= 3 else None
+        return (unquote(stem) or None, source)
+    except Exception:  # noqa: BLE001
+        return (None, None)
 
 
 class RelatedResponse(BaseModel):
@@ -1731,14 +1758,18 @@ async def get_related_speeches(
         logger.exception("related.rag_query_failed speech_id=%s err=%s", speech_id, exc)
         raise HTTPException(status_code=500, detail=f"RAG query failed: {exc!s}") from exc
 
-    items = [
-        RelatedContext(
-            text=ctx.text,
-            source_uri=ctx.source_uri,
-            distance=ctx.distance,
+    items = []
+    for ctx in contexts:
+        sid, src = _parse_rag_source_uri(ctx.source_uri)
+        items.append(
+            RelatedContext(
+                text=ctx.text,
+                source_uri=ctx.source_uri,
+                distance=ctx.distance,
+                speech_id=sid,
+                source=src,
+            )
         )
-        for ctx in contexts
-    ]
     logger.info(
         "related.served speech_id=%s n=%d query_chars=%d cached=true",
         speech_id,
