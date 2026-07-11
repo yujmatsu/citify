@@ -222,6 +222,7 @@ def test_put_reaction_new_increments_counts_and_total(
     res = client.put(
         "/v1/speeches/sp-1/reaction",
         params={"user_id": "demo-25-29"},
+        headers={"x-user-id": "demo-25-29"},
         json={"reaction": "🔥"},
     )
 
@@ -258,6 +259,7 @@ def test_put_reaction_overwrite_with_different_emoji(
     res = client.put(
         "/v1/speeches/sp-1/reaction",
         params={"user_id": "demo-25-29"},
+        headers={"x-user-id": "demo-25-29"},
         json={"reaction": "👍"},
     )
 
@@ -288,6 +290,7 @@ def test_put_reaction_same_emoji_is_noop_for_counts(
     res = client.put(
         "/v1/speeches/sp-1/reaction",
         params={"user_id": "demo-25-29"},
+        headers={"x-user-id": "demo-25-29"},
         json={"reaction": "👍"},
     )
 
@@ -302,6 +305,7 @@ def test_put_reaction_invalid_emoji_returns_400(
     res = client.put(
         "/v1/speeches/sp-1/reaction",
         params={"user_id": "demo-25-29"},
+        headers={"x-user-id": "demo-25-29"},
         json={"reaction": "💩"},
     )
 
@@ -330,7 +334,11 @@ def test_delete_reaction_decrements_counts(
         "total": 3,
     }
 
-    res = client.delete("/v1/speeches/sp-1/reaction", params={"user_id": "demo-25-29"})
+    res = client.delete(
+        "/v1/speeches/sp-1/reaction",
+        params={"user_id": "demo-25-29"},
+        headers={"x-user-id": "demo-25-29"},
+    )
 
     assert res.status_code == 200
     assert "demo-25-29__sp-1" not in mock_firestore.docs["reactions"]
@@ -343,10 +351,46 @@ def test_delete_reaction_idempotent_when_missing(
     client: TestClient, mock_firestore: _FakeFirestore
 ) -> None:
     """既存リアクションなし → 200 で counts も触らない。"""
-    res = client.delete("/v1/speeches/sp-1/reaction", params={"user_id": "demo-25-29"})
+    res = client.delete(
+        "/v1/speeches/sp-1/reaction",
+        params={"user_id": "demo-25-29"},
+        headers={"x-user-id": "demo-25-29"},
+    )
 
     assert res.status_code == 200
     assert "sp-1" not in mock_firestore.docs["reaction_counts"]
+
+
+# ============================================================================
+# 書き込み IDOR ガード (demo 認可: x-user-id == path user_id 必須)
+# ============================================================================
+
+
+def test_put_reaction_without_x_user_id_is_forbidden(
+    client: TestClient, mock_firestore: _FakeFirestore
+) -> None:
+    """x-user-id 無しの PUT は 403 (共有集計の無認証書き込み汚染を防ぐ)。"""
+    res = client.put(
+        "/v1/speeches/sp-1/reaction",
+        params={"user_id": "demo-25-29"},
+        json={"reaction": "🔥"},
+    )
+    assert res.status_code == 403
+    # 共有集計にも per-user doc にも一切書かれていない
+    assert "demo-25-29__sp-1" not in mock_firestore.docs["reactions"]
+    assert "sp-1" not in mock_firestore.docs["reaction_counts"]
+
+
+def test_delete_reaction_with_mismatched_x_user_id_is_forbidden(
+    client: TestClient, mock_firestore: _FakeFirestore
+) -> None:
+    """別人 user_id を騙る DELETE は 403 (x-user-id != path user_id)。"""
+    res = client.delete(
+        "/v1/speeches/sp-1/reaction",
+        params={"user_id": "victim-30-39"},
+        headers={"x-user-id": "attacker-25-29"},
+    )
+    assert res.status_code == 403
 
 
 # ============================================================================

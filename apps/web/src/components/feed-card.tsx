@@ -174,7 +174,7 @@ export function FeedCard({
       {/* Body: title + summary */}
       <div className="relative z-10 flex flex-1 flex-col justify-center gap-6 py-8">
         <h2 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-          {item.title || "(タイトル未生成)"}
+          {item.title || item.name_of_meeting || "議題（要約準備中）"}
         </h2>
         <ul className="space-y-3 text-base leading-relaxed text-zinc-200 sm:text-lg">
           {item.summary.length > 0 ? (
@@ -185,7 +185,22 @@ export function FeedCard({
               </li>
             ))
           ) : (
-            <li className="text-zinc-500">(要約未生成)</li>
+            // 要約未生成でも空殻にしない: 採点理由(relevance の倫理ゲート通過済)と
+            // 会議名で最低限の文脈を出し、原典リンク(footer)へ誘導する。
+            <li className="flex flex-col gap-1 text-zinc-400">
+              <span>
+                {item.reasoning
+                  ? `AI 要約は準備中です。関連理由: ${item.reasoning.slice(0, 100)}${
+                      item.reasoning.length > 100 ? "…" : ""
+                    }`
+                  : "AI 要約は準備中です。下の「原典 ↗」から議会公式で内容を確認できます。"}
+              </span>
+              {item.name_of_meeting && (
+                <span className="text-xs text-zinc-500">
+                  会議: {item.name_of_meeting}
+                </span>
+              )}
+            </li>
           )}
         </ul>
       </div>

@@ -1890,13 +1890,19 @@ async def put_reaction(
     speech_id: str,
     body: ReactionPutRequest,
     user_id: str = Query(..., description="ペルソナ ID"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> ReactionResponse:
     """リアクションを設定 or 上書き。同一 user_id × speech_id は 1 つだけ保持。
+
+    認可: `_resolve_user` (demo=x-user-id / firebase=Firebase ID token)。共有集計
+    (`reaction_counts/{speech_id}`) を書き換えるため、他人 user_id での書き込み汚染を防ぐ。
 
     Phase X+1: 集計 (`reaction_counts/{speech_id}`) も batch で原子的に更新。
     - 新規: counts.{new} += 1, total += 1
     - 上書き: counts.{prev} -= 1, counts.{new} += 1 (total は変わらず)
     """
+    _resolve_user(user_id, authorization, x_user_id)
     if body.reaction not in ALLOWED_REACTIONS:
         raise HTTPException(
             status_code=400,
@@ -1977,12 +1983,18 @@ async def put_reaction(
 async def delete_reaction(
     speech_id: str,
     user_id: str = Query(..., description="ペルソナ ID"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> ReactionResponse:
     """リアクションを解除 (document 削除)。存在しなくても 200 を返す (idempotent)。
+
+    認可: `_resolve_user` (demo=x-user-id / firebase=Firebase ID token)。共有集計を
+    減算するため、他人 user_id での書き込み汚染を防ぐ。
 
     Phase X+1: 集計 (`reaction_counts/{speech_id}`) も batch で減算。
     既存 reaction がなければ counts は触らない。
     """
+    _resolve_user(user_id, authorization, x_user_id)
     from google.cloud import firestore as fs
 
     client = _get_firestore_client()

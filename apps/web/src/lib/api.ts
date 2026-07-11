@@ -200,7 +200,9 @@ export async function setReaction(
 ): Promise<ReactionResponse> {
   return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    // x-user-id: demo 認可 (path user_id と一致必須)。firebase 時は fetchJson が
+    // Authorization を自動付与。共有集計の無認証書き込み汚染を防ぐ。
+    headers: { "Content-Type": "application/json", "x-user-id": userId },
     body: JSON.stringify({ reaction }),
     cache: "no-store",
   });
@@ -213,6 +215,8 @@ export async function clearReaction(
 ): Promise<ReactionResponse> {
   return fetchJson(reactionUrl(speechId, userId), ReactionResponseSchema, {
     method: "DELETE",
+    // x-user-id: demo 認可 (put_reaction と同様、共有集計の書き込み汚染を防ぐ)。
+    headers: { "x-user-id": userId },
     cache: "no-store",
   });
 }
