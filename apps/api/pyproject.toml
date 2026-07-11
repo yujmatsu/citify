@@ -37,6 +37,9 @@ dependencies = [
     "google-cloud-pubsub>=2.27",
     "google-cloud-firestore>=2.18",
 
+    # 認証 (CITIFY_AUTH_MODE=firebase 時のみ実行時に使用。既定 demo では未使用)
+    "firebase-admin>=6.5",
+
     # 構造化ログ
     "structlog>=24.4",
 ]

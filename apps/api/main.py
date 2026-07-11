@@ -2092,10 +2092,57 @@ async def post_concierge(payload: dict) -> dict:
 
 
 # ============================================================================
+# 認証・認可 (デモ簡易 / Firebase 段階導入) — W1 (IDOR) 対策
+# ============================================================================
+# CITIFY_AUTH_MODE:
+#   "demo" (既定): 従来の x-user-id ヘッダ == path user_id チェック (現行デモ挙動不変)。
+#   "firebase"   : Authorization: Bearer <Firebase ID token> を検証し uid == path user_id を要求。
+#                  → ヘッダ自己申告でなく暗号的な本人確認になり IDOR を解消する。
+# 既定 demo なので、環境変数を切り替えない限り本番デモの挙動は一切変わらない。
+# firebase mode を有効化する手順は docs/AUTH_RUNBOOK.md 参照。
+# ============================================================================
+AUTH_MODE = os.getenv("CITIFY_AUTH_MODE", "demo")
+
+
+def _verify_firebase_id_token(id_token: str) -> str:
+    """Firebase ID トークンを検証して uid を返す (firebase mode でのみ呼ばれる、遅延 import)。"""
+    import firebase_admin
+    from firebase_admin import auth as fb_auth
+
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
+    decoded = fb_auth.verify_id_token(id_token)
+    return decoded["uid"]
+
+
+def _resolve_user(user_id: str, authorization: str | None, x_user_id: str | None) -> str:
+    """user_id 所有データへのアクセス認可。認可された uid を返す (不正は 401/403)。
+
+    firebase mode: Bearer ID トークンを検証し uid == path user_id を要求 (本人確認)。
+    demo mode (既定): 従来の x-user-id == path user_id (自己申告、現行挙動維持)。
+    """
+    if AUTH_MODE == "firebase":
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="missing Firebase bearer token")
+        try:
+            uid = _verify_firebase_id_token(authorization.split(" ", 1)[1])
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=401, detail="invalid Firebase ID token") from exc
+        if uid != user_id:
+            raise HTTPException(status_code=403, detail="token uid does not match path user_id")
+        return uid
+    # demo mode (既定): 現行挙動を維持
+    if x_user_id is None or x_user_id != user_id:
+        raise HTTPException(
+            status_code=403, detail="x-user-id header must match path user_id (demo 認可)"
+        )
+    return user_id
+
+
+# ============================================================================
 # GET /v1/concierge/history/{user_id} — 会話履歴取得 (Plan L+LL)
 # ============================================================================
-# Concierge との過去対話を取得。認可は `x-user-id` header と path user_id の
-# 一致チェック (demo 環境簡易認可)。production では IAM 認証に置換予定。
+# Concierge との過去対話を取得。認可は _resolve_user (demo=x-user-id / firebase=IDトークン)。
 # ============================================================================
 
 
@@ -2105,18 +2152,13 @@ async def get_concierge_history(
     response: Response,
     limit: int = Query(default=20, ge=1, le=100),
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict:
     """ユーザーの Concierge 会話履歴を最新順で取得 (Plan L+LL)。
 
-    Authorization:
-        path の `user_id` と header `x-user-id` が一致しないと 403。
-        demo 環境簡易認可、production では IAM bearer token に置換予定。
+    Authorization: _resolve_user (demo=x-user-id / firebase=Firebase ID token)。
     """
-    if x_user_id is None or x_user_id != user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="x-user-id header must match path user_id (demo 認可)",
-        )
+    _resolve_user(user_id, authorization, x_user_id)
 
     response.headers["Cache-Control"] = "private, max-age=0, no-cache"
 
@@ -3197,13 +3239,11 @@ def _get_watcher_agent() -> Any:
     return _watcher_agent_cache
 
 
-def _require_watcher_user(user_id: str, x_user_id: str | None) -> None:
-    """demo 簡易認可: path user_id と header x-user-id の一致を要求 (concierge と同方式)。"""
-    if x_user_id is None or x_user_id != user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="x-user-id header must match path user_id (demo 認可)",
-        )
+def _require_watcher_user(
+    user_id: str, x_user_id: str | None, authorization: str | None = None
+) -> None:
+    """認可: _resolve_user に委譲 (demo=x-user-id / firebase=Firebase ID token)。"""
+    _resolve_user(user_id, authorization, x_user_id)
 
 
 class WatchlistBody(BaseModel):
@@ -3265,13 +3305,14 @@ async def get_watcher_analysis(
     user_id: str,
     response: Response,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict:
     """エージェントの街選び分析 (比較 + 生きた結論) + 最新実行ログ (自律証跡)。
 
     latest_run.tool_calls が「LLM が自分で選んだ調査計画」= ①自律性の可視化。
     分析が未生成でも 200 (analysis=null)。
     """
-    _require_watcher_user(user_id, x_user_id)
+    _require_watcher_user(user_id, x_user_id, authorization)
     response.headers["Cache-Control"] = "private, max-age=0, no-cache"
 
     repo = _get_watcher_repo()
@@ -3295,9 +3336,10 @@ async def get_watcher_watchlist(
     user_id: str,
     response: Response,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict | None:
     """保存済のウォッチ街を返す (未設定なら null)。"""
-    _require_watcher_user(user_id, x_user_id)
+    _require_watcher_user(user_id, x_user_id, authorization)
     response.headers["Cache-Control"] = "private, max-age=0, no-cache"
     wl = _get_watcher_repo().get_watchlist(user_id)
     return wl.model_dump() if wl else None
@@ -3308,9 +3350,10 @@ async def put_watcher_watchlist(
     user_id: str,
     body: WatchlistBody,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict:
     """ウォッチ街を保存 (home + watched、上限 5 は all_codes で truncate)。"""
-    _require_watcher_user(user_id, x_user_id)
+    _require_watcher_user(user_id, x_user_id, authorization)
     watch = _to_watch_input(user_id, body)
     if not _get_watcher_repo().save_watchlist(watch):
         raise HTTPException(status_code=500, detail="failed to save watchlist")
@@ -3344,6 +3387,7 @@ async def run_watcher(
     background_tasks: BackgroundTasks,
     body: WatchlistBody | None = None,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict:
     """エージェントを **非同期** に自律実行 (202 即時応答、分析は背景で 2-3 分)。
 
@@ -3352,7 +3396,7 @@ async def run_watcher(
     (アドバイザーが裏で調べてレポートを出す体験 / 同期待ちの解消)。
     ツール選択は LLM に委任 (スクリプト化しない) = ①自律性。倫理ゲート・コスト bound は Agent 側で継承。
     """
-    _require_watcher_user(user_id, x_user_id)
+    _require_watcher_user(user_id, x_user_id, authorization)
     # レート制限 (W3): 背景 ADK 自律実行はコストが大きいので user_id 毎に上限
     _enforce_rate_limit(_WATCHER_RUN_LIMITER, f"watcher_run:{user_id}", 60)
     response.headers["Cache-Control"] = "no-store"
@@ -3415,13 +3459,14 @@ async def get_watcher_action_plan(
     user_id: str,
     response: Response,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict:
     """移住アクションプラン (最新分析の出口)。分析未生成なら plan=null。
 
     結論は生成せず Watcher の TownAnalysis を再利用。生成は訪問チェックリストのみ。
     run_id でキャッシュ (同じ分析なら再生成しない)。
     """
-    _require_watcher_user(user_id, x_user_id)
+    _require_watcher_user(user_id, x_user_id, authorization)
     response.headers["Cache-Control"] = "private, max-age=0, no-cache"
 
     from agents.watcher.action_plan import (

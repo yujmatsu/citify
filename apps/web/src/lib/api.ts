@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import { AUTH_MODE, getIdToken } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8080";
 
@@ -64,12 +65,21 @@ async function fetchJson<T extends z.ZodTypeAny>(
   // Phase Q: 呼び出し側で cache を指定しない場合は "default" にし、
   // BFF が返す Cache-Control header (max-age) をブラウザ HTTP cache で活用する。
   // リアルタイム性が必要な reaction 系は呼び出し側で明示的に "no-store" を指定。
+  const headers: HeadersInit = {
+    Accept: "application/json",
+    ...(init?.headers ?? {}),
+  };
+  // AUTH_MODE="firebase" の時のみ Authorization を付与する。
+  // デフォルト (demo) では getIdToken を呼ばず、既存の x-user-id 運用を一切変えない。
+  if (AUTH_MODE === "firebase") {
+    const token = await getIdToken();
+    if (token) {
+      (headers as Record<string, string>).Authorization = `Bearer ${token}`;
+    }
+  }
   const res = await fetch(url, {
     ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
     cache: init?.cache ?? "default",
   });
   if (!res.ok) {
