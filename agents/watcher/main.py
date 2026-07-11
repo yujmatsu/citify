@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Any
 
-from agents._shared.forbidden import find_forbidden_matches
+from agents._shared.forbidden import find_forbidden_matches, find_political_leak
 
 from .prompts.system import (
     ADVOCATE_PROMPT,
@@ -53,6 +53,10 @@ SPECIALIST_TOOLS: dict[str, tuple[str, ...]] = {
 SPECIALIST_DOMAINS: tuple[str, ...] = ("population", "fiscal", "living_safety", "topics")
 MAX_SPECIALIST_TOOL_CALLS = 4  # 専門家1人あたりのツール上限
 _SYNTH_MAX_ATTEMPTS = 3  # Synthesizer の最大試行回数 (解析失敗時のみ再実行し空振りを抑制)
+# 補助エージェント(synthesize/critique/advocate/revise)の温度。verdict は結論なので
+# 再現性を優先し低温に固定 (未設定だと ADK/Gemini 既定 ~1.0 で、同一ペルソナでも結論が
+# 大きくゆらぐ。W8 対策 2026-07)。専門家(tools 付き)は探索の多様性を残すため未設定のまま。
+_AUX_TEMPERATURE = 0.3
 
 # 段階導入 (設計 §10): 既定は実績ある crew。本番で coordinator(=プランナー主導 Lv2.5) を
 # smoke 検証後、Cloud Run env WATCHER_AUTONOMY_MODE=coordinator で有効化する。
@@ -153,6 +157,59 @@ def parse_finding(final_text: str, domain: str) -> SpecialistFinding | None:
         return None
 
 
+def _extract_grounded_speech_ids(part: Any) -> set[str]:
+    """ADK の function_response part から実在 speech_id を best-effort 抽出 (完全 guard)。
+
+    search_speeches 等が返した dict/list を走査して speech_id を集める。ADK の
+    レスポンス構造はバージョン差があるため、失敗しても例外を投げず空集合を返す
+    (接地は「取れたら使う」補助であり、run を壊してはならない)。
+    """
+    ids: set[str] = set()
+    try:
+        fr = getattr(part, "function_response", None)
+        if fr is None:
+            return ids
+        response = getattr(fr, "response", None)
+
+        def _walk(obj: Any) -> None:
+            if isinstance(obj, dict):
+                sid = obj.get("speech_id")
+                if isinstance(sid, str) and sid:
+                    ids.add(sid)
+                for v in obj.values():
+                    _walk(v)
+            elif isinstance(obj, (list, tuple)):
+                for v in obj:
+                    _walk(v)
+
+        _walk(response)
+    except Exception:  # noqa: BLE001
+        return set()
+    return ids
+
+
+def _ground_finding_source_ids(
+    finding: SpecialistFinding | None, grounded_ids: set[str]
+) -> SpecialistFinding | None:
+    """finding.source_speech_ids を実在 ID 集合に絞る (捏造 ID = 死にリンク防止)。
+
+    grounded_ids が空 (ツール結果を拾えなかった) の場合は絞り込まない
+    (over-filter で正当な所見を空にしないため、安全側)。
+    """
+    if finding is None or not grounded_ids or not finding.source_speech_ids:
+        return finding
+    kept = [sid for sid in finding.source_speech_ids if sid in grounded_ids]
+    if len(kept) != len(finding.source_speech_ids):
+        logger.info(
+            "watcher.finding_ungrounded_ids_dropped domain=%s before=%d after=%d",
+            finding.domain,
+            len(finding.source_speech_ids),
+            len(kept),
+        )
+        finding.source_speech_ids = kept
+    return finding
+
+
 def _coverage_missing(
     findings: list[SpecialistFinding], floor: tuple[str, ...] = COVERAGE_FLOOR_DOMAINS
 ) -> list[str]:
@@ -228,9 +285,13 @@ def apply_ethics(analysis: TownAnalysis | None) -> TownAnalysis | None:
         f"{a.population_outlook} {a.recent_signal}"
         for a in analysis.town_assessments
     ]
-    matches = find_forbidden_matches(" ".join(texts))
-    if matches or analysis.verdict.contains_political_judgment:
-        logger.info("watcher.ethics_dropped matches=%s", matches)
+    joined = " ".join(texts)
+    matches = find_forbidden_matches(joined)
+    # 政党名 / 氏名+役職 の leak も検出。verdict 全体を破棄するゲートなので
+    # 誤検知源の敬称パターン (「議員さん」等) は除外し高精度サブセットのみで判定。
+    leak = find_political_leak(joined, include_honorific=False)
+    if matches or leak or analysis.verdict.contains_political_judgment:
+        logger.info("watcher.ethics_dropped matches=%s leak=%s", matches, leak)
         return None
     return analysis
 
@@ -480,6 +541,8 @@ class WatcherAgent:
             )
             msg = gat.Content(role="user", parts=[gat.Part(text=prompt)])
             final_text = ""
+            grounded_ids: set[str] = set()  # ツールが実在返却した speech_id (捏造検出用)
+            capped = False
             async for event in runner.run_async(
                 user_id=watch.user_id, session_id=sid, new_message=msg
             ):
@@ -489,7 +552,10 @@ class WatcherAgent:
                         tool_calls.append(ToolCall(tool=fc.name, args=dict(fc.args or {})))
                         if len(tool_calls) > MAX_SPECIALIST_TOOL_CALLS:
                             logger.warning("watcher.specialist_max domain=%s", domain)
+                            capped = True
                             break
+                    # ツール結果から実在 speech_id を best-effort 収集 (接地用、完全 guard)
+                    grounded_ids |= _extract_grounded_speech_ids(part)
                 usage = getattr(event, "usage_metadata", None)
                 total = getattr(usage, "total_token_count", None) if usage else None
                 if total is not None:
@@ -497,7 +563,13 @@ class WatcherAgent:
                 is_final = getattr(event, "is_final_response", lambda: False)()
                 if is_final and event.content and event.content.parts:
                     final_text = event.content.parts[0].text or ""
-            return parse_finding(final_text, domain), tool_calls, token_cost
+                if capped:
+                    # MAX 超過: 外側 event ループも抜けて specialist を確実に停止
+                    # (以前は inner break のみで暴走が止まらなかった)。
+                    break
+            finding = parse_finding(final_text, domain)
+            finding = _ground_finding_source_ids(finding, grounded_ids)
+            return finding, tool_calls, token_cost
         except Exception as exc:  # noqa: BLE001
             logger.warning("watcher.specialist_run_failed domain=%s err=%s", domain, exc)
             return None, tool_calls, token_cost
@@ -747,7 +819,8 @@ class WatcherAgent:
             instruction=instruction,
             tools=[],
             generate_content_config=gat.GenerateContentConfig(
-                response_mime_type="application/json"
+                response_mime_type="application/json",
+                temperature=_AUX_TEMPERATURE,
             ),
         )
         ss = InMemorySessionService()

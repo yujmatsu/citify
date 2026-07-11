@@ -238,8 +238,11 @@ class PubSubSubscriber:
     def process_message(self, message: Any, handler: EnvelopeHandler) -> None:
         """1 件の Pub/Sub message を処理 (ack / nack 含む)。
 
-        - JSON parse 失敗 → nack (DLQ 行きになる、要 terraform 設定)
-        - handler が例外送出 → nack
+        - JSON parse 失敗 → **ack して破棄** (構造的に壊れた message は再送しても
+          絶対に parse できず、nack すると DLQ 未設定の購読では無限再送ストームになる
+          ため、error ログを残して明示的に捨てる)。※恒久対策 = 全購読に dead_letter_policy
+          を張り、破棄ではなく DLQ 送出に変える (infra 変更 + apply が必要、別タスク)。
+        - handler が例外送出 → nack (一時失敗として再送)
         - 成功 → ack
 
         public で公開しているのは、subscriber のテストから直接呼び出せるようにするため。
@@ -247,13 +250,14 @@ class PubSubSubscriber:
         try:
             envelope = MessageEnvelope.from_bytes(message.data)
         except Exception as exc:  # noqa: BLE001
+            # 破棄することを明示 (以前のコメントは「DLQ 送信」と書いていたが、ack は
+            # DLQ に送られない = 実際は破棄。誤解を招くので訂正)。
             logger.error(
-                "pubsub.envelope_parse_failed msg_id=%s err=%s data_preview=%r",
+                "pubsub.envelope_parse_failed_dropped msg_id=%s err=%s data_preview=%r",
                 getattr(message, "message_id", "?"),
                 exc,
                 message.data[:200] if hasattr(message, "data") else "(no data)",
             )
-            # parse 失敗は ack して DLQ 送信 (構造的に壊れたメッセージは再送しても無駄)
             message.ack()
             return
 

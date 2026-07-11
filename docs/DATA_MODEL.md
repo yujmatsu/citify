@@ -4,6 +4,19 @@
 >
 > Coding Agent はデータ操作実装時、必ず該当スキーマを参照してください。
 
+> **⚠️ 実装との整合について (2026-07 追記)**
+> 本書は初期設計時のスキーマ像であり、**実装が乖離している箇所がある**。実装を正とする:
+> - **BigQuery が実際のバックボーン**。フィードは `citify_curated.scored_speeches_latest`
+>   (view、`speech_id`×`user_id` で最新採点を抽出)、街統計は `municipality_stats` が本体。
+>   本書にこれらの記述が薄い/無い場合は実テーブル (`infra/env/dev/main.tf` の DDL) を正とする。
+> - **Firestore の実コレクションは `reactions` / `reaction_counts` (絵文字値 👍🤔😢🔥) と
+>   `concierge_history` / `user_watchlist` / `watcher_agent_runs` / `watcher_analyses`**。
+>   本書が描く `users/{uid}` / `topics/{topicId}` / `userFeeds` や reaction enum
+>   (`interesting`/`not_relevant`) は現行実装には存在しない。
+> - 本書に登場する `firestore.rules` は**リポジトリに存在しない** (未実装)。
+> - TTL/uid 破棄などの保持ポリシーは現状**未実装** (提出後対応)。
+> コード (main.py / agents/*/schema.py / infra の DDL) と本書が食い違う場合は**コードを信じること**。
+
 ---
 
 ## 0. データストア戦略

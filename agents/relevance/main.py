@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
-from agents._shared.forbidden import FORBIDDEN_PATTERNS
+from agents._shared.forbidden import FORBIDDEN_PATTERNS, find_political_leak
 
 from .prompts.system import (
     PROMPT_VERSION,
@@ -197,6 +197,9 @@ class RelevanceAgent:
         for pattern in FORBIDDEN_PATTERNS:
             if pattern.search(output.reasoning):
                 issues.append(f"forbidden_pattern: {pattern.pattern}")
+        leak = find_political_leak(output.reasoning)
+        if leak:
+            issues.append(f"political_leak: '{leak}'")
         return issues
 
     # ------------------------------------------------------------------------
@@ -326,8 +329,15 @@ class RelevanceAgent:
             return MultiPersonaRelevanceOutput(results=[])
         return MultiPersonaRelevanceOutput.model_validate_json(text)
 
+    # 市民向け reasoning に出す中立文言 (内部エラー文字列を BQ/UI に漏らさない)。
+    _PUBLIC_BELOW_THRESHOLD_REASONING = "関連度が基準に届かなかったため非表示"
+
     @staticmethod
     def _below_threshold_persona(persona: UserPersona, reason: str) -> PersonaRelevanceOutput:
+        # `reason` は内部診断用。市民向けの reasoning には内部エラー文字列
+        # ("Gemini API 失敗" 等) をそのまま載せず、中立文言に固定する。
+        # (詳細な理由は各呼び出し元が logger で記録済み。)
+        logger.debug("relevance.below_threshold user_id=%s reason=%s", persona.user_id, reason)
         return PersonaRelevanceOutput(
             user_id=persona.user_id,
             relevance_score=0,
@@ -336,6 +346,6 @@ class RelevanceAgent:
             score_geographic=0,
             score_urgency=0,
             matched_interests=[],
-            reasoning=reason,
+            reasoning=RelevanceAgent._PUBLIC_BELOW_THRESHOLD_REASONING,
             contains_political_judgment=False,
         )

@@ -81,6 +81,52 @@ _FEED_CACHE = _TTLCache(maxsize=64, ttl_sec=60.0)
 # /v1/speeches/{id}/related (1 時間 TTL): RAG 結果は安定なので長めに
 _RELATED_CACHE = _TTLCache(maxsize=256, ttl_sec=3600.0)
 
+
+class _RateLimiter:
+    """process 内スライディングウィンドウのレートリミッタ (W3 対策)。
+
+    高コストな LLM/エージェント endpoint (concierge, watcher/run) の
+    コスト暴走 (無認証で偽 user_id を回すだけの金銭的 DoS) の blast radius を
+    抑える。厳密なグローバル制御ではない (min..max-instances=1..10 で instance 毎に
+    独立、実効上限は最大 ×instance 数) が、無制限からは桁違いに改善する。
+    恒久対策は Firestore カウンタ等での分散集約 (提出後)。
+    """
+
+    def __init__(self, limit: int, window_sec: float) -> None:
+        self.limit = limit
+        self.window_sec = window_sec
+        self._hits: dict[str, list[float]] = {}
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        cutoff = now - self.window_sec
+        hits = [t for t in self._hits.get(key, []) if t > cutoff]
+        if len(hits) >= self.limit:
+            self._hits[key] = hits
+            return False
+        hits.append(now)
+        self._hits[key] = hits
+        # 肥大防止: キーが増えすぎたら空リストのキーを一括除去
+        if len(self._hits) > 4096:
+            self._hits = {k: v for k, v in self._hits.items() if v and v[-1] > cutoff}
+        return True
+
+
+# 高コスト endpoint のレート制限 (ゆるめ = 通常利用は絶対に弾かない値)。
+_WATCHER_RUN_LIMITER = _RateLimiter(limit=20, window_sec=600.0)  # 20 回 / 10 分 / user_id
+_CONCIERGE_LIMITER = _RateLimiter(limit=40, window_sec=600.0)  # 40 回 / 10 分 / user_id
+
+
+def _enforce_rate_limit(limiter: _RateLimiter, key: str, retry_after_sec: int) -> None:
+    """上限超過なら HTTP 429 を投げる。"""
+    if not limiter.allow(key):
+        raise HTTPException(
+            status_code=429,
+            detail="リクエストが集中しています。しばらく待って再度お試しください。",
+            headers={"Retry-After": str(retry_after_sec)},
+        )
+
+
 # BQ 設定 (env で上書き可)
 BQ_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "citify-dev")
 BQ_DATASET_CURATED = os.getenv("BQ_DATASET_CURATED", "citify_curated")
@@ -293,11 +339,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: フロントエンド (Firebase Hosting / localhost:3000) からのアクセス許可
+# CORS: フロントエンド (Firebase App Hosting / localhost) からのアクセスのみ許可。
+# 以前は allow_origins="*" + allow_credentials=True で、Starlette が Origin を反射し
+# 任意サイトから資格情報付きで叩ける状態だった (CWE-942)。既定を web ドメインに限定し、
+# cookie を使わない設計 (認可は x-user-id ヘッダ) なので allow_credentials=False にして
+# 反射リスクを断つ。追加 origin は CORS_ORIGINS 環境変数 (カンマ区切り) で上書き可能。
+_DEFAULT_CORS_ORIGINS = (
+    "https://citify-web--citify-dev.asia-east1.hosted.app,"
+    "http://localhost:3000,http://127.0.0.1:3000"
+)
+_cors_origins = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", _DEFAULT_CORS_ORIGINS).split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
@@ -1951,9 +2008,11 @@ async def get_reaction_summary(speech_id: str) -> ReactionSummary:
 # /v1/concierge — 街診断 Migration Concierge Agent (Plan E)
 # ============================================================================
 # ユーザーの自然言語相談 + persona から、合う自治体 TOP5 を提案する対話型 Agent。
-# 内部で google.genai 関数呼び出しを使い、4 つの BQ tool を反復実行する。
-# ADK Agent 構造 (translator/relevance を sub-agents として保持) は
-# ADKConciergeAgent.as_agent() で表現済 (ハッカソン審査基準①「マルチエージェント必然性」)。
+# 本番実行体は GenaiConciergeRunner: google.genai の function-calling で 4 つの BQ tool を
+# 自律的に反復呼び出しする単一エージェント (反復上限 = Runner.MAX_ITERATIONS)。
+# 別途 agents/concierge/adk_agent.py に translator/relevance を sub_agents に持つ ADK 親子
+# 構成があり demo_adk_chain.py で単体実行できるが、本エンドポイントの実行経路ではない。
+# マルチエージェントの必然性は Watcher の specialist crew と Pub/Sub パイプラインで示す。
 # ============================================================================
 
 # Concierge は module-level lazy init (初回 POST 受信時に構築)、process 内 reuse
@@ -2010,6 +2069,9 @@ async def post_concierge(payload: dict) -> dict:
         request = ConciergeRequest.model_validate(payload)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Invalid request body: {exc!s}") from exc
+
+    # レート制限 (W3): 高コストな LLM tool-loop の暴走抑制
+    _enforce_rate_limit(_CONCIERGE_LIMITER, f"concierge:{request.persona.user_id}", 60)
 
     agent = _get_concierge_agent()
     try:
@@ -3204,6 +3266,8 @@ async def run_watcher(
     ツール選択は LLM に委任 (スクリプト化しない) = ①自律性。倫理ゲート・コスト bound は Agent 側で継承。
     """
     _require_watcher_user(user_id, x_user_id)
+    # レート制限 (W3): 背景 ADK 自律実行はコストが大きいので user_id 毎に上限
+    _enforce_rate_limit(_WATCHER_RUN_LIMITER, f"watcher_run:{user_id}", 60)
     response.headers["Cache-Control"] = "no-store"
 
     repo = _get_watcher_repo()

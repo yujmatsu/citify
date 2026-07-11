@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
-from agents._shared.forbidden import FORBIDDEN_PATTERNS
+from agents._shared.forbidden import FORBIDDEN_PATTERNS, find_political_leak
 
 from .prompts.system import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
 from .schema import TranslateInput, TranslatorOutput, TranslatorWithCritique
@@ -321,5 +321,12 @@ JSON schema は前回と同じ TranslatorOutput を厳守してください。
             for pattern in FORBIDDEN_PATTERNS:
                 if pattern.search(field):
                     issues.append(f"forbidden_pattern: {pattern.pattern}")
+
+        # post-validation: 政党名 / 政治家名 leak チェック (input 由来に限らない汎用検出)
+        for field in [output.title, *output.summary]:
+            leak = find_political_leak(field)
+            if leak:
+                issues.append(f"political_leak: '{leak}'")
+                break
 
         return issues

@@ -1,21 +1,19 @@
 """GenaiConciergeRunner: google.genai 関数呼び出しベースの Concierge Runner (Plan E Phase 3)。
 
-ADK Agent インスタンス (ADKConciergeAgent.as_agent()) は **構造を表現**するためにあるが、
-実際の LLM call と tool 呼び出しのループは本 Runner が google.genai SDK 直で
-オーケストレーションする。
+**本番 /v1/concierge の実行体はこの Runner**。google.genai SDK 直で LLM call と
+tool 呼び出しのループをオーケストレーションする、4 tool を自律反復する単一エージェント。
+(ADK 親子構成 adk_agent.py は demo 用の別成果物で、本番経路ではない。)
 
 設計判断:
     - Plan C の translator/relevance と同じ `client.models.generate_content()` 経由
     - 4 tool は Pydantic *Args の model_json_schema() で FunctionDeclaration 生成
     - 反復 loop: LLM → function_call(s) → execute → function_response → LLM → ...
-    - max_iterations 5 で gating (無限 retry 防止)
+    - max_iterations 5 で gating (無限 retry 防止) ← 反復上限の唯一の enforce ポイント
     - 各 tool 呼び出しは別 sub-Pydantic instance に variate して invoke
 
 なぜ ADK Runner ではないか:
     ADK Runner の Event ストリーム解析は ADK 2.x の API surface が新しく安定性
     不明。Plan C で実証済の google.genai 直叩きの方が、production の信頼性が高い。
-    ADK Agent の親子階層は ADKConciergeAgent.as_agent() で「構造」として保持、
-    runtime orchestration は本 Runner で実装、という責務分離。
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ import logging
 import time
 from typing import Any, Protocol
 
-from agents._shared.forbidden import find_forbidden_matches
+from agents._shared.forbidden import find_forbidden_matches, find_political_leak
 
 from . import tools as concierge_tools
 from .prompts.system import SYSTEM_PROMPT, build_user_prompt
@@ -384,4 +382,8 @@ def build_runner(
 
 def validate_reply_ethics(reply: str) -> list[str]:
     """reply に倫理違反パターンが含まれているか check。"""
-    return find_forbidden_matches(reply)
+    violations = find_forbidden_matches(reply)
+    leak = find_political_leak(reply)
+    if leak:
+        violations.append(f"political_leak: '{leak}'")
+    return violations

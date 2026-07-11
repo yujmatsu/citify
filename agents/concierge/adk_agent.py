@@ -1,16 +1,19 @@
 """ADKConciergeAgent: ConciergeAgent の ADK 親 Agent ラッパー (Plan E)。
 
+位置づけ (重要):
+    本番の /v1/concierge は agents/concierge/runner.py の GenaiConciergeRunner
+    (google.genai function-calling) が実行体であり、**この ADK 親子構成は本番経路では
+    使われない**。本ファイルは ADK の親子階層 (sub_agents に translator/relevance を
+    従える構成) を実際に組んで動かせることを示す成果物で、demo_adk_chain.py から
+    単体実行できる。誇張を避けるため「審査対応のためだけの飾り」ではなく、独立して
+    実行可能な ADK 構成として保持している。
+
 設計:
     - tools=[search_municipalities, compare_municipalities, fetch_city_dashboard,
              fetch_city_speeches] (4 つの BQ tool)
     - sub_agents=[ADKTranslatorAgent.as_agent(), ADKRelevanceAgent.as_agent()]
-      ← Plan C の wrapper を sub-agent として組み込み (親子階層、審査基準①)
     - ADK は lazy import (Plan C と同じパターン)
-    - Runner は同梱せず、外部 (FastAPI endpoint) で必要に応じて構築
-
-このファイルは ADK Agent オブジェクトの組立てに専念。
-LLM call 自体は ADK Runner が、tool 実体は agents.concierge.tools が、
-post-validation は agents.concierge.main の ConciergeAgent が責務分担。
+    - Runner は同梱せず、外部 (demo / 実験) で必要に応じて構築
 """
 
 from __future__ import annotations

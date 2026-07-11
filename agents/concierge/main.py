@@ -22,7 +22,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, Protocol
 
-from agents._shared.forbidden import find_forbidden_matches
+from agents._shared.forbidden import find_forbidden_matches, find_political_leak
 
 from .prompts.system import PROMPT_VERSION
 from .schema import (
@@ -42,7 +42,9 @@ DEFAULT_LOCATION = "us-central1"
 DEFAULT_TEMPERATURE = 0.4  # ヒアリング系は少し多様性、translator (0.3) より高め
 DEFAULT_MAX_OUTPUT_TOKENS = 2048
 DEFAULT_THINKING_BUDGET = 256  # tool 選択判断に少しは思考を割く
-MAX_TOOL_CALLS_PER_TURN = 10  # 無限 retry 防止 (ADK の max_remote_calls と一致)
+# 注: 反復ツール呼び出しの上限は実行体である GenaiConciergeRunner.MAX_ITERATIONS (=5) が
+# 唯一の enforce ポイント。以前ここに MAX_TOOL_CALLS_PER_TURN 定数があったが、どこからも
+# 参照されない死に定数で「上限がある」という誤った安心感を与えるため削除した (2026-07)。
 
 
 class _RunnerProto(Protocol):
@@ -162,8 +164,11 @@ class ConciergeAgent:
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("concierge.candidate_parse_failed err=%s", exc)
 
-        # 倫理 post-validation
+        # 倫理 post-validation (禁止語 + 政党名/政治家名 leak)
         ethical_violations = find_forbidden_matches(reply)
+        political_leak = find_political_leak(reply)
+        if political_leak:
+            ethical_violations.append(f"political_leak: '{political_leak}'")
         if ethical_violations:
             logger.warning(
                 "concierge.ethics_violation violations=%s reply_preview=%r",
