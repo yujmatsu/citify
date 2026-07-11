@@ -108,6 +108,8 @@ export async function fetchFeed(
   return fetchJson(
     `${API_BASE}/v1/feed/${encodeURIComponent(userId)}${qs}`,
     FeedResponseSchema,
+    // x-user-id: 本人確認 (demo 認可 / firebase 時は Authorization を fetchJson が付与)
+    { headers: { "x-user-id": userId } },
   );
 }
 
@@ -119,7 +121,7 @@ export async function fetchSpeech(
   const url = `${API_BASE}/v1/speeches/${encodeURIComponent(speechId)}?user_id=${encodeURIComponent(
     userId,
   )}`;
-  return fetchJson(url, FeedItemSchema);
+  return fetchJson(url, FeedItemSchema, { headers: { "x-user-id": userId } });
 }
 
 // ============================================================================
@@ -157,7 +159,9 @@ export async function fetchRelated(
   const url = `${API_BASE}/v1/speeches/${encodeURIComponent(
     speechId,
   )}/related?user_id=${encodeURIComponent(userId)}&limit=${limit}`;
-  return fetchJson(url, RelatedResponseSchema);
+  return fetchJson(url, RelatedResponseSchema, {
+    headers: { "x-user-id": userId },
+  });
 }
 
 // ============================================================================
@@ -296,7 +300,9 @@ export async function fetchCompare(
     interest,
     limit: String(limit),
   });
-  return fetchJson(`${API_BASE}/v1/compare?${params.toString()}`, CompareResponseSchema);
+  return fetchJson(`${API_BASE}/v1/compare?${params.toString()}`, CompareResponseSchema, {
+    headers: { "x-user-id": userId },
+  });
 }
 
 // ============================================================================
@@ -379,6 +385,7 @@ export async function fetchCityDashboard(
   return fetchJson(
     `${API_BASE}/v1/cities/${encodeURIComponent(municipalityCode)}?${params.toString()}`,
     CityDashboardResponseSchema,
+    { headers: { "x-user-id": userId } },
   );
 }
 

@@ -479,18 +479,22 @@ async def get_feed(
     response: Response,
     min_relevance: int = Query(default=0, ge=0, le=100, description="フィルタ閾値 (default 0)"),
     limit: int = Query(default=20, ge=1, le=100),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> FeedResponse:
     """ユーザー別フィード取得 (BQ scored_speeches_latest 経由、relevance_score DESC)。
+
+    認可: `_resolve_user` (demo=x-user-id / firebase=Firebase ID token)。他人の
+    パーソナライズ済フィードの覗き見 (IDOR) を防ぐ。
 
     Args:
         user_id: ペルソナ ID (デフォルト Cloud Run worker は 'demo-25-29')
         min_relevance: 0-100 スコア閾値、default 0 (全件)
         limit: 取得上限件数
     """
-    # Phase Q: ブラウザ HTTP cache 用 header (60 秒、SWR 5 分)
-    response.headers["Cache-Control"] = (
-        "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
-    )
+    _resolve_user(user_id, authorization, x_user_id)
+    # per-user 認可付きのため private (共有キャッシュが認可を迂回しないよう public は不可)
+    response.headers["Cache-Control"] = "private, max-age=60, stale-while-revalidate=300"
 
     # Phase Q: in-memory cache (60 秒 TTL) — 同 user_id × params の連続リクエストを高速化
     cache_key = ("feed", user_id, min_relevance, limit)
@@ -540,8 +544,14 @@ async def get_feed(
 async def get_speech(
     speech_id: str,
     user_id: str = Query(..., description="ペルソナ ID (採点コンテキスト)"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> FeedItem:
-    """1 件の speech 詳細を取得 (relevance_score 含む)。"""
+    """1 件の speech 詳細を取得 (relevance_score 含む)。
+
+    認可: `_resolve_user` (demo=x-user-id / firebase=Firebase ID token)。
+    """
+    _resolve_user(user_id, authorization, x_user_id)
     client = _get_bq_client()
     table_fqn = f"{BQ_PROJECT}.{BQ_DATASET_CURATED}.{BQ_VIEW_SCORED_LATEST}"
     sql = f"""
@@ -1179,15 +1189,18 @@ async def get_city_dashboard(
     response: Response,
     user_id: str = Query(..., description="ペルソナ ID (採点コンテキスト)"),
     limit: int = Query(default=10, ge=1, le=30, description="上位議題の最大件数"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> CityDashboardResponse:
     """街ダッシュボード: 1 自治体の議題集計 + 上位議題を 1 リクエストで返す。
 
     Plan A-3「あなたの街が今どうなっているか」の可視化用エンドポイント。
     関心軸別カウント (子育て/雇用/住居/...) + relevance 順上位 N 件。
+    認可: `_resolve_user` (demo=x-user-id / firebase=Firebase ID token)。
     """
-    response.headers["Cache-Control"] = (
-        "public, max-age=300, s-maxage=300, stale-while-revalidate=1800"
-    )
+    _resolve_user(user_id, authorization, x_user_id)
+    # per-user 認可付きのため private
+    response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=1800"
     cache_key = ("city", user_id, municipality_code, limit)
     cached = _CITY_CACHE.get(cache_key)
     if cached is not None:
@@ -1487,6 +1500,8 @@ async def compare_municipalities(
     interest: str = Query(..., description="比較対象テーマ (matched_interests の 1 つ)"),
     limit: int = Query(default=3, ge=1, le=5, description="各自治体ごとの上限件数"),
     include_observation: bool = Query(default=True, description="Gemini 中立観察の生成有無"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> CompareResponse:
     """複数自治体の同テーマ議題を横並びで比較 (B-2 キラー体験)。
 
@@ -1494,11 +1509,12 @@ async def compare_municipalities(
         1. munis を分割 (2-3 件)
         2. 各 municipality_code × user_id × interest で BQ scored_speeches_latest を検索
         3. include_observation=True なら Gemini で中立観察を生成
+
+    認可: `_resolve_user` (demo=x-user-id / firebase=Firebase ID token)。
     """
-    # Phase Q: ブラウザ HTTP cache (10 分)
-    response.headers["Cache-Control"] = (
-        "public, max-age=600, s-maxage=600, stale-while-revalidate=3600"
-    )
+    _resolve_user(user_id, authorization, x_user_id)
+    # per-user 認可付きのため private
+    response.headers["Cache-Control"] = "private, max-age=600, stale-while-revalidate=3600"
 
     muni_codes = [m.strip() for m in munis.split(",") if m.strip()]
     if len(muni_codes) < 2:
@@ -1686,6 +1702,8 @@ async def get_related_speeches(
     response: Response,
     user_id: str = Query(..., description="ペルソナ ID (元 speech 取得コンテキスト)"),
     limit: int = Query(default=3, ge=1, le=10),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> RelatedResponse:
     """1 speech から RAG で関連発言を取得 (国会会議録 corpus を semantic search)。
 
@@ -1694,11 +1712,12 @@ async def get_related_speeches(
         2. それらを連結して RAG query 文字列に
         3. Vertex AI RAG corpus に retrieval_query
         4. top-K chunk を返す
+
+    認可: `_resolve_user` (demo=x-user-id / firebase=Firebase ID token)。
     """
-    # Phase Q: ブラウザ HTTP cache 用 header (1 時間、SWR 1 日)
-    response.headers["Cache-Control"] = (
-        "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400"
-    )
+    _resolve_user(user_id, authorization, x_user_id)
+    # per-user 認可付きのため private
+    response.headers["Cache-Control"] = "private, max-age=3600, stale-while-revalidate=86400"
 
     # Phase Q: in-memory cache (1 時間 TTL) — RAG retrieval は重い (~2-5 秒)、結果は安定
     cache_key = ("related", speech_id, user_id, limit)

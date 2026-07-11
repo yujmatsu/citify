@@ -29,7 +29,7 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 | 📰 **For You フィード** | 議事録・プレスを年代×関心×地理で採点し縦スクロール配信。Imagen サムネ + 3 行サマリ |
 | 🔭 **Watcher (街の見張り番)** | ADK 自律エージェント。調査計画→ツール並列実行→自己検証→根拠つき結論 + アクションプラン |
 | ⚖️ **自治体比較** | 2〜3 自治体 × テーマの横並び比較 + AI の中立観察 |
-| 💬 **コンシェルジュ** | 対話で街探し。翻訳/影響度エージェントをサブエージェントに持つ ADK 親子階層 |
+| 💬 **コンシェルジュ** | 対話で街探し。4 つの BQ ツールを自律選択する ADK ツールループ (翻訳/影響度を sub_agents に構成) |
 | 🏙️ **街ダッシュボード** | 全国順位・人口推移 (実績+推計)・年齢構成・関心軸別議題 |
 | 🗾 **全国ヒートマップ / 🕰 タイムライン** | Agent が指標を自動選定する 47 都道府県比較 / 議論の時系列ナラティブ |
 | 🛠️ **運用SREクルー (`/ops`)** | Scraper Doctor + Cost Hunter + データ鮮度を統括する自律クルー。Watcher と同型の「計画→並列専門家→批判→人間ゲート」を**自分たちの運用**に適用 (DevOps × AI Agent)。自動実行はせず提案まで |
@@ -51,18 +51,19 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 | | 📮 Distributor | MMR 多様性ランキング (非 LLM・設計判断) |
 | | 🧪 Critic | 翻訳品質の自己批評ループ (`CITIFY_ENABLE_CRITIQUE=1` で opt-in) |
 | ADK (自律・対話) | 🔭 Watcher | 自律ツールループ + 並列専門家 + 自己検証。本作のヒーロー |
-| | 💬 Concierge | translator/relevance を **sub_agents に持つ ADK 親子階層** (`CITIFY_CONCIERGE_ADK=1` で本番経路化・sync fallback 付き) |
+| | 💬 Concierge | 4 つの BQ ツールを自律選択する **ADK ツールループ** (`CITIFY_CONCIERGE_ADK=1` で本番・sync fallback 付き)。translator/relevance を sub_agents に構成 |
 | | 📝 Preferences | 自然言語の自己紹介から関心軸を構造化抽出 |
 | 分析 API | 🕰 Timeline / 📈 Forecast / 🗾 Heatmap Advisor / 🔍 Reasoner | 時系列ナラティブ / 件数予測 / 指標自動選定 / 説明の平易化 (全てルールベース fallback 付き) |
 | 運用 (DevOps × AI Agent) | 🩺 Scraper Doctor / 💰 Cost Hunter | 失敗診断・修正提案 / コスト異常検知・削減提案 (自動実行なし)。運用SREクルー `/ops` の専門家として合成 |
 
-### 🧠 3 つの「本物のマルチエージェントcrew」= 審査基準① の中核
+### 🧠 本物のマルチエージェント = 審査基準① の中核
 
-同一の自律パターン **「計画 → 並列専門家 → 批判 (Critic/悪魔の代弁者) → 人間ゲート・自動実行なし」** を、対象を変えて 3 ドメインで実証しています:
+同一の自律パターン **「計画 → 並列専門家 → 批判 (Critic/悪魔の代弁者) → 人間ゲート・自動実行なし」** を、対象を変えて **2 ドメイン**で実証しています:
 
 1. **Watcher** (街選び) — プランナーが調査計画を立て、4 専門家 (人口/財政/暮らし・安全/議題) を並列実行、Critic と悪魔の代弁者が検証、倫理ゲートを通過。
 2. **Ops crew** (`/ops`, 自分たちの運用) — 同じパターンをスクレイパー健全性・コスト・データ鮮度の診断に適用。**「なぜ多エージェントか」と「なぜ DevOps か」が 1 つの答えに収束**。
-3. **Concierge** (対話での街探し) — translator/relevance を sub_agents に持つ ADK 親子階層 (opt-in)。
+
+加えて **Concierge** (対話での街探し) は、4 つの BQ ツールを自律選択する **ADK ツールループ・エージェント**です (translator/relevance を sub_agents に構成)。
 
 決定論で十分な部分 (Distributor=MMR, Forecast=回帰) は LLM を使わない設計判断であり、水増しではなく適材適所です。
 

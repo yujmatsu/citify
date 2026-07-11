@@ -79,6 +79,8 @@ export default function AgentHomePage(): React.JSX.Element {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  // ③ 初回体験: 分析キャッシュが無い時に自動で1回だけ調査を起動するためのフラグ。
+  const [autoRan, setAutoRan] = useState(false);
 
   useEffect(() => {
     const persona = loadPersona();
@@ -137,6 +139,15 @@ export default function AgentHomePage(): React.JSX.Element {
       setRunning(false);
     }
   }, [state]);
+
+  // ③ 分析キャッシュが無ければ空状態で放置せず、その場で調査を自動開始する
+  // (dead-end 回避)。1 回だけ発火 (autoRan)。空結果でも再発火しない。
+  useEffect(() => {
+    if (state.kind === "ready" && state.analysis === null && !running && !autoRan) {
+      setAutoRan(true);
+      void handleRun();
+    }
+  }, [state, running, autoRan, handleRun]);
 
   if (state.kind === "loading") {
     return (
@@ -264,6 +275,15 @@ export default function AgentHomePage(): React.JSX.Element {
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {/* ④ 再訪ナッジ: 変化がまだ無い(初回/差分なし)時に習慣ループを作る。
+            議題は毎朝更新されるので、数日後の再訪で「前回からの変化」が出ることを予告。 */}
+        {analysis && analysis.changes_since_last.length === 0 && !running && (
+          <section className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+            🔔 議題は毎朝更新され、街の評価は日々変わります。数日後にまた開くと、ここに
+            「前回からの変化」が表示されます。
           </section>
         )}
 
