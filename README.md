@@ -18,7 +18,7 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 
 ![Citify システムアーキテクチャ](docs/assets/architecture.svg)
 
-全国 **1,795 自治体マスタ**のうち **830 自治体・議会が稼働中** (`apps/web/public/municipalities.json` の `is_active`)、**3,700 件超の議題**を処理 (2026-07 時点の BigQuery `scored_speeches` 集計)。図は上の SVG が正、コンポーネント補足は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) (一部は初期設計時の記述・Veo 等は未使用)。
+全国 **1,795 自治体マスタ**のうち **830 自治体・議会が稼働中** (`apps/web/public/municipalities.json` の `is_active`)、**4,500 件超の議題**を処理 (2026-07 時点の BigQuery `scored_speeches_latest` で distinct speech_id = 4,553)。図は上の SVG が正、コンポーネント補足は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) (一部は初期設計時の記述・Veo 等は未使用)。
 
 ---
 

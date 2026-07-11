@@ -64,7 +64,7 @@
   <text x="350" y="522" font-size="16" font-weight="700" fill="#334155">🗄️ データ層</text>
   <rect x="350" y="540" width="190" height="52" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
   <text x="360" y="561" font-size="13" font-weight="600" fill="#0f172a">BigQuery</text>
-  <text x="360" y="579" font-size="10.5" fill="#64748b">830自治体 / 3,700+議題 / 統計</text>
+  <text x="360" y="579" font-size="10.5" fill="#64748b">830自治体 / 4,500+議題 / 統計</text>
   <rect x="550" y="540" width="190" height="52" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
   <text x="560" y="561" font-size="13" font-weight="600" fill="#0f172a">Firestore</text>
   <text x="560" y="579" font-size="10.5" fill="#64748b">リアクション / 対話履歴 / 失敗ログ</text>
