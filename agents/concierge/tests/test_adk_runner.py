@@ -150,6 +150,9 @@ async def test_adk_runner_extracts_reply_toolcalls_candidates(
         [{"municipality_code": "33100"}],  # 生 list
         {"candidates": [{"municipality_code": "33100"}]},  # 別キー
         {"result": {"items": [{"municipality_code": "33100"}]}},  # ネスト
+        '[{"municipality_code": "33100"}]',  # JSON 文字列 (ADK が str で包む場合)
+        '{"result": [{"municipality_code": "33100"}]}',  # JSON 文字列 (wrapper 付き)
+        [SimpleNamespace(municipality_code="33100")],  # 属性持ちオブジェクト (pydantic 風)
     ],
 )
 async def test_adk_runner_candidate_extraction_is_shape_robust(

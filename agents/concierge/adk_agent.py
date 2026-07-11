@@ -18,7 +18,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from agents.relevance.adk_agent import ADKRelevanceAgent
@@ -32,6 +34,45 @@ if TYPE_CHECKING:
     from google.adk.tools import FunctionTool
 
 logger = logging.getLogger(__name__)
+
+
+def _jsonable(value: Any) -> Any:
+    """pydantic → dict / list・dict は再帰変換 / それ以外は素通し。
+
+    ADK function_response を **walkable な JSON 構造**にするための正規化。
+    tool が pydantic (MunicipalityCandidate 等) や list[pydantic] を返すと、ADK が
+    function_response に載せる形が candidates 抽出 (adk_runner._extract_candidates) の
+    想定 (municipality_code を持つ dict) と一致せず、実機で candidates:0 になる。
+    """
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump()
+        except Exception:  # noqa: BLE001
+            return value
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    return value
+
+
+def _dict_returning(func: Callable[..., Any]) -> Callable[..., Any]:
+    """ADK FunctionTool の戻り値を必ず JSON-able な dict にする wrapper。
+
+    元 tool が pydantic / list[pydantic] を返すと ADK の function_response が
+    walkable な dict にならず candidates 抽出が漏れる (実機 candidates:0)。dict で
+    ラップし model_dump 済みにすることで抽出側が municipality_code を拾える。
+    `functools.wraps` で __name__ / signature を保持するため tool 名・schema は不変。
+    ラッパで例外が出ても API 層 (`main.py`) が sync 経路に自動 fallback する。
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        result = _jsonable(func(*args, **kwargs))
+        return result if isinstance(result, dict) else {"result": result}
+
+    return wrapper
+
 
 ADK_AGENT_DESCRIPTION = (
     "Citify の街診断 Migration Concierge Agent。ユーザーの自己紹介から、合う自治体 TOP5 を "
@@ -77,10 +118,10 @@ class ADKConciergeAgent:
         from google.adk.tools import FunctionTool
 
         return [
-            FunctionTool(func=concierge_tools.search_municipalities),
-            FunctionTool(func=concierge_tools.compare_municipalities),
-            FunctionTool(func=concierge_tools.fetch_city_dashboard),
-            FunctionTool(func=concierge_tools.fetch_city_speeches),
+            FunctionTool(func=_dict_returning(concierge_tools.search_municipalities)),
+            FunctionTool(func=_dict_returning(concierge_tools.compare_municipalities)),
+            FunctionTool(func=_dict_returning(concierge_tools.fetch_city_dashboard)),
+            FunctionTool(func=_dict_returning(concierge_tools.fetch_city_speeches)),
         ]
 
     def as_agent(self, name: str = "concierge") -> Agent:

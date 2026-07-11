@@ -20,6 +20,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 import os
 from typing import Any
@@ -129,6 +131,18 @@ def _extract_candidates(part: Any) -> list[dict[str, Any]]:
             elif isinstance(obj, (list, tuple)):
                 for v in obj:
                     _walk(v)
+            elif isinstance(obj, str):
+                # ADK が結果を JSON 文字列で包む場合に対応 (実機の形状差ガード)
+                s = obj.strip()
+                if s[:1] in ("[", "{"):
+                    with contextlib.suppress(ValueError, TypeError):
+                        _walk(json.loads(s))
+            else:
+                # pydantic 等: municipality_code 属性を持つオブジェクトを dict 化して拾う
+                code = getattr(obj, "municipality_code", None)
+                if code:
+                    dump = getattr(obj, "model_dump", None)
+                    found.append(dump() if callable(dump) else {"municipality_code": code})
 
         _walk(getattr(fr, "response", None))
         return found
