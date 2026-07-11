@@ -4,6 +4,8 @@
 >
 > Coding Agent は実装前に該当機能の仕様を必ず確認してください。
 
+> **⚠️ 実装との差分 (2026-07)**:本書は設計時仕様。実装は Watcher/feed 中心にピボット。Veo(B-3)は未使用、メディアは Imagen 静止サムネ10種。エージェントは13体(pipeline4/ADK3/分析4/運用2)。矛盾時はコード(main.py・agents/*/schema.py・infra DDL)が正。
+
 ## 優先度の定義
 
 - **Must**:これが動かないとプロダクトとして成立しない。最優先で実装
@@ -33,10 +35,10 @@
 
 ### A-2. 自治体マスタとマイ自治体登録
 
-**説明**:全国 1,788 自治体のマスタデータを Firestore で管理。ユーザーは複数自治体を「マイ自治体」として登録できる(自分の街、実家、引越し候補等)。
+**説明**:全国 1,795 自治体のマスタデータを Firestore で管理。ユーザーは複数自治体を「マイ自治体」として登録できる(自分の街、実家、引越し候補等)。
 
 **受け入れ条件**:
-- 1,788 自治体の自治体コード・名称・都道府県・対応スクレイパー種別が登録されている
+- 1,795 自治体の自治体コード・名称・都道府県・対応スクレイパー種別が登録されている
 - ユーザーは最大 5 自治体を登録できる
 - マスタには初期値として「対応済み」フラグが入る(Tier 1/2/3)
 - 未対応自治体を登録した場合、リクエスト記録が残る
@@ -224,12 +226,12 @@
 
 ### A-14. Migration Concierge Agent(Plan E、街診断 AI)
 
-**説明**:ユーザーが自然言語で自己紹介(年代 / 関心軸 / 制約 / 家族構成)すると、1,917 自治体から TOP5 候補 + トレードオフ表 + 議論されている政策を返す対話型 Agent。Plan C で築いた ADKTranslatorAgent / ADKRelevanceAgent を sub-agents として活用し、ハッカソン審査基準①「マルチエージェント必然性」を本物の ADK 親子階層で実装。
+**説明**:ユーザーが自然言語で自己紹介(年代 / 関心軸 / 制約 / 家族構成)すると、1,795 自治体から TOP5 候補 + トレードオフ表 + 議論されている政策を返す対話型 Agent。本番実行体は `GenaiConciergeRunner`(function-calling 単一エージェント)。Plan C で築いた ADKTranslatorAgent / ADKRelevanceAgent を親子階層に組んだ構成は `demo_adk_chain.py` の別成果物として存在する。マルチエージェント必然性は Watcher の specialist crew と Pub/Sub パイプラインで示す。
 
 **受け入れ条件**:
 - `POST /v1/concierge` endpoint が稼働(Cloud Run)
 - 4 tool が動作:`search_municipalities` / `compare_municipalities` / `fetch_city_dashboard` / `fetch_city_speeches`
-- ADK Agent.sub_agents=[translator, relevance] で親子階層成立
+- ADK Agent.sub_agents=[translator, relevance] 親子階層は `demo_adk_chain.py` に別途実装(本番 `/v1/concierge` は GenaiConciergeRunner を使用)
 - google.genai 関数呼び出しで反復実行(max_iterations=5)
 - 倫理ガード:`agents/_shared/forbidden.py` で 3 agent 共通の post-validation
 - Frontend chat UI(`/concierge`):Markdown rendering + 候補 cards + tool_calls 折りたたみ
@@ -269,7 +271,7 @@
 
 ### A-21. Reasoning Transparency Agent(Plan PP、Meta-Reasoner)
 
-**説明**:各 Agent (Concierge / Translator / Critic / Heatmap / Timeline / Forecast / Doctor の 7 種) の `reasoning` を **第三者観測者視点で再構成 + counterfactual 付与** する Meta-Agent。Reflexion (Shinn 2023) / Self-Refine (Madaan 2023) / Chain-of-Verification (Dhuliawala 2023) 系の文献的支持があり、ハッカソン審査基準①「マルチエージェント必然性」を補強(単なる 2 回 LLM 呼び出しではなく、内部ログ→ユーザー教育価値の変換)。
+**説明**:各 Agent (Concierge / Translator / Critic / Heatmap / Timeline / Forecast / Doctor の 7 種) の `reasoning` を **第三者観測者視点で再構成 + counterfactual 付与** する Meta-Agent。Reflexion (Shinn 2023) / Self-Refine (Madaan 2023) / Chain-of-Verification (Dhuliawala 2023) 系の文献的支持があり、内部ログをユーザー向け説明に変換する独立 Agent として機能する(単なる 2 回 LLM 呼び出しではない)。
 
 **受け入れ条件**:
 - `agents/reasoner/` 独立モジュール:`MetaReasoningAgent`(Plan X/Z/F と一貫した独立 Agent 構造)
@@ -288,13 +290,13 @@
 
 **依存**:Plan Z(`_detect_any_leak` 流用、47 県 + 主要市区 + 政治家/政党 3 層検出)、各既存 Agent の `reasoning` フィールド
 
-**Drop 判断**:このまま実装(短期 1 日、ハッカソン審査①マルチエージェント必然性に文献根拠付きで寄与)
+**Drop 判断**:このまま実装(短期 1 日、文献根拠のある独立 Agent 構造)
 
 ---
 
 ### A-20. Self-healing Scraper Agent(Plan F、ハッカソン主役)
 
-**説明**:スクレイパー失敗ログを 2 段階 Agent (`DiagnosticAgent` 8 種カテゴリ分類 + `RepairProposalAgent` 6 種 action 提案) で診断 + 修正提案。**自動 PR / commit は実装しない**(PROJECT.md §5 倫理境界、人間レビュー前提)。ハッカソン審査基準①「マルチエージェント必然性」の主役機能の 1 つで、Citify の運用ストーリー(「Agent が運用負荷を肩代わり」)を体現。
+**説明**:スクレイパー失敗ログを 2 段階 Agent (`DiagnosticAgent` 8 種カテゴリ分類 + `RepairProposalAgent` 6 種 action 提案) で診断 + 修正提案。**自動 PR / commit は実装しない**(PROJECT.md §5 倫理境界、人間レビュー前提)。スクレイパー運用の主要機能の 1 つで、Citify の運用ストーリー(「Agent が運用負荷を肩代わり」)を体現。
 
 **受け入れ条件**:
 - `agents/scraper_doctor/` 独立モジュール:`DiagnosticAgent` + `RepairProposalAgent` + `FailureLogRepository` (Firestore) + `pii.py` (PII マスク)
@@ -312,13 +314,13 @@
 
 **依存**:Plan N(`POLITICAL_PERSON_PATTERNS` 流用)、Plan Z(`_detect_geographic_leak` + `MAJOR_MUNI_NAMES` 流用)、Firestore
 
-**Drop 判断**:このまま実装(ハッカソン審査主役機能、運用ストーリー演出に必須)
+**Drop 判断**:このまま実装(運用ストーリー演出に必須の主要機能)
 
 ---
 
 ### A-19. 議題件数トレンド予測 Agent(Plan Z、余裕枠 COULD)
 
-**説明**:月別議題件数を Engine が純計算 (移動平均 + 線形回帰 + 標準誤差) で 3 か月予測、Narrator が「上昇/下降/横ばい/急騰/急減」5 分類 + 介入的説明を生成。Plan X (空間軸) と Plan N (イベント時系列) に続く「数値時系列予測」軸、ハッカソン審査基準①「マルチエージェント必然性」(2 段階 Agent) + ④「実用性」を補強。
+**説明**:月別議題件数を Engine が純計算 (移動平均 + 線形回帰 + 標準誤差) で 3 か月予測、Narrator が「上昇/下降/横ばい/急騰/急減」5 分類 + 介入的説明を生成。Plan X (空間軸) と Plan N (イベント時系列) に続く「数値時系列予測」軸で、2 段階 Agent (Engine + Narrator) により数値計算と説明生成を分離した構造。
 
 **受け入れ条件**:
 - `agents/forecast/` 独立モジュール:`ForecastEngine` (純計算、numpy 等の依存なし) + `ForecastNarrator` (Gemini Flash)
@@ -339,7 +341,7 @@
 
 ### A-18. 議論タイムライン Agent(Plan N)
 
-**説明**:ユーザーが選んだテーマ(interest 軸 + 自治体 or 全国 + 期間)について、議論変遷を時系列イベント 5-10 件 + 全体ナラティブとして Agent が物語化。Citify のキラー UX「議題が点ではなく流れで見える」を実現、ハッカソン審査基準②「ストーリー性」を強化。
+**説明**:ユーザーが選んだテーマ(interest 軸 + 自治体 or 全国 + 期間)について、議論変遷を時系列イベント 5-10 件 + 全体ナラティブとして Agent が物語化。Citify のキラー UX「議題が点ではなく流れで見える」を実現する。
 
 **受け入れ条件**:
 - `agents/timeline/` 独立 Agent (HeatmapAdvisor と同パターン、Concierge tool 再利用なし)
@@ -357,13 +359,13 @@
 
 **依存**:Plan A(scored_speeches_latest)、Plan E と独立、Plan X HeatmapAdvisor と独立並列
 
-**Drop 判断**:このまま実装(短期 3 日で完了、ハッカソン審査②ストーリー性への寄与大)
+**Drop 判断**:このまま実装(短期 3 日で完了、Citify のキラー UX を実現)
 
 ---
 
 ### A-17. 全国ヒートマップ Agent(Plan X)
 
-**説明**:ペルソナ(年代/関心軸/自由記述)を踏まえて 47 都道府県を比較する「最も示唆的な統計指標」を `HeatmapAdvisor` Agent が自動選定し、タイルマップで Chloropleth 表示。タイルクリックで県内 TOP3 自治体を表示。Plan A の客観統計(Reinfolib + 国勢調査)を「全国規模」で活用する Agent。ハッカソン審査基準②「ストーリー性」+ ④「実用性」を強化。
+**説明**:ペルソナ(年代/関心軸/自由記述)を踏まえて 47 都道府県を比較する「最も示唆的な統計指標」を `HeatmapAdvisor` Agent が自動選定し、タイルマップで Chloropleth 表示。タイルクリックで県内 TOP3 自治体を表示。Plan A の客観統計(Reinfolib + 国勢調査)を「全国規模」で活用する Agent。
 
 **受け入れ条件**:
 - `agents/heatmap_advisor/` 独立 Agent (DI / ADK 化と無関係、google.genai 直接 call)
@@ -379,13 +381,13 @@
 
 **依存**:Plan A(municipality_stats テーブル)、Phase F(Reinfolib データ充填)、Plan E と独立
 
-**Drop 判断**:このまま実装(短期 3 日で完了、ハッカソン審査②④への寄与大)
+**Drop 判断**:このまま実装(短期 3 日で完了、全国比較のキラー機能)
 
 ---
 
 ### A-16. Translator Self-Critique Loop(Plan D)
 
-**説明**:翻訳結果を独立 Critic Agent が 4 軸 (faithfulness/simplicity/tone/ethics) で 0-100 点スコアリングし、threshold 未達なら 1 度自動 revise する Self-Critique ループ。ハッカソン審査基準①「マルチエージェント必然性」を Critic 独立 Agent + DI で補強、デモ動画で「改善幅 (initial_score → final overall_score)」を可視化可能。
+**説明**:翻訳結果を独立 Critic Agent が 4 軸 (faithfulness/simplicity/tone/ethics) で 0-100 点スコアリングし、threshold 未達なら 1 度自動 revise する Self-Critique ループ。翻訳品質を自己批評し、必要な場合のみ再翻訳を判断する独立 Agent 構造。デモ動画で「改善幅 (initial_score → final overall_score)」を可視化可能。
 
 **受け入れ条件**:
 - `agents/critic/` ディレクトリに `CriticAgent` クラス独立 (DI で Translator が受け取り、ADK 化への布石)
@@ -406,7 +408,7 @@
 
 ### A-15. Concierge 会話履歴 + Story Recall(Plan L+LL)
 
-**説明**:Concierge との対話を Firestore に永続化し、過去の関心軸を踏まえた「Story Recall」体験を提供。再訪時に「前回は子育て・住居の話をしました。今回は ○○ ですね」のような連続性を演出し、ハッカソン審査基準②「ストーリー性」を強化。
+**説明**:Concierge との対話を Firestore に永続化し、過去の関心軸を踏まえた「Story Recall」体験を提供。再訪時に「前回は子育て・住居の話をしました。今回は ○○ ですね」のような連続性を演出する。
 
 **受け入れ条件**:
 - Firestore `concierge_history` collection(1 turn = 1 doc)に保存(user_id / timestamp / message / reply / short_summary / candidates_codes / matched_interests / embedding[768])
@@ -456,7 +458,9 @@
 
 ---
 
-### B-3. Veo 60 秒解説動画
+### B-3. 【未実装・スコープ外】Veo 60 秒解説動画
+
+> 実装では Veo は使用していない(スコープ外、将来候補として仕様のみ残す)。
 
 **説明**:議題の概念を抽象シーンで説明する 60 秒縦動画を Veo で生成。政治家の顔は描かない、SynthID + AI 生成ラベル必須。
 
@@ -475,7 +479,7 @@
 
 ### B-4. Imagen サムネ生成
 
-**説明**:議題ごとに Imagen 3 でフィード用サムネ画像を生成。
+**説明**:議題ごとに Imagen 3 でフィード用サムネ画像を生成。**実装では関心軸ごとの Imagen 生成サムネ10種を全国で再利用する方式(議題ごとの生成ではない)**。
 
 **受け入れ条件**:
 - 1 議題に対して 1 枚のサムネ(横長 16:9 または正方形 1:1)

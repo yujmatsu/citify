@@ -189,7 +189,9 @@ export default function OnboardingPage(): React.JSX.Element {
       console.error("watchlist sync failed (続行)", err);
     } finally {
       setSaving(false);
-      router.push("/agent");
+      // 初回着地はまず把握しやすい For You フィードへ (基準③: 30秒で価値が伝わる)。
+      // 密度の高い Watcher レポート(/agent)は bottom-nav 先頭タブから明示的に開く導線にする。
+      router.push("/feed");
     }
   }
 

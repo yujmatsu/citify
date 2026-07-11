@@ -4,6 +4,8 @@
 >
 > Coding Agent はエージェント実装時、必ず該当のプロンプトをそのまま `agents/{name}/prompts/system.py` に配置してください。
 
+> **⚠️ 実装との差分 (2026-07)**:旧エージェント名(Collector/Classifier/Comparator/Storyteller)や Veo プロンプトは設計時の構想。実装の13体は README/ARCHITECTURE 参照。Veo未使用。
+
 ---
 
 ## 0. 設計原則

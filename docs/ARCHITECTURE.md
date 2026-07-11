@@ -579,6 +579,8 @@ infra/
 └── backend.tf       # GCS state
 ```
 
+> **⚠️ 実装との差分**:上記の `modules/` + `env/{dev,prod}` 分割は設計時の意図。現行リポジトリはハッカソンスコープのため `infra/env/dev/main.tf` 単一ファイル構成で、`modules/` ディレクトリと `prod` 環境は未作成。
+
 ---
 
 ## 8. 観測性 (Observability)
