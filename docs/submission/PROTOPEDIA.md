@@ -39,9 +39,15 @@ YouTube URL: (7/6 編集完了後に記入)
 
 > フロントは Next.js (Firebase App Hosting)。API は FastAPI (Cloud Run)。
 > 議事録・プレスは Pub/Sub 4段パイプライン (翻訳→影響度採点→配信→BigQuery) を Cloud Run Jobs + Cloud Scheduler で日次処理。
-> 対話・自律系は ADK: Watcher (自律ツールループ + 自己検証)、Concierge (翻訳/影響度をサブエージェントに持つ親子階層)、Preferences (自然言語からの関心抽出)。
-> 関連議題検索は Vertex AI RAG Engine (国会議事録コーパス 1,428 件、自治体議事録への拡張は今後)。サムネは Imagen 3 (person_generation=dont_allow + SynthID + AI 生成ラベル)。
-> 運用もエージェント化: スクレイパー失敗診断 (Scraper Doctor)・コスト異常検知 (Cost Hunter) — いずれも自動実行はせず人間レビュー前提の提案まで。
+> **同一の自律パターン「計画→並列専門家→批判(Critic/悪魔の代弁者)→人間ゲート・自動実行なし」を 3 ドメインで実証**:
+>   (1) Watcher=街選び (4 専門家を並列実行し自己検証)、(2) Ops crew `/ops`=自分たちの運用診断
+>   (スクレイパー健全性・コスト・データ鮮度)、(3) Concierge=translator/relevance を sub_agents に
+>   持つ ADK 親子階層。→「なぜ多エージェントか」と「なぜ DevOps か」が 1 つの設計思想に収束。
+> 関連議題検索は Vertex AI RAG Engine (現状は国会議事録コーパス 1,428 件。自治体議事録への拡張は
+>   export/検索の多ソース対応まで実装済で、コーパス投入が残作業)。サムネは Imagen 3
+>   (person_generation=dont_allow + SynthID + AI 生成ラベル)。
+> 実運用配慮: Firebase 認証 (ID トークン検証で IDOR 解消、段階導入)、監視アラート (Cloud Run 5xx/p95・
+>   Pub/Sub DLQ を Terraform 化)、BigQuery MERGE 冪等化、gitleaks 全履歴シークレットスキャンを CI ゲートに。
 > インフラは全て Terraform 管理、GitHub Actions + Cloud Build で main マージから本番まで自動デプロイ。
 
 ## 開発素材【必須】
@@ -49,7 +55,8 @@ YouTube URL: (7/6 編集完了後に記入)
 Google Cloud: Cloud Run / Cloud Run Jobs / Pub/Sub / BigQuery / Firestore / Cloud Scheduler / Cloud Build / Cloud Storage / Cloud Logging / Secret Manager
 AI: ADK (Agent Development Kit) / Gemini 2.5 Flash・Pro / Vertex AI RAG Engine / Vertex AI Embeddings (text-multilingual-embedding-002) / Imagen 3
 アプリ: Next.js 16 / TypeScript / Tailwind CSS / FastAPI / Python 3.12 / Playwright / Firebase App Hosting
-DevOps: Terraform / GitHub Actions / pytest / Vitest / ruff
+DevOps: Terraform (監視アラートポリシー含む) / GitHub Actions / Cloud Build / pytest / Vitest / ruff / gitleaks
+認証: Firebase Authentication (匿名サインイン + ID トークン検証)
 データソース: 国会会議録検索 API / 自治体議事録 (kaigiroku.net) / 自治体プレスリリース RSS / e-Stat / 不動産情報ライブラリ (Reinfolib)
 
 ## タグ【必須】
@@ -85,9 +92,9 @@ DevOps: Terraform / GitHub Actions / pytest / Vitest / ruff
 2. **「街の見張り番」Watcher エージェント (ADK)** — ペルソナを読んで自分で調査計画を立て、統計比較・議題検索・人口推移などのツールを並列実行、結論前に自己検証。結果は根拠つきの街評価 + アクションプランに
 3. **自治体比較・対話での街探し** — 2〜3 自治体をテーマ横断で比較。Concierge は翻訳/影響度エージェントをサブエージェントに持つ ADK 親子階層
 4. **国会議事録 RAG** — Vertex AI RAG Engine (国会議事録コーパス) で関連する国会の論戦を検索し、議題詳細に根拠として表示
-5. **運用のエージェント化 (DevOps × AI Agent)** — スクレイパー失敗を診断・修正提案する Scraper Doctor、コスト異常検知の Cost Hunter。**Watcher とまったく同じ設計パターン**（計画→並列専門家→独立批判→人間ゲート・自動実行なし）で作っており、「どの街が合うか」も「自分たちの運用がなぜ壊れたか」も同一のエージェント運用思想で扱う。自動実行はせず人間レビュー前提
+5. **運用のエージェント化 (DevOps × AI Agent) — `/ops` 運用SREクルー** — スクレイパー失敗診断 (Scraper Doctor)・コスト異常検知 (Cost Hunter)・データ鮮度を 1 つの自律クルーが統括。**Watcher とまったく同じ設計パターン**（計画→並列専門家→独立批判→人間ゲート・自動実行なし）で作っており、「どの街が合うか」も「自分たちの運用がなぜ壊れたか」も同一のエージェント運用思想で扱う ＝ 本ハッカソンの「DevOps × AI Agent」を 1 つの設計で体現。自動実行はせず人間レビュー前提
 6. **政治的中立と倫理** — 賛否は出さない・政治家名/党名の混入を多層ガードで検出・Imagen は人物生成禁止 + SynthID + AI 生成ラベル・robots.txt を尊重 (Disallow の議事録システムは対応コードごと Drop)
-7. **規模と実運用** — 全国 1,795 自治体マスタ、830 自治体・議会の 3,700 件超の議題を処理。インフラは Terraform、CI/CD は GitHub Actions + Cloud Build で完全自動化
+7. **実運用への配慮** — 全国 1,795 自治体マスタ、830 自治体・議会の 3,700 件超の議題を処理。Firebase 認証で本人確認 (IDOR 解消)、監視アラート・BQ MERGE 冪等化、Terraform IaC、GitHub Actions + Cloud Build + gitleaks の CI/CD を完備
 
 ---
 

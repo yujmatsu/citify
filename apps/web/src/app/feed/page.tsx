@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FeedCard } from "@/components/feed-card";
 import { fetchFeed, type FeedItem } from "@/lib/api";
 import { DEMO_PERSONA, loadPersona, type Persona } from "@/lib/persona";
@@ -75,6 +75,49 @@ export default function FeedPage() {
       nationalCount: national.length,
     };
   }, [state, scope]);
+
+  // キーボード操作 (ArrowDown/ArrowUp/j/k) でカード間をスナップスクロールするための ref
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<(HTMLElement | null)[]>([]);
+
+  const scrollToCardIndex = (index: number) => {
+    const total = displayItems.length;
+    if (total === 0) return;
+    const clamped = Math.max(0, Math.min(index, total - 1));
+    cardRefs.current[clamped]?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
+  // 現在ビューポート上端に最も近いカードの index を探す (キー操作の基準位置)
+  const findCurrentCardIndex = (): number => {
+    const container = scrollContainerRef.current;
+    if (!container) return 0;
+    const containerTop = container.getBoundingClientRect().top;
+    let closestIndex = 0;
+    let closestDist = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < displayItems.length; i++) {
+      const el = cardRefs.current[i];
+      if (!el) continue;
+      const dist = Math.abs(el.getBoundingClientRect().top - containerTop);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestIndex = i;
+      }
+    }
+    return closestIndex;
+  };
+
+  const handleFeedKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowDown" || event.key === "j") {
+      event.preventDefault();
+      scrollToCardIndex(findCurrentCardIndex() + 1);
+    } else if (event.key === "ArrowUp" || event.key === "k") {
+      event.preventDefault();
+      scrollToCardIndex(findCurrentCardIndex() - 1);
+    }
+  };
 
   if (state.kind === "loading") {
     return (
@@ -164,6 +207,11 @@ export default function FeedPage() {
       </div>
 
       <div
+        ref={scrollContainerRef}
+        role="feed"
+        aria-label="議題フィード"
+        tabIndex={0}
+        onKeyDown={handleFeedKeyDown}
         className="flex-1 snap-y snap-mandatory overflow-y-auto"
         style={{ scrollbarWidth: "none" }}
       >
@@ -171,8 +219,16 @@ export default function FeedPage() {
           {displayItems.length === 0 ? (
             <EmptyTabHint scope={scope} persona={state.persona} />
           ) : (
-            displayItems.map((item) => (
-              <FeedCard key={item.speech_id} item={item} />
+            displayItems.map((item, index) => (
+              <FeedCard
+                key={item.speech_id}
+                item={item}
+                posinset={index + 1}
+                setsize={displayItems.length}
+                cardRef={(el) => {
+                  cardRefs.current[index] = el;
+                }}
+              />
             ))
           )}
           <footer className="snap-end px-6 py-12 text-center text-xs text-zinc-500">

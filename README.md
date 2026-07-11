@@ -32,7 +32,7 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 | 💬 **コンシェルジュ** | 対話で街探し。翻訳/影響度エージェントをサブエージェントに持つ ADK 親子階層 |
 | 🏙️ **街ダッシュボード** | 全国順位・人口推移 (実績+推計)・年齢構成・関心軸別議題 |
 | 🗾 **全国ヒートマップ / 🕰 タイムライン** | Agent が指標を自動選定する 47 都道府県比較 / 議論の時系列ナラティブ |
-| 🩺 **運用エージェント** | スクレイパー失敗診断 (Scraper Doctor)・コスト異常検知 (Cost Hunter)。人間レビュー前提 |
+| 🛠️ **運用SREクルー (`/ops`)** | Scraper Doctor + Cost Hunter + データ鮮度を統括する自律クルー。Watcher と同型の「計画→並列専門家→批判→人間ゲート」を**自分たちの運用**に適用 (DevOps × AI Agent)。自動実行はせず提案まで |
 
 ### スクリーンショット
 
@@ -50,12 +50,21 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 | | 🎯 Relevance | 4 軸採点 × 5 ペルソナ fan-out |
 | | 📮 Distributor | MMR 多様性ランキング (非 LLM・設計判断) |
 | | 🧪 Critic | 翻訳品質の自己批評ループ (`CITIFY_ENABLE_CRITIQUE=1` で opt-in) |
-| ADK (自律・対話) | 🔭 Watcher | 自律ツールループ + 自己検証。本作のヒーロー |
-| | 💬 Concierge | sub_agents=[Translator, Relevance] の親子階層 |
+| ADK (自律・対話) | 🔭 Watcher | 自律ツールループ + 並列専門家 + 自己検証。本作のヒーロー |
+| | 💬 Concierge | translator/relevance を **sub_agents に持つ ADK 親子階層** (`CITIFY_CONCIERGE_ADK=1` で本番経路化・sync fallback 付き) |
 | | 📝 Preferences | 自然言語の自己紹介から関心軸を構造化抽出 |
 | 分析 API | 🕰 Timeline / 📈 Forecast / 🗾 Heatmap Advisor / 🔍 Reasoner | 時系列ナラティブ / 件数予測 / 指標自動選定 / 説明の平易化 (全てルールベース fallback 付き) |
-| 運用 (DevOps × AI Agent) | 🩺 Scraper Doctor | 失敗ログを診断し修正提案 (自動 PR はしない) |
-| | 💰 Cost Hunter | コスト異常検知 + 削減提案 (自動削減はしない) |
+| 運用 (DevOps × AI Agent) | 🩺 Scraper Doctor / 💰 Cost Hunter | 失敗診断・修正提案 / コスト異常検知・削減提案 (自動実行なし)。運用SREクルー `/ops` の専門家として合成 |
+
+### 🧠 3 つの「本物のマルチエージェントcrew」= 審査基準① の中核
+
+同一の自律パターン **「計画 → 並列専門家 → 批判 (Critic/悪魔の代弁者) → 人間ゲート・自動実行なし」** を、対象を変えて 3 ドメインで実証しています:
+
+1. **Watcher** (街選び) — プランナーが調査計画を立て、4 専門家 (人口/財政/暮らし・安全/議題) を並列実行、Critic と悪魔の代弁者が検証、倫理ゲートを通過。
+2. **Ops crew** (`/ops`, 自分たちの運用) — 同じパターンをスクレイパー健全性・コスト・データ鮮度の診断に適用。**「なぜ多エージェントか」と「なぜ DevOps か」が 1 つの答えに収束**。
+3. **Concierge** (対話での街探し) — translator/relevance を sub_agents に持つ ADK 親子階層 (opt-in)。
+
+決定論で十分な部分 (Distributor=MMR, Forecast=回帰) は LLM を使わない設計判断であり、水増しではなく適材適所です。
 
 ---
 
@@ -78,7 +87,8 @@ Citify は、自治体の議事録・プレスリリース・統計を AI が読
 | バックエンド | Python 3.12 / FastAPI / Cloud Run + Cloud Run Jobs / Pub/Sub (4 段パイプライン + DLQ) |
 | データ | BigQuery / Firestore / Cloud Storage |
 | フロントエンド | Next.js 16 (App Router) + TypeScript / Tailwind CSS / zod / Firebase App Hosting |
-| DevOps | Terraform (全リソース IaC) / GitHub Actions (ruff・pytest・tsc・vitest・build) / Cloud Build (パスベース検知→自動デプロイ) / Cloud Scheduler / Cloud Logging |
+| DevOps | Terraform (全リソース IaC + **監視アラートポリシー**: Cloud Run 5xx/p95・Pub/Sub DLQ) / GitHub Actions (ruff・pytest・tsc・vitest・build・**gitleaks**) / Cloud Build (パスベース検知→自動デプロイ) / Cloud Scheduler / Cloud Logging |
+| 認証・冪等性 | Firebase 認証 (ID トークン検証、`CITIFY_AUTH_MODE=firebase` で段階導入・IDOR 解消) / BigQuery MERGE upsert 冪等化 (`CITIFY_BQ_MERGE=1`) |
 
 ---
 

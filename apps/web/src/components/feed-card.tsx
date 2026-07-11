@@ -16,12 +16,40 @@ interface FeedCardProps {
   item: FeedItem;
   /** 自治体名表示用のマッピング (5 桁コード → 表示名、優先される)。 */
   municipalityName?: Record<string, string>;
+  /** role="feed" の直下でカードを並べる場合の 1-based 位置 (aria-posinset 用)。 */
+  posinset?: number;
+  /** role="feed" 内の全カード数 (aria-setsize 用)。 */
+  setsize?: number;
+  /** キーボードでのカード間スクロール用に、親へ DOM ノードを渡すコールバック ref。 */
+  cardRef?: (el: HTMLElement | null) => void;
 }
 
 function scoreColor(score: number): string {
   if (score >= 80) return "bg-emerald-500";
   if (score >= 50) return "bg-amber-500";
   return "bg-zinc-400";
+}
+
+/** scoreColor と同じ閾値で関連度を高/中/低に変換 (色以外でも段階が伝わるように)。 */
+function scoreTier(score: number): "高" | "中" | "低" {
+  if (score >= 80) return "高";
+  if (score >= 50) return "中";
+  return "低";
+}
+
+/** 文字列から決定論的な整数ハッシュを計算 (簡易 djb2 系)。 */
+function hashString(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+/** speech_id から -15〜+15 度の hue-rotate 角度を決定論的に算出。
+ *  同じ関心軸のサムネイル画像を再利用しても、カードごとに微妙な色差を付けて差別化する。 */
+function hueRotateForCard(speechId: string): number {
+  return (hashString(speechId) % 31) - 15;
 }
 
 /** municipality_code から表示用ラベル。
@@ -42,7 +70,13 @@ function resolveMuniLabel(
   return code;
 }
 
-export function FeedCard({ item, municipalityName }: FeedCardProps) {
+export function FeedCard({
+  item,
+  municipalityName,
+  posinset,
+  setsize,
+  cardRef,
+}: FeedCardProps) {
   const [municipalities, setMunicipalities] = useState<Municipality[] | null>(
     null,
   );
@@ -63,6 +97,10 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
 
   return (
     <article
+      ref={cardRef}
+      aria-label={item.title || undefined}
+      aria-posinset={posinset}
+      aria-setsize={setsize}
       className={cn(
         "relative flex h-full w-full snap-start snap-always flex-col justify-between overflow-hidden",
         "px-6 py-10 sm:px-10 sm:py-12",
@@ -75,7 +113,11 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
         <>
           <div
             className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center opacity-30"
-            style={{ backgroundImage: `url(${interestImage})` }}
+            style={{
+              backgroundImage: `url(${interestImage})`,
+              // 同一関心軸のサムネ再利用でもカードごとに微妙な色差を付ける (subtle, deterministic)
+              filter: `hue-rotate(${hueRotateForCard(item.speech_id)}deg)`,
+            }}
             aria-hidden="true"
           />
           <div
@@ -115,6 +157,7 @@ export function FeedCard({ item, municipalityName }: FeedCardProps) {
             scoreColor(item.relevance_score),
           )}
           title={`関連度 ${item.relevance_score}/100`}
+          aria-label={`関連度 ${item.relevance_score}/100 (${scoreTier(item.relevance_score)})`}
         >
           {item.relevance_score}
         </div>

@@ -311,9 +311,19 @@ function TileGridMap({
   const width = GRID_COLS * (TILE_SIZE + TILE_GAP);
   const height = GRID_ROWS * (TILE_SIZE + TILE_GAP);
 
+  const handleTileKeyDown = (
+    event: React.KeyboardEvent<SVGGElement>,
+    pref: PrefectureValue,
+  ) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect(pref);
+    }
+  };
+
   return (
     <svg
-      role="img"
+      role="group"
       aria-label="日本 47 都道府県タイルマップ"
       viewBox={`0 0 ${width} ${height}`}
       className="mx-auto w-full max-w-3xl"
@@ -334,6 +344,16 @@ function TileGridMap({
             onClick={() => {
               if (pref) onSelect(pref);
             }}
+            role={hasData ? "button" : undefined}
+            tabIndex={hasData ? 0 : undefined}
+            aria-label={
+              hasData && pref ? `${tile.name} ${pref.rank}位` : undefined
+            }
+            onKeyDown={
+              hasData && pref
+                ? (event) => handleTileKeyDown(event, pref)
+                : undefined
+            }
           >
             <rect
               width={TILE_SIZE}
