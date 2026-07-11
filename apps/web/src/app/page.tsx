@@ -90,12 +90,19 @@ export default function Home() {
                 あなたの街と候補を見比べて、今の状況とこれからをお伝えします
               </p>
             </section>
-            {/* 深く調べる: 目的別の詳細機能(控えめ) */}
-            <section className="space-y-3 text-left">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                深く調べる
-              </p>
-              <div className="space-y-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+            {/* 深く調べる: 目的別の詳細機能(既定は折りたたみ=ホームの焦点化) */}
+            <section className="text-left">
+              <details className="group rounded-2xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                  <span>深く調べる（7 つの機能）</span>
+                  <span
+                    aria-hidden
+                    className="transition-transform group-open:rotate-90"
+                  >
+                    ▶
+                  </span>
+                </summary>
+                <div className="space-y-4 px-3 pb-3">
                 <LinkGroup
                   title="街を選ぶ"
                   links={[
@@ -117,7 +124,8 @@ export default function Home() {
                     { href: "/forecast", label: "📈 街の勢い・将来予測" },
                   ]}
                 />
-              </div>
+                </div>
+              </details>
             </section>
             {/* 設定: 最も控えめ */}
             <section className="border-t border-zinc-200 pt-3 text-left dark:border-zinc-800">
