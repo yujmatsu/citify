@@ -77,6 +77,7 @@ class ConciergeAgent:
         agent: Agent | None = None,
         runner: _RunnerProto | None = None,
         memory: Any | None = None,
+        adk_runner: Any | None = None,
     ) -> None:
         self.project_id = project_id
         self.location = location
@@ -89,6 +90,9 @@ class ConciergeAgent:
         self._runner = runner
         # Plan L+LL: ConversationMemory (Firestore + embedding) を optional 注入
         self._memory = memory
+        # ① 本物のマルチエージェント経路: ADK 親子 (translator/relevance sub_agents) の
+        # 非同期 Runner。CITIFY_CONCIERGE_ADK=1 のとき arespond() が使用 (既定は sync runner)。
+        self._adk_runner = adk_runner
 
     def _format_persona(self, request: ConciergeRequest) -> str:
         """persona の自然言語要約を組み立て (system prompt の persona_desc 用)。"""
@@ -144,6 +148,30 @@ class ConciergeAgent:
                 ethical_violations=["runner_exception"],
             )
 
+        return self._finalize(request, run_result, start)
+
+    async def arespond(self, request: ConciergeRequest) -> ConciergeResponse:
+        """本物のマルチエージェント (ADK 親子: translator/relevance sub_agents) で 1 ターン応答。
+
+        CITIFY_CONCIERGE_ADK=1 のとき API 層が使用。adk_runner (async) が未注入なら
+        NotImplementedError。実行時例外は呼び出し側 (API) が sync respond() に fallback する。
+        """
+        start = time.monotonic()
+        if self._adk_runner is None:
+            raise NotImplementedError("adk_runner is not injected")
+        run_result = await self._adk_runner.run(
+            request=request,
+            persona_desc=self._format_persona(request),
+        )
+        return self._finalize(request, run_result, start)
+
+    def _finalize(
+        self, request: ConciergeRequest, run_result: object, start: float
+    ) -> ConciergeResponse:
+        """runner の戻り (dict) を正規化 + 倫理ゲート + 履歴保存し ConciergeResponse に。
+
+        sync respond() / async arespond() 双方が共有 (同一の正規化・倫理・保存を保証)。
+        """
         reply = run_result.get("reply", "") if isinstance(run_result, dict) else ""
         tool_call_logs_raw = (
             run_result.get("tool_calls", []) if isinstance(run_result, dict) else []

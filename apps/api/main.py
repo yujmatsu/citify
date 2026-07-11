@@ -2008,11 +2008,14 @@ async def get_reaction_summary(speech_id: str) -> ReactionSummary:
 # /v1/concierge — 街診断 Migration Concierge Agent (Plan E)
 # ============================================================================
 # ユーザーの自然言語相談 + persona から、合う自治体 TOP5 を提案する対話型 Agent。
-# 本番実行体は GenaiConciergeRunner: google.genai の function-calling で 4 つの BQ tool を
-# 自律的に反復呼び出しする単一エージェント (反復上限 = Runner.MAX_ITERATIONS)。
-# 別途 agents/concierge/adk_agent.py に translator/relevance を sub_agents に持つ ADK 親子
-# 構成があり demo_adk_chain.py で単体実行できるが、本エンドポイントの実行経路ではない。
-# マルチエージェントの必然性は Watcher の specialist crew と Pub/Sub パイプラインで示す。
+# 実行体は2経路 (CITIFY_CONCIERGE_ADK で切替、既定は前者):
+#   - 既定 "0": GenaiConciergeRunner — google.genai function-calling で 4 BQ tool を反復
+#     呼び出しする単一エージェント (安定・本番実績)。
+#   - "1": AdkConciergeRunner — translator/relevance を sub_agents に持つ **本物の ADK 親子
+#     階層** (agents/concierge/adk_agent.py) を Runner.run_async で実行。失敗時は自動で
+#     GenaiConciergeRunner 経路へ fallback (WATCHER_AUTONOMY_MODE と同じ段階導入)。
+# → ①マルチエージェントの必然性は Watcher の specialist crew / Ops crew / (opt-in で) この
+#   concierge 親子階層 / Pub/Sub パイプラインで多面的に示す。
 # ============================================================================
 
 # Concierge は module-level lazy init (初回 POST 受信時に構築)、process 内 reuse
@@ -2031,20 +2034,32 @@ def _get_concierge_memory() -> Any:
     return _CONCIERGE_MEMORY
 
 
+# ① concierge を本物の ADK 親子 (translator/relevance sub_agents) 経路で動かすフラグ。
+# 既定 "0" = 現行の GenaiConciergeRunner (安定・本番実績)。"1" で ADK 経路を有効化し、
+# 例外時は sync 経路へ自動 fallback する (WATCHER_AUTONOMY_MODE と同じ段階導入思想)。
+CONCIERGE_ADK_MODE = os.getenv("CITIFY_CONCIERGE_ADK", "0")
+
+
 def _get_concierge_agent() -> Any:
-    """ConciergeAgent + GenaiConciergeRunner + Memory を遅延構築 (lazy)。"""
+    """ConciergeAgent + GenaiConciergeRunner (+ ADK 経路 opt-in) + Memory を遅延構築 (lazy)。"""
     global _CONCIERGE_AGENT, _CONCIERGE_RUNNER
     if _CONCIERGE_AGENT is None:
         from agents.concierge.main import ConciergeAgent
         from agents.concierge.runner import GenaiConciergeRunner
 
         _CONCIERGE_RUNNER = GenaiConciergeRunner(project_id=BQ_PROJECT)
+        adk_runner = None
+        if CONCIERGE_ADK_MODE == "1":
+            from agents.concierge.adk_runner import AdkConciergeRunner
+
+            adk_runner = AdkConciergeRunner(project_id=BQ_PROJECT)
         _CONCIERGE_AGENT = ConciergeAgent(
             project_id=BQ_PROJECT,
             runner=_CONCIERGE_RUNNER,
             memory=_get_concierge_memory(),
+            adk_runner=adk_runner,
         )
-        logger.info("concierge.initialized project=%s", BQ_PROJECT)
+        logger.info("concierge.initialized project=%s adk_mode=%s", BQ_PROJECT, CONCIERGE_ADK_MODE)
     return _CONCIERGE_AGENT
 
 
@@ -2075,7 +2090,15 @@ async def post_concierge(payload: dict) -> dict:
 
     agent = _get_concierge_agent()
     try:
-        response = agent.respond(request)
+        if CONCIERGE_ADK_MODE == "1":
+            # 本物の ADK 親子経路。失敗時は現行の sync 経路へ自動 fallback (デモを壊さない)。
+            try:
+                response = await agent.arespond(request)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("concierge.adk_path_failed fallback_to_sync err=%s", exc)
+                response = agent.respond(request)
+        else:
+            response = agent.respond(request)
     except Exception as exc:  # noqa: BLE001
         logger.exception("concierge.endpoint_failed err=%s", exc)
         raise HTTPException(status_code=500, detail=f"Concierge failed: {exc!s}") from exc
