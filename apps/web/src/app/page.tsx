@@ -71,12 +71,15 @@ export default function Home() {
           </p>
         </div>
         {persona ? (
-          <div className="space-y-3">
+          <div className="space-y-5">
             <p className="text-sm text-zinc-500">
               {persona.user_id} ({persona.age_group}) として続行
             </p>
-            {/* 主役は1つ: アドバイザー(エージェント)に相談する */}
-            <div className="space-y-1.5">
+            {/* まず、ここから: 主役は1つ、アドバイザー(エージェント)に相談する */}
+            <section className="space-y-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                まず、ここから
+              </p>
               <Link
                 href="/agent"
                 className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-6 text-base font-medium text-white transition-colors hover:bg-emerald-700"
@@ -86,69 +89,91 @@ export default function Home() {
               <p className="text-xs text-zinc-500">
                 あなたの街と候補を見比べて、今の状況とこれからをお伝えします
               </p>
-            </div>
-            <div className="space-y-4 pt-3 text-left">
-              <LinkGroup
-                title="街を選ぶ"
-                links={[
-                  {
-                    href: "/concierge",
-                    label: "💬 質問して街を診断",
-                    hint: "気になることをピンポイントで聞く",
-                  },
-                  { href: "/municipalities", label: "🏙️ 気になる街を探す・登録" },
-                  { href: "/compare", label: "🔀 2つの街を見比べる" },
-                  { href: "/heatmap", label: "🗾 全国から条件で探す" },
-                ]}
-              />
-              <LinkGroup
-                title="街の動きを知る"
-                links={[
-                  { href: "/feed", label: "📰 議題フィードを眺める" },
-                  { href: "/timeline", label: "🕰 議論の流れを追う" },
-                  { href: "/forecast", label: "📈 街の勢い・将来予測" },
-                ]}
-              />
-              <div className="border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                <Link
-                  href="/onboarding"
-                  className="block text-sm text-zinc-500 transition-colors hover:text-zinc-700 dark:hover:text-zinc-300"
-                >
-                  ⚙️ 設定（年代・関心・街）
-                </Link>
+            </section>
+            {/* 深く調べる: 目的別の詳細機能(控えめ) */}
+            <section className="space-y-3 text-left">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                深く調べる
+              </p>
+              <div className="space-y-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+                <LinkGroup
+                  title="街を選ぶ"
+                  links={[
+                    {
+                      href: "/concierge",
+                      label: "💬 質問して街を診断",
+                      hint: "気になることをピンポイントで聞く",
+                    },
+                    { href: "/municipalities", label: "🏙️ 気になる街を探す・登録" },
+                    { href: "/compare", label: "🔀 2つの街を見比べる" },
+                    { href: "/heatmap", label: "🗾 全国から条件で探す" },
+                  ]}
+                />
+                <LinkGroup
+                  title="街の動きを知る"
+                  links={[
+                    { href: "/feed", label: "📰 議題フィードを眺める" },
+                    { href: "/timeline", label: "🕰 議論の流れを追う" },
+                    { href: "/forecast", label: "📈 街の勢い・将来予測" },
+                  ]}
+                />
               </div>
-            </div>
+            </section>
+            {/* 設定: 最も控えめ */}
+            <section className="border-t border-zinc-200 pt-3 text-left dark:border-zinc-800">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                設定
+              </p>
+              <Link
+                href="/onboarding"
+                className="mt-1 block text-sm text-zinc-500 transition-colors hover:text-zinc-700 dark:hover:text-zinc-300"
+              >
+                ⚙️ 設定（年代・関心・街）
+              </Link>
+            </section>
           </div>
         ) : (
-          <div className="space-y-3 text-left">
-            <p className="text-center text-sm font-medium text-zinc-600 dark:text-zinc-400">
-              ひとつ選ぶと、設定なしで今すぐ試せます
-            </p>
-            {PRESET_PERSONAS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => applyPreset(p)}
-                disabled={applying !== null}
-                className="block w-full rounded-2xl border border-zinc-300 bg-white p-4 text-left transition-colors hover:border-emerald-400 hover:bg-emerald-50/40 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
+          <div className="space-y-4 text-left">
+            {/* まず、ここから: プリセットを選ぶと即体験できる */}
+            <section className="space-y-3">
+              <p className="text-center text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                まず、ここから
+              </p>
+              <p className="text-center text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                ひとつ選ぶと、設定なしで今すぐ試せます
+              </p>
+              {PRESET_PERSONAS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyPreset(p)}
+                  disabled={applying !== null}
+                  className="block w-full rounded-2xl border border-zinc-300 bg-white p-4 text-left transition-colors hover:border-emerald-400 hover:bg-emerald-50/40 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
+                >
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden className="text-lg">
+                      {p.emoji}
+                    </span>
+                    <span className="font-semibold">{p.label}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {applying === p.id ? "準備中…" : p.description}
+                  </p>
+                </button>
+              ))}
+            </section>
+            {/* 設定: 最も控えめ */}
+            <section className="border-t border-zinc-200 pt-3 text-center dark:border-zinc-800">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                設定
+              </p>
+              <Link
+                href="/onboarding"
+                className="mt-1 block text-sm text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
               >
-                <div className="flex items-center gap-2">
-                  <span aria-hidden className="text-lg">
-                    {p.emoji}
-                  </span>
-                  <span className="font-semibold">{p.label}</span>
-                </div>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  {applying === p.id ? "準備中…" : p.description}
-                </p>
-              </button>
-            ))}
-            <Link
-              href="/onboarding"
-              className="block pt-1 text-center text-sm text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
-            >
-              自分で設定する（年代・関心・街を入力）→
-            </Link>
+                自分で設定する（年代・関心・街を入力）→
+              </Link>
+            </section>
           </div>
         )}
       </div>

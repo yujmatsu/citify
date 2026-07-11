@@ -22,6 +22,8 @@ interface FeedCardProps {
   setsize?: number;
   /** キーボードでのカード間スクロール用に、親へ DOM ノードを渡すコールバック ref。 */
   cardRef?: (el: HTMLElement | null) => void;
+  /** 前回訪問以降に追加された議題かどうか (true の場合 NEW ピルを表示)。 */
+  isNew?: boolean;
 }
 
 function scoreColor(score: number): string {
@@ -76,6 +78,7 @@ export function FeedCard({
   posinset,
   setsize,
   cardRef,
+  isNew,
 }: FeedCardProps) {
   const [municipalities, setMunicipalities] = useState<Municipality[] | null>(
     null,
@@ -149,6 +152,11 @@ export function FeedCard({
           )}
           {item.meeting_date && (
             <span className="text-zinc-400">{item.meeting_date}</span>
+          )}
+          {isNew && (
+            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold tracking-wide text-white">
+              NEW
+            </span>
           )}
         </div>
         <div

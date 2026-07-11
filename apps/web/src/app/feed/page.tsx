@@ -5,9 +5,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FeedCard } from "@/components/feed-card";
 import { fetchFeed, type FeedItem } from "@/lib/api";
+import { getLastSeen, isNewerThan, setLastSeen } from "@/lib/last-seen";
 import { DEMO_PERSONA, loadPersona, type Persona } from "@/lib/persona";
 import { RECOMMENDED_MUNICIPALITIES } from "@/lib/recommended";
 import { cn } from "@/lib/utils";
+
+/** 「前回訪問以降の変化」リテンションフック (criterion ④) 用の localStorage key。 */
+const FEED_LAST_SEEN_KEY = "feed";
 
 type FeedScope = "my_city" | "national";
 
@@ -21,6 +25,10 @@ export default function FeedPage() {
   const router = useRouter();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [scope, setScope] = useState<FeedScope>("my_city");
+  // 「前回訪問以降の変化」: 今回の訪問で上書きする前の lastSeen を保持 (新着判定の基準)
+  const [lastSeen, setLastSeenState] = useState<string | null>(null);
+  const [newBannerDismissed, setNewBannerDismissed] = useState(false);
+  const lastSeenSavedRef = useRef(false);
 
   useEffect(() => {
     const persona = loadPersona();
@@ -28,6 +36,8 @@ export default function FeedPage() {
       router.replace("/onboarding");
       return;
     }
+    // 新着判定の基準にするため、上書き前の lastSeen を先に読んでおく
+    setLastSeenState(getLastSeen(FEED_LAST_SEEN_KEY));
     let cancelled = false;
     fetchFeed(persona.user_id, { limit: 50 })
       .then((res) => {
@@ -50,6 +60,15 @@ export default function FeedPage() {
       cancelled = true;
     };
   }, [router]);
+
+  // フィードが正常に描画された後、今回の訪問時刻を「最後に見た時刻」として保存する。
+  // lastSeen state は既に読み込み済みなので、今回のレンダーの新着判定には影響しない。
+  useEffect(() => {
+    if (state.kind === "ok" && !lastSeenSavedRef.current) {
+      lastSeenSavedRef.current = true;
+      setLastSeen(FEED_LAST_SEEN_KEY, new Date().toISOString());
+    }
+  }, [state.kind]);
 
   // マイ街 / 全国 スコープでフィルタリング
   const { displayItems, myCityCount, nationalCount } = useMemo(() => {
@@ -75,6 +94,14 @@ export default function FeedPage() {
       nationalCount: national.length,
     };
   }, [state, scope]);
+
+  // 「前回訪問以降の変化」: 表示中タブの中で前回訪問より新しい件数 (再訪問のきっかけ)
+  const newCount = useMemo(
+    () =>
+      displayItems.filter((item) => isNewerThan(item.meeting_date, lastSeen))
+        .length,
+    [displayItems, lastSeen],
+  );
 
   // キーボード操作 (ArrowDown/ArrowUp/j/k) でカード間をスナップスクロールするための ref
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -216,6 +243,19 @@ export default function FeedPage() {
         style={{ scrollbarWidth: "none" }}
       >
         <div className="mx-auto flex max-w-md flex-col gap-4 sm:py-4">
+          {newCount > 0 && !newBannerDismissed && (
+            <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+              <span>🔔 前回以降 {newCount} 件の新着</span>
+              <button
+                type="button"
+                onClick={() => setNewBannerDismissed(true)}
+                aria-label="新着通知を閉じる"
+                className="rounded-full px-2 py-0.5 text-xs text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {displayItems.length === 0 ? (
             <EmptyTabHint scope={scope} persona={state.persona} />
           ) : (
@@ -225,6 +265,7 @@ export default function FeedPage() {
                 item={item}
                 posinset={index + 1}
                 setsize={displayItems.length}
+                isNew={isNewerThan(item.meeting_date, lastSeen)}
                 cardRef={(el) => {
                   cardRefs.current[index] = el;
                 }}

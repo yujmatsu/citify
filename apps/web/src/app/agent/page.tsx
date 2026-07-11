@@ -250,6 +250,23 @@ export default function AgentHomePage(): React.JSX.Element {
           </p>
         )}
 
+        {/* 前回からの変化 (A3) — 再訪問のきっかけになる通知として、レポート本体より先に最上部で目立たせる */}
+        {analysis && analysis.changes_since_last.length > 0 && (
+          <section className="space-y-1 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+            <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              🔔 前回からの変化
+            </h2>
+            <ul className="space-y-0.5 text-sm text-amber-900 dark:text-amber-200">
+              {analysis.changes_since_last.map((c, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span aria-hidden>・</span>
+                  <span>{c}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* 自律の証跡 */}
         {latestRun && <AutonomyTrace runLog={latestRun} />}
 
@@ -277,23 +294,6 @@ export default function AgentHomePage(): React.JSX.Element {
                 が公開統計・議事録をもとに作成した参考情報です。重要な判断は一次情報・公式窓口でご確認ください。
               </p>
             </div>
-
-            {/* 前回からの変化 (A3) */}
-            {analysis.changes_since_last.length > 0 && (
-              <section className="space-y-1 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
-                <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                  🔔 前回からの変化
-                </h2>
-                <ul className="space-y-0.5 text-sm text-amber-900 dark:text-amber-200">
-                  {analysis.changes_since_last.map((c, i) => (
-                    <li key={i} className="flex gap-1.5">
-                      <span aria-hidden>・</span>
-                      <span>{c}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
 
             {/* 生きた結論 (払いの瞬間: 上品にリビール) */}
             <div className="reveal-up">
