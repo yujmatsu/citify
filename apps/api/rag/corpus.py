@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 KOKKAI_CORPUS_DISPLAY_NAME = "citify-kokkai-speeches"
-DEFAULT_LOCATION = "us-central1"  # RAG Engine の最も安定したリージョン
+DEFAULT_LOCATION = "asia-northeast1"  # corpus 構築先 (BQ/Cloud Run と同一リージョン)
 DEFAULT_EMBEDDING_MODEL = "publishers/google/models/text-multilingual-embedding-002"
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_CHUNK_OVERLAP = 100

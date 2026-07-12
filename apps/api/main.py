@@ -156,7 +156,8 @@ BQ_TABLE_STATS = os.getenv("BQ_TABLE_STATS", "municipality_stats")
 # RAG_CORPUS_NAME を直接指定するか、起動時に display_name で lookup
 RAG_CORPUS_NAME = os.getenv("RAG_CORPUS_NAME") or None
 RAG_CORPUS_DISPLAY_NAME = os.getenv("RAG_CORPUS_DISPLAY_NAME", "citify-kokkai-speeches")
-RAG_LOCATION = os.getenv("RAG_LOCATION", "us-central1")
+# corpus は asia-northeast1 に構築済み (citify-kokkai-speeches)。既定を BQ/Cloud Run と同一リージョンに合わせる。
+RAG_LOCATION = os.getenv("RAG_LOCATION", "asia-northeast1")
 
 # Firestore 設定 (Phase X リアクション永続化 + Phase X+1 集計)
 FIRESTORE_COLLECTION_REACTIONS = os.getenv("FIRESTORE_COLLECTION_REACTIONS", "reactions")
