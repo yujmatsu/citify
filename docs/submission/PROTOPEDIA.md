@@ -14,23 +14,27 @@
 
 Citify — 自分の街、自分の世代の話を、60秒で。
 
-## 概要【必須】(200字以内)
+## 概要【必須】(100字以内)
 
-「自分で調べて考える」AI エージェントが、あなたの街選びを手伝う——そして同じ自律の仕組みを、自分たちの運用監視にも使うマルチエージェントプロダクト。自治体の議事録・プレスを AI が翻訳し TikTok 風フィードで配信、「街の見張り番」Watcher が計画→並列調査→自己検証で「合う街」を結論します。全国 830 自治体・議会、4,500 件超の議題を処理。
+自治体の議事録・プレスをAIが若者向けに翻訳して配信。同じ自律エージェントを「街選び」(Watcher)にも「自分たちの運用監視」にも使うマルチエージェントプロダクト。
 
-(↑ 約 170 字 / 上限 200 字)
+(↑ 約 84 字 / 上限 100 字)
 
 ## 動画【必須】
 
-YouTube URL: (7/6 編集完了後に記入)
+YouTube URL: https://youtu.be/HUTkUzpShTk （限定公開）
 
 ## 画像【任意・最大5枚】
 
-1. For You フィード画面 (Imagen サムネ + 翻訳サマリ)
-2. Watcher 自律実行トレース画面
-3. 街比較ビュー
-4. 街ダッシュボード (人口推移 + 関心軸)
-5. アーキテクチャ図 (docs/assets/architecture.svg)
+デモ動画から書き出したスチルを使用 (`demo-video/out/`)。判定者に価値が一目で伝わる順:
+
+1. 翻訳フィード — 平易化サマリ + 関心タグ + 原典 + 「✨AI 生成画像」ラベル (`img-feed.png`)
+2. Watcher 自律トレース — 4 専門家を並列調査 → 自己批判 + 悪魔の代弁者で再点検 (`img-watcher.png`)
+3. 議題詳細 + 国会 RAG — Vertex AI RAG が国会議事録から関連論戦を検索・原典リンク併記 (`img-rag.png`)
+4. Ops crew (`/ops`) — Watcher と同型の自律クルー・人間レビュー必須/自動実行なし (`img-ops.png`)
+5. アーキテクチャ図 (`docs/assets/architecture.png`)
+
+※ メイン画像/YouTube サムネにはブランドカット `thumb-brand.png` (Citify + タグライン) も可。
 
 ## システム構成【必須】
 
@@ -69,6 +73,8 @@ DevOps: Terraform (監視アラートポリシー含む) / GitHub Actions / Clou
 
 - デプロイ URL: https://citify-web--citify-dev.asia-east1.hosted.app/
 - GitHub: https://github.com/yujmatsu/citify
+- ProtoPedia 作品: https://protopedia.net/prototype/8896
+- YouTube (限定公開): https://youtu.be/HUTkUzpShTk
 
 ---
 
@@ -107,4 +113,4 @@ DevOps: Terraform (監視アラートポリシー含む) / GitHub Actions / Clou
 - [ ] タグ `findy_hackathon` を付けた
 - [ ] 作品ステータス「完成」
 - [ ] Veo への言及が無いことを最終確認した
-- [ ] ProtoPedia 作品 URL を Google Form (7/9 提出) に貼った
+- [ ] ProtoPedia 作品 URL を Google Form に貼って提出した (本日中)

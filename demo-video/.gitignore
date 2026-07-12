@@ -1,0 +1,11 @@
+node_modules/
+out/
+.remotion/
+
+# 重い素材はコミットしない（録画・生成音声・スライド画像）
+public/recordings/*
+!public/recordings/.gitkeep
+public/narration/*
+!public/narration/.gitkeep
+public/slides/*
+!public/slides/.gitkeep
